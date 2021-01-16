@@ -14,6 +14,8 @@ class Risenholm : public NWNXLib::Plugin
 public:
     Risenholm(NWNXLib::Services::ProxyServiceList* services);
     virtual ~Risenholm() {}
+
+    static int32_t GetFlatFootedHook(CNWSCreature*);
 };
 
-} // namespace Risenholm
+}
