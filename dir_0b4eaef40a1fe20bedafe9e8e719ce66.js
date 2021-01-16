@@ -32,6 +32,7 @@ var dir_0b4eaef40a1fe20bedafe9e8e719ce66 =
     [ "Regex", "dir_8216a0b06e8aaeaa76588854f1803caf.html", "dir_8216a0b06e8aaeaa76588854f1803caf" ],
     [ "Rename", "dir_c96403ecabd325e52498389c4003b46e.html", "dir_c96403ecabd325e52498389c4003b46e" ],
     [ "Reveal", "dir_2dd1f4b35de9e27d2bf14be9b6b1c8dd.html", "dir_2dd1f4b35de9e27d2bf14be9b6b1c8dd" ],
+    [ "Risenholm", "dir_cabe557d07a176a1f3db26c2ca2b29cd.html", null ],
     [ "Ruby", "dir_96ade152febc262a31be38f7a77ed436.html", "dir_96ade152febc262a31be38f7a77ed436" ],
     [ "ServerLogRedirector", "dir_d6ed0c3876e51729ec6331db8b63c59e.html", null ],
     [ "SkillRanks", "dir_066ad1d5ca09334b9c924c2d19c0a425.html", "dir_066ad1d5ca09334b9c924c2d19c0a425" ],
