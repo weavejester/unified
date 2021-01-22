@@ -15,7 +15,10 @@ public:
     Risenholm(NWNXLib::Services::ProxyServiceList* services);
     virtual ~Risenholm() {}
 
+private:
     static int32_t GetFlatFootedHook(CNWSCreature*);
+
+    ArgumentStack SetPCLikeStatus(ArgumentStack&& args);
 };
 
 }

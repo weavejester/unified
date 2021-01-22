@@ -1,7 +1,9 @@
 #include "Risenholm.hpp"
 
+#include "API/CAppManager.hpp"
 #include "API/CNWSCreature.hpp"
 #include "API/CNWSCreatureStats.hpp"
+#include "API/CServerExoApp.hpp"
 #include "Services/Hooks/Hooks.hpp"
 
 using namespace NWNXLib;
@@ -26,6 +28,7 @@ Risenholm::Risenholm(Services::ProxyServiceList* services)
     GetServices()->m_events->RegisterEvent(#func, \
         [this](ArgumentStack&& args){ return func(std::move(args)); })
 
+    REGISTER(SetPCLikeStatus);
 #undef REGISTER
 
     GetServices()->m_hooks->RequestExclusiveHook<Functions::_ZN12CNWSCreature13GetFlatFootedEv>(&GetFlatFootedHook);
@@ -57,6 +60,21 @@ int32_t Risenholm::GetFlatFootedHook(CNWSCreature *pCreature)
         return true;
 
     return false;
+}
+
+ArgumentStack Risenholm::SetPCLikeStatus(ArgumentStack&& args)
+{
+    auto sourceOID      = Services::Events::ExtractArgument<ObjectID>(args);
+    auto targetOID      = Services::Events::ExtractArgument<ObjectID>(args);
+    auto bNewAttitude   = Services::Events::ExtractArgument<int>(args);
+    auto bSetReciprocal = Services::Events::ExtractArgument<int>(args);
+
+    if (auto *pSource = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(sourceOID))
+    {
+        pSource->SetPVPPlayerLikesMe(targetOID, bNewAttitude, bSetReciprocal);
+    }
+
+    return Services::Events::Arguments();
 }
 
 }
