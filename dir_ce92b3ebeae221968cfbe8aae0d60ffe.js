@@ -131,6 +131,7 @@ var dir_ce92b3ebeae221968cfbe8aae0d60ffe =
     [ "Environment Variables", "group__redis.html#autotoc_md393", null ],
     [ "Environment Variables", "group__rename.html#autotoc_md394", null ],
     [ "Sample Include", "group__rename.html#autotoc_md395", null ],
+    [ "Environment Variables", "group__risenholm.html#autotoc_md396", null ],
     [ "Environment Variables", "group__ruby.html#autotoc_md397", null ],
     [ "Environment Variables", "group__serverlogredirector.html#autotoc_md398", null ],
     [ "Plugin Sample Usage", "group__skillranks.html#autotoc_md399", null ],

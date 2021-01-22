@@ -5,7 +5,7 @@
 		<meta http-equiv="X-UA-Compatible" content="IE=9"/>
 		<meta name="generator" content="Doxygen 1.8.17"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1"/>
-		<title>NWNX:EE: Readme</title>
+		<title>NWNX:EE: Risenholm</title>
                 <link href="logo-transparent.png" rel="shortcut icon" type="image/x-icon">
                 <link href="logo-transparent.png" rel="apple-touch-icon-precomposed">
 		<link href="tabs.css" rel="stylesheet" type="text/css"/>
@@ -77,7 +77,7 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 </div>
 <script type="text/javascript">
 /* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */
-$(document).ready(function(){initNavTree('risenholm.html',''); initResizable(); });
+$(document).ready(function(){initNavTree('group__risenholm.html',''); initResizable(); });
 /* @license-end */
 </script>
 <div id="doc-content">
@@ -95,12 +95,17 @@ $(document).ready(function(){initNavTree('risenholm.html',''); initResizable(); 
 </iframe>
 </div>
 
-<div class="PageDoc"><div class="header">
+<div class="header">
+  <div class="summary">
+<a href="#files">Files</a> &#124;
+<a href="#func-members">Functions</a>  </div>
   <div class="headertitle">
-<div class="title">Readme </div>  </div>
+<div class="title">Risenholm</div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><h2><a class="anchor" id="autotoc_md396"></a>
+
+
+<h3><a id="risenholm"></a>Readme</h3><div class="textblock"><h2><a class="anchor" id="autotoc_md396"></a>
 Environment Variables</h2>
 <table class="markdownTable">
 <tr class="markdownTableHead">
@@ -108,14 +113,79 @@ Environment Variables</h2>
 <tr class="markdownTableRowOdd">
 <td class="markdownTableBodyNone">none </td><td class="markdownTableBodyCenter"></td><td class="markdownTableBodyNone"></td></tr>
 </table>
-</div></div><!-- contents -->
-</div><!-- PageDoc -->
+</div><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="files"></a>
+Files</h2></td></tr>
+<tr class="memitem:nwnx__risenholm_8nss"><td class="memItemLeft" align="right" valign="top">file &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="nwnx__risenholm_8nss.html">nwnx_risenholm.nss</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga421ca3d3afdf421c3c7d2666d0cef246">NWNX_Risenholm_SetPCLikeStatus</a> (object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)</td></tr>
+<tr class="memdesc:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set a PC like/dislike status on the player list without changing their hostility.  <a href="group__risenholm.html#ga421ca3d3afdf421c3c7d2666d0cef246">More...</a><br /></td></tr>
+<tr class="separator:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<h2 class="groupheader">Function Documentation</h2>
+<a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga421ca3d3afdf421c3c7d2666d0cef246">&#9670;&nbsp;</a></span>NWNX_Risenholm_SetPCLikeStatus()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_SetPCLikeStatus </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oSourcePC</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oTargetPC</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>bNewAttitude</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>bSetReciprocal</em> = <code>TRUE</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Set a PC like/dislike status on the player list without changing their hostility. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oSourcePC</td><td>The source PC. </td></tr>
+    <tr><td class="paramname">oTargetPC</td><td>The target PC. </td></tr>
+    <tr><td class="paramname">bNewAttitude</td><td>The new attitude, TRUE for like, FALSE for dislike. </td></tr>
+    <tr><td class="paramname">bSetReciprocal</td><td>True if the attitude change should be reciprocal </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00018">18</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+</div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Sat Jan 16 2021 21:41:13 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Fri Jan 22 2021 21:59:10 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>

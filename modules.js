@@ -33,6 +33,7 @@ var modules =
     [ "Regex", "group__regex.html", "group__regex" ],
     [ "Rename", "group__rename.html", "group__rename" ],
     [ "Reveal", "group__reveal.html", "group__reveal" ],
+    [ "Risenholm", "group__risenholm.html", "group__risenholm" ],
     [ "Ruby", "group__ruby.html", "group__ruby" ],
     [ "ServerLogRedirector", "group__serverlogredirector.html", "group__serverlogredirector" ],
     [ "SkillRanks", "group__skillranks.html", "group__skillranks" ],
