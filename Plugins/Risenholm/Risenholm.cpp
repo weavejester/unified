@@ -1,80 +1,62 @@
-#include "Risenholm.hpp"
+#include "nwnx.hpp"
 
 #include "API/CAppManager.hpp"
 #include "API/CNWSCreature.hpp"
 #include "API/CNWSCreatureStats.hpp"
 #include "API/CServerExoApp.hpp"
-#include "Services/Hooks/Hooks.hpp"
+
 
 using namespace NWNXLib;
 using namespace NWNXLib::API;
-
-static Risenholm::Risenholm* g_plugin;
-
-NWNX_PLUGIN_ENTRY Plugin* PluginLoad(Services::ProxyServiceList* services)
-{
-    g_plugin = new Risenholm::Risenholm(services);
-    return g_plugin;
-}
+using ArgumentStack = Events::ArgumentStack;
 
 
 namespace Risenholm
 {
 
-Risenholm::Risenholm(Services::ProxyServiceList* services)
-  : Plugin(services)
-{
-#define REGISTER(func)              \
-    GetServices()->m_events->RegisterEvent(#func, \
-        [this](ArgumentStack&& args){ return func(std::move(args)); })
+static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature13GetFlatFootedEv,
+    (void*)+[](CNWSCreature *pCreature) -> int32_t
+    {
+        auto *pCreatureStats = pCreature->m_pStats;
+        auto *pScriptVarTable = Utils::GetScriptVarTable(pCreature);
 
-    REGISTER(SetPCLikeStatus);
-#undef REGISTER
+        CExoString sVarName = "FLAT_FOOTED_STATE";
+        int32_t nFlatFootedState = pScriptVarTable->GetInt(sVarName);
 
-    GetServices()->m_hooks->RequestExclusiveHook<Functions::_ZN12CNWSCreature13GetFlatFootedEv>(&GetFlatFootedHook);
-}
+        if (nFlatFootedState == 1)// Always FlatFooted
+            return true;
+        else if (nFlatFootedState == 2)// Never FlatFooted
+            return false;
 
-int32_t Risenholm::GetFlatFootedHook(CNWSCreature *pCreature)
-{
-    auto *pCreatureStats = pCreature->m_pStats;
-    auto *pScriptVarTable = Utils::GetScriptVarTable(pCreature);
+        if (pCreatureStats->HasFeat(Constants::Feat::UncannyReflex))
+            return false;
 
-    CExoString sVarName = "FLAT_FOOTED_STATE";
-    int32_t nFlatFootedState = pScriptVarTable->GetInt(sVarName);
+        auto IsAIState = [&](uint16_t nAIState) -> bool {
+            return ((pCreature->m_nAIState & nAIState) == nAIState);
+        };
 
-    if (nFlatFootedState == 1)// Always FlatFooted
-        return true;
-    else if (nFlatFootedState == 2)// Never FlatFooted
+        if (pCreature->GetBlind() || pCreature->m_nState == 6/*Stunned*/ ||
+            (!IsAIState(0x0002/*Arms*/) && !IsAIState(0x0004/*Legs*/)) ||
+            (pCreature->m_nAnimation == Constants::Animation::KnockdownFront || pCreature->m_nAnimation == Constants::Animation::KnockdownButt))
+            return true;
+
         return false;
+    }, Hooks::Order::Final);
 
-    if (pCreatureStats->HasFeat(226/*Uncanny Reflex*/))
-        return false;
 
-    auto IsAIState = [&](uint16_t nAIState) -> bool {
-        return ((pCreature->m_nAIState & nAIState) == nAIState);
-    };
-
-    if (pCreature->GetBlind() || pCreature->m_nState == 6/*Stunned*/ ||
-        (!IsAIState(0x0002/*Arms*/) && !IsAIState(0x0004/*Legs*/)) ||
-        (pCreature->m_nAnimation == Constants::Animation::KnockdownFront || pCreature->m_nAnimation == Constants::Animation::KnockdownButt))
-        return true;
-
-    return false;
-}
-
-ArgumentStack Risenholm::SetPCLikeStatus(ArgumentStack&& args)
+NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {
-    auto sourceOID      = Services::Events::ExtractArgument<ObjectID>(args);
-    auto targetOID      = Services::Events::ExtractArgument<ObjectID>(args);
-    auto bNewAttitude   = Services::Events::ExtractArgument<int>(args);
-    auto bSetReciprocal = Services::Events::ExtractArgument<int>(args);
+    auto sourceOID      = args.extract<ObjectID>();
+    auto targetOID      = args.extract<ObjectID>();
+    auto bNewAttitude   = args.extract<int32_t>();
+    auto bSetReciprocal = args.extract<int32_t>();
 
     if (auto *pSource = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(sourceOID))
     {
         pSource->SetPVPPlayerLikesMe(targetOID, bNewAttitude, bSetReciprocal);
     }
 
-    return Services::Events::Arguments();
+    return {};
 }
 
 }
