@@ -1,10 +1,7 @@
 #pragma once
 
-#include "Plugin.hpp"
-#include "Services/Events/Events.hpp"
-#include "Services/Hooks/Hooks.hpp"
-
-using ArgumentStack = NWNXLib::Services::Events::ArgumentStack;
+#include "nwnx.hpp"
+using ArgumentStack = NWNXLib::Events::ArgumentStack;
 
 namespace Util {
 
@@ -52,6 +49,7 @@ private:
     ArgumentStack GetScriptParamIsSet           (ArgumentStack&& args);
     ArgumentStack SetDawnHour                   (ArgumentStack&& args);
     ArgumentStack SetDuskHour                   (ArgumentStack&& args);
+    ArgumentStack GetHighResTimeStamp           (ArgumentStack&& args);
 
     size_t m_resRefIndex;
     std::vector<std::string> m_listResRefs;
