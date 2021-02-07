@@ -1,14 +1,14 @@
 var searchData=
 [
-  ['banimloop1_2904',['bAnimLoop1',['../structNWNX__Tileset__CustomTileData.html#ad7cc06ac7a4fb8eeca5a33810e1cf479',1,'NWNX_Tileset_CustomTileData']]],
-  ['banimloop2_2905',['bAnimLoop2',['../structNWNX__Tileset__CustomTileData.html#a800fec1c59fd92234fa6d7cf4e4b3964',1,'NWNX_Tileset_CustomTileData']]],
-  ['banimloop3_2906',['bAnimLoop3',['../structNWNX__Tileset__CustomTileData.html#a72f43f39bfe435c2271885f34db1478d',1,'NWNX_Tileset_CustomTileData']]],
-  ['bbypassarmorcheckpenalty_2907',['bBypassArmorCheckPenalty',['../structNWNX__SkillRanks__SkillFeat.html#a7dd800dcb05d188252a50c070ae71f2b',1,'NWNX_SkillRanks_SkillFeat']]],
-  ['bexpose_2908',['bExpose',['../structNWNX__EffectUnpacked.html#ae72adce7ceb667a20c4baf86bfad47c8',1,'NWNX_EffectUnpacked']]],
-  ['bhasheighttransition_2909',['bHasHeightTransition',['../structNWNX__Tileset__TilesetData.html#a28a1cc6ee6bb8ae51286c357f429a548',1,'NWNX_Tileset_TilesetData']]],
-  ['binterior_2910',['bInterior',['../structNWNX__Tileset__TilesetData.html#ab190d02f421837b6e1ffa9b3e3f302ff',1,'NWNX_Tileset_TilesetData']]],
-  ['blinkleftvalid_2911',['bLinkLeftValid',['../structNWNX__EffectUnpacked.html#a6616a557c8c9c73faa051ff023450212',1,'NWNX_EffectUnpacked']]],
-  ['blinkrightvalid_2912',['bLinkRightValid',['../structNWNX__EffectUnpacked.html#a14f3744ff2467b6314841a0cd2e87350',1,'NWNX_EffectUnpacked']]],
-  ['bshowicon_2913',['bShowIcon',['../structNWNX__EffectUnpacked.html#a332fd2e3db2012dc15d2fff35b88332e',1,'NWNX_EffectUnpacked']]],
-  ['busable_2914',['bUsable',['../structNWNX__IPUnpacked.html#aaa2c8bc13b51d3f6ceaf64e3b7fd5326',1,'NWNX_IPUnpacked']]]
+  ['banimloop1_2969',['bAnimLoop1',['../structNWNX__Tileset__CustomTileData.html#ad7cc06ac7a4fb8eeca5a33810e1cf479',1,'NWNX_Tileset_CustomTileData']]],
+  ['banimloop2_2970',['bAnimLoop2',['../structNWNX__Tileset__CustomTileData.html#a800fec1c59fd92234fa6d7cf4e4b3964',1,'NWNX_Tileset_CustomTileData']]],
+  ['banimloop3_2971',['bAnimLoop3',['../structNWNX__Tileset__CustomTileData.html#a72f43f39bfe435c2271885f34db1478d',1,'NWNX_Tileset_CustomTileData']]],
+  ['bbypassarmorcheckpenalty_2972',['bBypassArmorCheckPenalty',['../structNWNX__SkillRanks__SkillFeat.html#a7dd800dcb05d188252a50c070ae71f2b',1,'NWNX_SkillRanks_SkillFeat']]],
+  ['bexpose_2973',['bExpose',['../structNWNX__EffectUnpacked.html#ae72adce7ceb667a20c4baf86bfad47c8',1,'NWNX_EffectUnpacked']]],
+  ['bhasheighttransition_2974',['bHasHeightTransition',['../structNWNX__Tileset__TilesetData.html#a28a1cc6ee6bb8ae51286c357f429a548',1,'NWNX_Tileset_TilesetData']]],
+  ['binterior_2975',['bInterior',['../structNWNX__Tileset__TilesetData.html#ab190d02f421837b6e1ffa9b3e3f302ff',1,'NWNX_Tileset_TilesetData']]],
+  ['blinkleftvalid_2976',['bLinkLeftValid',['../structNWNX__EffectUnpacked.html#a6616a557c8c9c73faa051ff023450212',1,'NWNX_EffectUnpacked']]],
+  ['blinkrightvalid_2977',['bLinkRightValid',['../structNWNX__EffectUnpacked.html#a14f3744ff2467b6314841a0cd2e87350',1,'NWNX_EffectUnpacked']]],
+  ['bshowicon_2978',['bShowIcon',['../structNWNX__EffectUnpacked.html#a332fd2e3db2012dc15d2fff35b88332e',1,'NWNX_EffectUnpacked']]],
+  ['busable_2979',['bUsable',['../structNWNX__IPUnpacked.html#aaa2c8bc13b51d3f6ceaf64e3b7fd5326',1,'NWNX_IPUnpacked']]]
 ];

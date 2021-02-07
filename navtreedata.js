@@ -42,18 +42,18 @@ var NAVTREE =
 var NAVTREEINDEX =
 [
 "annotated.html",
-"group__admin.html#gad56bd806fc09e6395b7a1ce7bde3058b",
-"group__creature.html#ga27aefe7af67628a090a0685c3e07cc9e",
-"group__creature.html#gaef3946aa6d3561be04d8b37f554b35b5",
-"group__dialog.html#gae488ccc9db370ebdf6fa923f0964e032",
-"group__feedback.html#feedback",
-"group__object.html#gaf2230d31bc03edaa2b5a1be654846a46",
-"group__race.html#autotoc_md321",
-"group__sql.html#ga66d8b47aa6f6afd6f90bfc9b16a9a474",
-"group__weapon.html#gac1feedb8c13806da113a4a8d10c8990a",
-"nwnx__redis_8nss.html#ab4f168456f285b5b657bb8f10939d33a",
-"nwnx__redis__short_8nss.html#ad122c1f6a05fdeb82f0b0cd751b40f30",
-"structNWNX__SkillRanks__SkillFeat.html#af739ed67510b85727943101c94b4b1f3"
+"group__admin.html#gacb21ba2dd9de2caeafb83de04d79d857",
+"group__creature.html#ga1b024608dddf8b9f800dfd93aa1a97cb",
+"group__creature.html#gacb4f736a792fe146e85ae56e147db0ad",
+"group__dialog.html#ga585de74ec3701f197d499d887248936c",
+"group__feat.html#ga74662062e826877cd9a1973e030d98ad",
+"group__object.html#gaa41fc9594c49da9708602813a55f5dde",
+"group__player.html#gacf6c81cfaffdfcc9380e54332738148f",
+"group__skillranks.html#gad83eb78b6cff3bac273bb17c32159f0d",
+"group__visibility.html#ga453b98dd4270e6b1785138caf20d9bc3",
+"nwnx__redis_8nss.html#a6d324b1d115a65eebee0f31cfc75da63",
+"nwnx__redis__short_8nss.html#a8b15b3f807aa5105387a246b9a8fef72",
+"structNWNX__EffectUnpacked.html#afda0d34cd6152afc231de7fd7f9fd374"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';
