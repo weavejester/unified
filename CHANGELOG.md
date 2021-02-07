@@ -9,6 +9,7 @@ https://github.com/nwnxee/unified/compare/build8193.20...HEAD
 
 ### Added
 - Events: added `NWNX_ON_INPUT_EMOTE_*` events to InputEvents, this event fires when a player uses a radial menu emote.
+- Events: added `NWNX_ON_COMBAT_DR_BROKEN_*` events to CombatEvents, this event fires when a creature's limited Damage{Resistance|Reduction} gets broken.  
 - Experimental: Added `NWNX_EXPERIMENTAL_DISABLE_LEVELUP_VALIDATION` to disable levelup validation.
 - Experimental: Added `NWNX_EXPERIMENTAL_UNHARDCODE_RANGER_DUALWIELD` to remove the hardcoded effects of the Ranger's Dual-wield feat. This functionality is not compatible with the NWNX_ON_HAS_FEAT_* event.
 - Tweaks: Added `NWNX_TWEAKS_ALWAYS_RETURN_FULL_DEX_STAT` to have GetDEXStat() always return a creature's full dexterity stat.
@@ -19,6 +20,10 @@ https://github.com/nwnxee/unified/compare/build8193.20...HEAD
 - SWIG: Native Interop support added for DotNET.
 
 ##### New NWScript Functions
+- Admin: {Get/Set}MinLevel()
+- Admin: {Get/Set}MaxLevel()
+- Area: NWNX_Area_GetAmbientSound{Day/Night}()
+- Area: NWNX_Area_GetAmbientSound{Day/Night}Volume
 - Creature: ComputeSafeLocation()
 - Creature: DoPerceptionUpdateOnCreature()
 - Creature: {Get/Set}PersonalSpace()
@@ -29,14 +34,11 @@ https://github.com/nwnxee/unified/compare/build8193.20...HEAD
 - Encounter: GetGeometry()
 - Encounter: SetGeometry()
 - Encounter: {Get/Set}CanReset()
+- Object: {Get|Set}AILevel()
 - Util: GetInstructionLimit()
 - Util: {Get|Set}InstructionsExecuted()
 - Util: NWNX_Util_GetHighResTimeStamp() (in preparation for removing the now deprecated NWNX_Time)
-- Area: NWNX_Area_GetAmbientSound{Day/Night}()
-- Area: NWNX_Area_GetAmbientSound{Day/Night}Volume
-- Admin: {Get/Set}MinLevel()
-- Admin: {Get/Set}MaxLevel()
-- Object: {Get|Set}AILevel()
+- Weapon: SetMaxRangedAttackDistanceOverride()
 
 ### Changed
 - Creature: Functions for CriticalMultipler and CriticalRange extended to allow declaration of nBaseItem. Order of Overrides is Specified Baseitem > Specified Hand > non-Specified. Modifiers now apply in addition to overrides (rather than only in the absence of overrides). _**ABI breaking:** You will need to update nwnx_creature.nss if you are using these functions_.
