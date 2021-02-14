@@ -12,6 +12,10 @@
 #include "API/CItemRepository.hpp"
 #include "API/CPathfindInformation.hpp"
 #include "API/CNWSArea.hpp"
+#include "API/CNWSInventory.hpp"
+#include "API/CNWBaseItemArray.hpp"
+#include "API/CNWBaseItem.hpp"
+#include "API/CServerAIMaster.hpp"
 #include <cmath>
 
 
@@ -559,6 +563,150 @@ static Hooks::Hook s_DoCombatStepHook = Hooks::HookFunction(Functions::_ZN12CNWS
             return;
         }
     }, Hooks::Order::Latest);
+
+
+static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17ResolveAmmunitionEj,
+    (void*)+[](CNWSCreature *pCreature, uint32_t nTimeIndex) -> void
+    {
+        if (auto *pItem = pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::RightHand))
+        {
+            if (pItem->m_nBaseItem == Constants::BaseItem::Longbow ||
+                pItem->m_nBaseItem == Constants::BaseItem::Shortbow ||
+                pItem->m_nBaseItem == Constants::BaseItem::HeavyCrossbow ||
+                pItem->m_nBaseItem == Constants::BaseItem::LightCrossbow ||
+                pItem->m_nBaseItem == Constants::BaseItem::Sling)
+            {
+                if (!pItem->GetPropertyByTypeExists(Constants::ItemProperty::UnlimitedAmmunition))
+                {
+                    auto GetAmmoItem = [&]() -> CNWSItem*
+                    {
+                        switch (pItem->m_nBaseItem)
+                        {
+                            case Constants::BaseItem::Longbow:
+                            case Constants::BaseItem::Shortbow:
+                                return pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Arrows);
+
+                            case Constants::BaseItem::HeavyCrossbow:
+                            case Constants::BaseItem::LightCrossbow:
+                                return pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Bolts);
+
+                            case Constants::BaseItem::Sling:
+                                return pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Bullets);
+
+                            default:
+                                return nullptr;
+                        }
+                    };
+
+                    if (auto *pAmmoItem = GetAmmoItem())
+                    {
+                        CServerAIMaster *pServerAIMaster = Globals::AppManager()->m_pServerExoApp->GetServerAIMaster();
+                        pServerAIMaster->AddEventDeltaTime(0, nTimeIndex, pCreature->m_idSelf,
+                                                           pAmmoItem->m_idSelf,Constants::Event::DecrementStackSize);
+                    }
+                }
+            }
+        }
+    }, Hooks::Order::Final);
+
+
+static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23ResolvePostRangedDamageEP10CNWSObject,
+    (void*)+[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
+    {
+        if (!pTarget)
+            return;
+
+        CNWSCombatRound *pCombatRound = pThis->m_pcCombatRound;
+        CNWSCombatAttackData *pAttackData = pCombatRound->GetAttack(pCombatRound->m_nCurrentAttack);
+        int32_t nTotalDamage = pAttackData->GetTotalDamage(true);
+
+        if (auto *pCreature = Utils::AsNWSCreature(pTarget))
+        {
+            if (nTotalDamage >= pCreature->m_nCurrentHitPoints || pAttackData->m_bCoupDeGrace)
+            {
+                if (!pCreature->m_bIsImmortal && !pCreature->m_bPlotObject)
+                    pAttackData->m_bKillingBlow = true;
+            }
+
+            static int32_t nMaxRangedCoupDeGraceSquared = std::pow(Globals::Rules()->GetRulesetIntEntry("MAX_RANGED_COUP_DE_GRACE", 10), 2);
+            Vector v = pThis->m_vPosition;
+            v.x -= pTarget->m_vPosition.x;
+            v.y -= pTarget->m_vPosition.y;
+            v.z -= pTarget->m_vPosition.z;
+            float fMagnitudeSquared = v.x * v.x + v.y * v.y + v.z * v.z;
+
+            if (pAttackData->m_bCoupDeGrace && fMagnitudeSquared <= nMaxRangedCoupDeGraceSquared)
+            {
+                auto *pEffect = new CGameEffect(true);
+                pEffect->m_nType = Constants::EffectTrueType::Death;
+                pEffect->m_nSubType = (pEffect->m_nSubType & ~0x7) | Constants::EffectDurationType::Instant;
+                pEffect->m_oidCreator = pThis->m_idSelf;
+                pEffect->SetInteger(0, false);
+                pEffect->SetInteger(1, true);
+
+                pAttackData->m_alstOnHitGameEffects.Add(pEffect);
+            }
+
+            // *****
+            // NOTE: Devastating Critical stuff would go here.
+            // *****
+
+            // RISENHOLM MODIFICATION: Allow Ranged Cleave
+            if (pAttackData->m_bKillingBlow &&
+                pAttackData->m_nAttackType != Constants::Feat::WhirlwindAttack &&
+                pAttackData->m_nAttackType != Constants::Feat::ImprovedWhirlwind &&
+                pCombatRound->GetTotalAttacks() < 50)
+            {
+                if (pThis->m_pStats->HasFeat(Constants::Feat::GreatCleave))
+                {
+                    ObjectID oidTarget = pThis->GetNearestEnemy(
+                            pThis->MaxAttackRange(Constants::OBJECT_INVALID, false, true), pCreature->m_idSelf);
+
+                    if (Utils::AsNWSCreature(Utils::GetGameObject(oidTarget)))
+                    {
+                        pCombatRound->m_oidNewAttackTarget = oidTarget;
+                        pCombatRound->AddCleaveAttack(oidTarget, true);
+                        pThis->m_bPassiveAttackBehaviour = true;
+                    }
+                }
+                else if ((pThis->m_pStats->HasFeat(Constants::Feat::Cleave) && pCombatRound->m_nCleaveAttacks > 0))
+                {
+                    ObjectID oidTarget = pThis->GetNearestEnemy(
+                            pThis->MaxAttackRange(Constants::OBJECT_INVALID, false, true), pCreature->m_idSelf);
+
+                    if (Utils::AsNWSCreature(Utils::GetGameObject(oidTarget)))
+                    {
+                        pCombatRound->m_oidNewAttackTarget = oidTarget;
+                        pCombatRound->AddCleaveAttack(oidTarget);
+                        pThis->m_bPassiveAttackBehaviour = true;
+                        pCombatRound->m_nCleaveAttacks--;
+                    }
+                }
+            }
+            // END RISENHOLM MODIFICATION
+        }
+        else
+        {
+            if (nTotalDamage >= pTarget->m_nCurrentHitPoints && !pTarget->m_bPlotObject)
+                pAttackData->m_bKillingBlow = true;
+        }
+
+        if (nTotalDamage <= 0)
+        {
+            if (!pCombatRound->m_bWeaponSucks)
+            {
+                if (!pThis->GetIsWeaponEffective(pTarget->m_idSelf, pAttackData->m_nWeaponAttackType == 2))
+                {
+                    auto *pMessageData = new CNWCCMessageData;
+                    pMessageData->m_nType = 3;
+                    pMessageData->SetInteger(0, 117);
+                    pAttackData->m_alstPendingFeedback.Add(pMessageData);
+
+                    pCombatRound->m_bWeaponSucks = true;
+                }
+            }
+        }
+    }, Hooks::Order::Final);
 
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
