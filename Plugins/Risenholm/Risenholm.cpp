@@ -708,6 +708,18 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions
         }
     }, Hooks::Order::Final);
 
+static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17AIActionCastSpellEP20CNWSObjectActionNode,
+    (void*)+[](CNWSCreature* thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        BOOL bHasted = thisPtr->m_bHasted;
+
+        thisPtr->m_bHasted = false;
+        auto retVal = s_AIActionCastSpellHook->CallOriginal<uint32_t>(thisPtr, pNode);
+        thisPtr->m_bHasted = bHasted;
+
+        return retVal;
+    }, Hooks::Order::Early);
+
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {
