@@ -720,6 +720,17 @@ static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(Functions::_ZN1
         return retVal;
     }, Hooks::Order::Early);
 
+static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(Functions::_ZN15CNWSCombatRound15GetTotalAttacksEv,
+    (void*)+[](CNWSCombatRound* thisPtr) -> uint8_t
+    {
+        int32_t nTotalAttacks = thisPtr->m_nOnHandAttacks + thisPtr->m_nOffHandAttacks + thisPtr->m_nAdditionalAttacks + thisPtr->m_nBonusEffectAttacks;
+
+        if (thisPtr->m_pBaseCreature->m_bSlowed)
+            nTotalAttacks /= 2;
+
+        return std::max(1, nTotalAttacks);
+    }, Hooks::Order::Final);
+
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {
