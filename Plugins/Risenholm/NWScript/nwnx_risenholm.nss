@@ -13,6 +13,11 @@ const string NWNX_Risenholm = "NWNX_Risenholm"; ///< @private
 /// @param bSetReciprocal True if the attitude change should be reciprocal
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE);
 
+/// @brief Update Mage Armor Stats for a creature
+/// @note Should be executed when setting/deleting the MAGE_ARMOR local int and when someone logs in.
+/// @param oCreature The creature
+void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -24,5 +29,12 @@ void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNew
     NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oTargetPC);
     NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oSourcePC);
 
+    NWNX_CallFunction(NWNX_Risenholm, sFunc);
+}
+
+void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature)
+{
+    string sFunc = "ForceUpdateMageArmorStats";
+    NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oCreature);
     NWNX_CallFunction(NWNX_Risenholm, sFunc);
 }

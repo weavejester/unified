@@ -16,6 +16,7 @@
 #include "API/CNWBaseItemArray.hpp"
 #include "API/CNWBaseItem.hpp"
 #include "API/CServerAIMaster.hpp"
+#include "API/CTwoDimArrays.hpp"
 #include <cmath>
 
 
@@ -732,6 +733,191 @@ static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(Functions::_ZN15C
     }, Hooks::Order::Final);
 
 
+static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(Functions::_ZN17CNWSCreatureStats9GetDEXModEi,
+    (void*)+[](CNWSCreatureStats* thisPtr, BOOL bUseArmourPenalty) -> char
+    {
+        int32_t nMaxDexMod = 0;
+
+        if (bUseArmourPenalty)
+        {
+            static CExoString sVarName = "MAGE_ARMOR";
+            auto *pScriptVarTable = Utils::GetScriptVarTable(thisPtr->m_pBaseCreature);
+
+            if (auto *pChestItem = thisPtr->m_pBaseCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest))
+            {
+                int32_t nArmorClass = pChestItem->ComputeArmorClass();
+                if (nArmorClass > 0)
+                {
+                    Globals::Rules()->m_p2DArrays->m_pArmorTable->GetINTEntry(nArmorClass, "DEXBONUS", &nMaxDexMod);
+
+                    // RISENHOLM MODIFICATION: If creature has Mage Armor, set max dex bonus limit to 5
+                    if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
+                    {
+                        nMaxDexMod = std::min(5, nMaxDexMod);
+                    }
+                    // END RISENHOLM MODIFICATION
+                }
+            }
+            else
+            {
+                // RISENHOLM MODIFICATION: If creature has Mage Armor, set max dex bonus limit to 5
+                if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
+                {
+                    nMaxDexMod = 5;
+                }
+                // END RISENHOLM MODIFICATION
+            }
+        }
+
+        if (nMaxDexMod > 0)
+        {
+            // RISENHOLM MODIFICATION: Add highest mental ability mod to dex mod if creature has the Strategic Defense feat
+            char nDexMod = thisPtr->m_nDexterityModifier;
+            if (thisPtr->HasFeat(1237/*Strategic Defense*/))
+                nDexMod += std::max({thisPtr->m_nWisdomModifier, thisPtr->m_nIntelligenceModifier, thisPtr->m_nCharismaModifier});
+            // END RISENHOLM MODIFICATION
+
+            return std::min(nDexMod, (char)nMaxDexMod);
+        }
+        else
+            return thisPtr->m_nDexterityModifier;
+    }, Hooks::Order::Final);
+static Hooks::Hook s_ItemComputeArmorClassHook = Hooks::HookFunction(Functions::_ZN8CNWSItem17ComputeArmorClassEv,
+    (void*)+[](CNWSItem *thisPtr) -> int32_t
+    {
+        if (Globals::Rules()->m_pBaseItemArray->GetBaseItem(thisPtr->m_nBaseItem)->m_nModelType != 3)
+        {
+            switch (thisPtr->m_nBaseItem)
+            {
+                case Constants::BaseItem::SmallShield:
+                case Constants::BaseItem::LargeShield:
+                case Constants::BaseItem::TowerShield:
+                    return 2;
+
+                default:
+                    return 0;
+            }
+        }
+
+        float fACBonus;
+        Globals::Rules()->m_p2DArrays->m_pPartsChest->GetFLOATEntry(thisPtr->m_nArmorModelPart[7], "ACBonus", &fACBonus);
+
+        // RISENHOLM MODIFICATION: If creature has Mage Armor, return 5 if ACBonus is lower than 5
+        if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(thisPtr->m_oidPossessor)))
+        {
+            static CExoString sVarName = "MAGE_ARMOR";
+            auto *pScriptVarTable = Utils::GetScriptVarTable(pCreature);
+            if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
+            {
+                return std::max(5, (int32_t)fACBonus);
+            }
+        }
+        // END RISENHOLM MODIFICATION
+
+        return (int32_t)fACBonus;
+    }, Hooks::Order::Final);
+static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature18ComputeArmourClassEP8CNWSItemii,
+    (void*)+[](CNWSCreature *thisPtr, CNWSItem *pItemToEquip, BOOL, BOOL) -> void
+    {
+        bool bSendFeedbackMessage = false;
+        auto *pInventory = thisPtr->m_pInventory;
+        auto *pArmorTable = Globals::Rules()->m_p2DArrays->m_pArmorTable;
+        auto *pStats = thisPtr->m_pStats;
+
+        if (auto *pChestItem = pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest))
+        {
+            if (pChestItem == pItemToEquip)
+            {
+                int32_t nACArmor = pItemToEquip->ComputeArmorClass();
+                int32_t nArcaneSpellFailure = 0;
+                int32_t nArmorCheckPenalty = 0;
+
+                pArmorTable->GetINTEntry(nACArmor, "ARCANEFAILURE%", &nArcaneSpellFailure);
+                pArmorTable->GetINTEntry(nACArmor, "ACCHECK", &nArmorCheckPenalty);
+
+                // NOTE: Monk/Ranger Too High Armor AC Warning Messages would go here.
+
+                pStats->m_nBaseArmorArcaneSpellFailure = nArcaneSpellFailure;
+                pStats->m_nArmorCheckPenalty = nArmorCheckPenalty;
+                pStats->m_nACArmorBase = nACArmor;
+
+                bSendFeedbackMessage = true;
+            }
+        }
+        else
+        {
+            // RISENHOLM MODIFICATION: Do Mage Armor stuff when creature is not wearing chest armor
+            static CExoString sVarName = "MAGE_ARMOR";
+            auto *pScriptVarTable = Utils::GetScriptVarTable(thisPtr);
+            if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
+            {
+                int32_t nACArmor = 5;
+                int32_t nArcaneSpellFailure = 0;
+                int32_t nArmorCheckPenalty = 0;
+
+                pArmorTable->GetINTEntry(nACArmor, "ARCANEFAILURE%", &nArcaneSpellFailure);
+                pArmorTable->GetINTEntry(nACArmor, "ACCHECK", &nArmorCheckPenalty);
+
+                pStats->m_nBaseArmorArcaneSpellFailure = nArcaneSpellFailure;
+                pStats->m_nArmorCheckPenalty = nArmorCheckPenalty;
+                pStats->m_nACArmorBase = nACArmor;
+            }
+            else
+            {
+                pStats->m_nBaseArmorArcaneSpellFailure = 0;
+                pStats->m_nArmorCheckPenalty = 0;
+                pStats->m_nACArmorBase = 0;
+            }
+
+            if (!pItemToEquip || pItemToEquip->m_nBaseItem == Constants::BaseItem::Armor)
+                bSendFeedbackMessage = true;
+            // END RISENHOLM MODIFICATION
+        }
+
+        auto IsShield = [](CNWSItem *pItem) -> bool
+        {
+            return pItem->m_nBaseItem == Constants::BaseItem::SmallShield ||
+                   pItem->m_nBaseItem == Constants::BaseItem::LargeShield ||
+                   pItem->m_nBaseItem == Constants::BaseItem::TowerShield;
+        };
+
+        if (auto *pShieldItem = pInventory->GetItemInSlot(Constants::EquipmentSlot::LeftHand))
+        {
+            if (pShieldItem == pItemToEquip && IsShield(pShieldItem))
+            {
+                CNWBaseItem *pBaseItem = Globals::Rules()->m_pBaseItemArray->GetBaseItem(pShieldItem->m_nBaseItem);
+
+                pStats->m_nBaseShieldArcaneSpellFailure = pBaseItem->m_nArcaneSpellFailure;
+                pStats->m_nShieldCheckPenalty = pBaseItem->m_nArmorCheckPenalty;
+                pStats->m_nACShieldBase = pItemToEquip->ComputeArmorClass();
+
+                bSendFeedbackMessage = true;
+            }
+        }
+        else if (pItemToEquip && IsShield(pItemToEquip))
+        {
+            pStats->m_nBaseShieldArcaneSpellFailure = 0;
+            pStats->m_nShieldCheckPenalty = 0;
+            pStats->m_nACShieldBase = 0;
+
+            bSendFeedbackMessage = true;
+        }
+
+        if (bSendFeedbackMessage)
+        {
+            int32_t nTotalArcaneSpellFailure = std::max(0, std::min(100, (char)(pStats->m_nBaseArmorArcaneSpellFailure +
+                                               pStats->m_nBaseShieldArcaneSpellFailure) + pStats->m_nArcaneSpellFailure));
+            int32_t nTotalArmorCheckPenalty = pStats->m_nShieldCheckPenalty + pStats->m_nArmorCheckPenalty;
+
+            auto *pMessageData = new CNWCCMessageData;
+            pMessageData->SetInteger(0, nTotalArcaneSpellFailure);
+            pMessageData->SetInteger(1, nTotalArmorCheckPenalty);
+
+            thisPtr->SendFeedbackMessage(71, pMessageData);
+        }
+    }, Hooks::Order::Final);
+
+
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {
     auto sourceOID      = args.extract<ObjectID>();
@@ -742,6 +928,19 @@ NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
     if (auto *pSource = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(sourceOID))
     {
         pSource->SetPVPPlayerLikesMe(targetOID, bNewAttitude, bSetReciprocal);
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
+{
+    auto oidCreature = args.extract<ObjectID>();
+
+    if (auto *pCreature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(oidCreature))
+    {
+        auto *pChestItem = pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest);
+        pCreature->ComputeArmourClass(pChestItem, true);
     }
 
     return {};
