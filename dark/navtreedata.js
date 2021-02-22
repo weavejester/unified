@@ -53,7 +53,7 @@ var NAVTREEINDEX =
 "group__visibility.html#ga00b490a03f5734cc94fe1b72e15e7be7",
 "nwnx__redis_8nss.html#a6b9df4e2134f4ea26ea660b50b3cc817",
 "nwnx__redis__short_8nss.html#a88ccc5f862e19922a06b30d6044e585b",
-"structNWNX__EffectUnpacked.html#aef415541690d780a441ef95f6ceedb92"
+"structNWNX__EffectUnpacked.html#ae72adce7ceb667a20c4baf86bfad47c8"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

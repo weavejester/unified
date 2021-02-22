@@ -175,6 +175,8 @@ var NAVTREEINDEX11 =
 "structNWNX__Damage__AttackEventData.html#a77439bb6727bb0e78ad1c145170ac3d5":[0,7,3,6],
 "structNWNX__Damage__AttackEventData.html#a7b24cc68dd6f50db4069bc0e3e9facf7":[0,7,3,2],
 "structNWNX__Damage__AttackEventData.html#a82dc8d56f564fca63e68fcc2ea8a6943":[0,7,3,9],
+"structNWNX__Damage__AttackEventData.html#a838f86200ed83ab9b52a84720168222d":[0,7,3,19],
+"structNWNX__Damage__AttackEventData.html#abcc8b22f3369c1c20fcce3ac57d3f10e":[0,7,3,18],
 "structNWNX__Damage__AttackEventData.html#abd9b45439358d4428a37e2a695e0eedc":[0,7,3,14],
 "structNWNX__Damage__AttackEventData.html#ad76bfe56fadd9f06296452fe451345f7":[0,7,3,7],
 "structNWNX__Damage__AttackEventData.html#ada8bc3213c9e2e618ae1cd56ed650836":[0,7,3,11],
@@ -247,7 +249,5 @@ var NAVTREEINDEX11 =
 "structNWNX__EffectUnpacked.html#ad75877f6bc06555539531b274ac5ad38":[0,12,2,2],
 "structNWNX__EffectUnpacked.html#ad8097645225ad296b43941659c604b35":[0,12,2,21],
 "structNWNX__EffectUnpacked.html#adcab854593ccba2dc712abcd0fcbc4bd":[0,12,2,33],
-"structNWNX__EffectUnpacked.html#ae212b9e53edeadb67a0d56cbaee86993":[0,12,2,34],
-"structNWNX__EffectUnpacked.html#ae72adce7ceb667a20c4baf86bfad47c8":[0,12,2,7],
-"structNWNX__EffectUnpacked.html#aeb27613b9c0d7c2fcc075338af57900e":[0,12,2,14]
+"structNWNX__EffectUnpacked.html#ae212b9e53edeadb67a0d56cbaee86993":[0,12,2,34]
 };
