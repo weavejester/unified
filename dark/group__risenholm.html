@@ -128,6 +128,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga421ca3d3afdf421c3c7d2666d0cef246">NWNX_Risenholm_SetPCLikeStatus</a> (object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)</td></tr>
 <tr class="memdesc:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set a PC like/dislike status on the player list without changing their hostility.  <a href="group__risenholm.html#ga421ca3d3afdf421c3c7d2666d0cef246">More...</a><br /></td></tr>
 <tr class="separator:ga421ca3d3afdf421c3c7d2666d0cef246"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5ae923bfdbfcd2be58e7a82466388941"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga5ae923bfdbfcd2be58e7a82466388941">NWNX_Risenholm_ForceUpdateMageArmorStats</a> (object oCreature)</td></tr>
+<tr class="memdesc:ga5ae923bfdbfcd2be58e7a82466388941"><td class="mdescLeft">&#160;</td><td class="mdescRight">Update Mage Armor Stats for a creature.  <a href="group__risenholm.html#ga5ae923bfdbfcd2be58e7a82466388941">More...</a><br /></td></tr>
+<tr class="separator:ga5ae923bfdbfcd2be58e7a82466388941"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -179,7 +182,36 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00018">18</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00023">23</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga5ae923bfdbfcd2be58e7a82466388941"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5ae923bfdbfcd2be58e7a82466388941">&#9670;&nbsp;</a></span>NWNX_Risenholm_ForceUpdateMageArmorStats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_ForceUpdateMageArmorStats </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oCreature</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Update Mage Armor Stats for a creature. </p>
+<dl class="section note"><dt>Note</dt><dd>Should be executed when setting/deleting the MAGE_ARMOR local int and when someone logs in. </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oCreature</td><td>The creature </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00035">35</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -189,7 +221,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Sun Feb 14 2021 19:07:21 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Feb 22 2021 13:28:11 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="../">Light version</a>
 				</li>
