@@ -131,6 +131,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ga5ae923bfdbfcd2be58e7a82466388941"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga5ae923bfdbfcd2be58e7a82466388941">NWNX_Risenholm_ForceUpdateMageArmorStats</a> (object oCreature)</td></tr>
 <tr class="memdesc:ga5ae923bfdbfcd2be58e7a82466388941"><td class="mdescLeft">&#160;</td><td class="mdescRight">Update Mage Armor Stats for a creature.  <a href="group__risenholm.html#ga5ae923bfdbfcd2be58e7a82466388941">More...</a><br /></td></tr>
 <tr class="separator:ga5ae923bfdbfcd2be58e7a82466388941"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gaeb71a92c45491d29bc5faeb5fe5e41d0"><td class="memItemLeft" align="right" valign="top">string&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gaeb71a92c45491d29bc5faeb5fe5e41d0">NWNX_Risenholm_ExecuteCommand</a> (string sCmd, string sArg1=&quot;&quot;, string sArg2=&quot;&quot;, string sArg3=&quot;&quot;, string sArg4=&quot;&quot;, string sArg5=&quot;&quot;, string sArg6=&quot;&quot;)</td></tr>
+<tr class="memdesc:gaeb71a92c45491d29bc5faeb5fe5e41d0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Executes an external command in a child process and returns STDOUT as a string.  <a href="group__risenholm.html#gaeb71a92c45491d29bc5faeb5fe5e41d0">More...</a><br /></td></tr>
+<tr class="separator:gaeb71a92c45491d29bc5faeb5fe5e41d0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -182,7 +185,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00023">23</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00034">34</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -211,7 +214,82 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00035">35</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00046">46</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="gaeb71a92c45491d29bc5faeb5fe5e41d0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gaeb71a92c45491d29bc5faeb5fe5e41d0">&#9670;&nbsp;</a></span>NWNX_Risenholm_ExecuteCommand()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">string NWNX_Risenholm_ExecuteCommand </td>
+          <td>(</td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sCmd</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg1</em> = <code>&quot;&quot;</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg2</em> = <code>&quot;&quot;</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg3</em> = <code>&quot;&quot;</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg4</em> = <code>&quot;&quot;</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg5</em> = <code>&quot;&quot;</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sArg6</em> = <code>&quot;&quot;</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Executes an external command in a child process and returns STDOUT as a string. </p>
+<dl class="section note"><dt>Note</dt><dd>Use only when necessary, keep user-alterable data to a minimum, or ideally zero. </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">sCmd</td><td>The path of the command to execute </td></tr>
+    <tr><td class="paramname">sArg1</td><td>An optional 1st argument </td></tr>
+    <tr><td class="paramname">sArg2</td><td>An optional 2nd argument </td></tr>
+    <tr><td class="paramname">sArg3</td><td>An optional 3rd argument </td></tr>
+    <tr><td class="paramname">sArg4</td><td>An optional 4th argument </td></tr>
+    <tr><td class="paramname">sArg5</td><td>An optional 5th argument </td></tr>
+    <tr><td class="paramname">sArg6</td><td>An optional 6th argument </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00053">53</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -221,7 +299,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Feb 22 2021 16:15:37 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Tue Feb 23 2021 06:23:55 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="../">Light version</a>
 				</li>
