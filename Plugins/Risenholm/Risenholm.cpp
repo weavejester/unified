@@ -17,6 +17,7 @@
 #include "API/CNWBaseItem.hpp"
 #include "API/CServerAIMaster.hpp"
 #include "API/CTwoDimArrays.hpp"
+#include "External/subprocess.hpp"
 #include <cmath>
 
 
@@ -944,6 +945,35 @@ NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
     }
 
     return {};
+}
+
+NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
+{
+    auto cmdPath = args.extract<std::string>();
+    std::vector<std::string> cmdArgList;
+
+    for (int i = 0; i < 6; i++)
+    {
+        auto cmdArg = args.extract<std::string>();
+
+        if (cmdArg == "") break;
+
+        cmdArgList.push_back(cmdArg);
+    }
+
+    std::stringstream input;
+
+    try
+    {
+        subprocess::popen cmd(cmdPath, cmdArgList);
+        input << cmd.stdout().rdbuf();
+    }
+    catch (const std::exception& err)
+    {
+        LOG_ERROR("Plugin 'Risenholm' failed popen. Error: %s", err.what());
+    }
+
+    return input.str();
 }
 
 }
