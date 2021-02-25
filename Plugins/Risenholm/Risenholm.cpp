@@ -774,8 +774,8 @@ static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(Functions::_ZN17CNWSCre
         {
             // RISENHOLM MODIFICATION: Add highest mental ability mod to dex mod if creature has the Strategic Defense feat
             char nDexMod = thisPtr->m_nDexterityModifier;
-            if (thisPtr->HasFeat(1237/*Strategic Defense*/))
-                nDexMod += std::max({thisPtr->m_nWisdomModifier, thisPtr->m_nIntelligenceModifier, thisPtr->m_nCharismaModifier});
+            //if (thisPtr->HasFeat(1237/*Strategic Defense*/))
+            //    nDexMod += std::max({thisPtr->m_nWisdomModifier, thisPtr->m_nIntelligenceModifier, thisPtr->m_nCharismaModifier});
             // END RISENHOLM MODIFICATION
 
             return std::min(nDexMod, (char)nMaxDexMod);
