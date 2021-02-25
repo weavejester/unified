@@ -747,17 +747,14 @@ static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(Functions::_ZN17CNWSCre
             if (auto *pChestItem = thisPtr->m_pBaseCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest))
             {
                 int32_t nArmorClass = pChestItem->ComputeArmorClass();
-                if (nArmorClass > 0)
-                {
-                    Globals::Rules()->m_p2DArrays->m_pArmorTable->GetINTEntry(nArmorClass, "DEXBONUS", &nMaxDexMod);
+                Globals::Rules()->m_p2DArrays->m_pArmorTable->GetINTEntry(nArmorClass, "DEXBONUS", &nMaxDexMod);
 
-                    // RISENHOLM MODIFICATION: If creature has Mage Armor, set max dex bonus limit to 5
-                    if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
-                    {
-                        nMaxDexMod = std::min(5, nMaxDexMod);
-                    }
-                    // END RISENHOLM MODIFICATION
+                // RISENHOLM MODIFICATION: If creature has Mage Armor, set max dex bonus limit to 5
+                if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
+                {
+                    nMaxDexMod = std::min(5, nMaxDexMod);
                 }
+                // END RISENHOLM MODIFICATION
             }
             else
             {
