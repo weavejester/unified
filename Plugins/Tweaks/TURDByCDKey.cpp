@@ -6,6 +6,8 @@
 #include "API/CNetLayerPlayerInfo.hpp"
 #include "API/CNWSModule.hpp"
 #include "API/CNWSPlayer.hpp"
+#include "API/CNWSCreature.hpp"
+#include "API/CNWSUUID.hpp"
 
 
 namespace Tweaks {
@@ -21,7 +23,7 @@ void TURDByCDKey()
     if (!Config::Get<bool>("TURD_BY_CDKEY", false))
         return;
 
-    LOG_INFO("TURDs are associated by CDKey/CharacterName instead of PlayerName/CharacterName.");
+    LOG_INFO("TURDs are associated by CDKey+UUID/CharacterName instead of PlayerName/CharacterName.");
 
     static Hooks::Hook s_GetPlayerNameHook = Hooks::HookFunction(Functions::_ZN10CNWSPlayer13GetPlayerNameEv,
         (void*)+[](CNWSPlayer *pPlayer) -> CExoString
@@ -30,7 +32,13 @@ void TURDByCDKey()
             {
                 if (auto *pPlayerInfo = Globals::AppManager()->m_pServerExoApp->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID))
                 {
-                    return pPlayerInfo->m_lstKeys[0].sPublic;
+                    CExoString sUUID;
+                    if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject)))
+                    {
+                        sUUID = pCreature->m_pUUID.GetOrAssignRandom();
+                    }
+
+                    return pPlayerInfo->m_lstKeys[0].sPublic + sUUID;
                 }
 
                 return CExoString("");

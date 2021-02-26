@@ -127,13 +127,14 @@ NWNX_EXPORT Events::ArgumentStack DeletePlayerCharacter(Events::ArgumentStack&& 
     std::string bicname     = player->m_resFileName.GetResRefStr();
     std::string servervault = CExoString(Globals::ExoBase()->m_pcExoAliasList->GetAliasPath("SERVERVAULT", 0)).CStr();
     std::string playerdir;
+    std::string cdkey = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_lstKeys.element[0].sPublic.CStr();
     if (exoApp->GetServerInfo()->m_PersistantWorldOptions.bServerVaultByPlayerName)
     {
         playerdir = player->GetPlayerName().CStr();
     }
     else
     {
-        playerdir = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_lstKeys.element[0].sPublic.CStr();
+        playerdir = cdkey;
     }
 
     std::string filename = servervault + playerdir + "/" + bicname + ".bic";
@@ -149,14 +150,16 @@ NWNX_EXPORT Events::ArgumentStack DeletePlayerCharacter(Events::ArgumentStack&& 
 
     CNWSCreature* creature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(objectId);
     std::string characterName, characterLastName;
+    std::string uuid;
     if (creature && creature->m_pStats)
     {
         characterName = Utils::ExtractLocString(creature->m_pStats->m_lsFirstName);
         characterLastName = Utils::ExtractLocString(creature->m_pStats->m_lsLastName);
+        uuid = creature->m_pUUID.GetOrAssignRandom().CStr();
     }
 
     Tasks::QueueOnMainThread(
-        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, playerdir]
+        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, cdkey, uuid]
         {
             // Will show "Delete Character" message to PC. Best match from dialog.tlk
             Globals::AppManager()->m_pServerExoApp->GetNetLayer()->DisconnectPlayer(playerId, 10392, 1, kickMessage);
@@ -183,7 +186,7 @@ NWNX_EXPORT Events::ArgumentStack DeletePlayerCharacter(Events::ArgumentStack&& 
 
             CExoLinkedListNode *foundNode = FindTURD(playerName, chararacterFullName);
             if (!foundNode)
-                foundNode = FindTURD(playerdir, chararacterFullName);
+                foundNode = FindTURD(cdkey+uuid, chararacterFullName);
 
             if (foundNode)
             {
