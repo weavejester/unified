@@ -611,7 +611,7 @@ static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(Functions::_ZN1
         }
     }, Hooks::Order::Final);
 
-/*
+
 static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23ResolvePostRangedDamageEP10CNWSObject,
     (void*)+[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
     {
@@ -621,6 +621,9 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions
         CNWSCombatRound *pCombatRound = pThis->m_pcCombatRound;
         CNWSCombatAttackData *pAttackData = pCombatRound->GetAttack(pCombatRound->m_nCurrentAttack);
         int32_t nTotalDamage = pAttackData->GetTotalDamage(true);
+
+        if (!pThis->GetAttackResultHit(pAttackData))
+            return;
 
         if (auto *pCreature = Utils::AsNWSCreature(pTarget))
         {
@@ -709,7 +712,7 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions
             }
         }
     }, Hooks::Order::Final);
-*/
+
 
 static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17AIActionCastSpellEP20CNWSObjectActionNode,
     (void*)+[](CNWSCreature* thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
