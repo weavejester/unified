@@ -29,6 +29,9 @@ using ArgumentStack = Events::ArgumentStack;
 namespace Risenholm
 {
 
+static bool s_GrenadeLikeItemCastSpell;
+
+
 static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature13GetFlatFootedEv,
     (void*)+[](CNWSCreature *pCreature) -> int32_t
     {
@@ -918,6 +921,48 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functi
             thisPtr->SendFeedbackMessage(71, pMessageData);
         }
     }, Hooks::Order::Final);
+
+static Hooks::Hook s_AIActionItemCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature21AIActionItemCastSpellEP20CNWSObjectActionNode,
+    (void*)+[](CNWSCreature *thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        ObjectID oidItem;
+        memcpy(&oidItem, &(pNode->m_pParameter[0]), sizeof(ObjectID));
+        auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem));
+
+        s_GrenadeLikeItemCastSpell = pItem && pItem->m_nBaseItem == Constants::BaseItem::Grenade;
+
+        auto retVal = s_AIActionItemCastSpellHook->CallOriginal<uint32_t>(thisPtr, pNode);
+
+        s_GrenadeLikeItemCastSpell = false;
+
+        return retVal;
+    }, Hooks::Order::Early);
+static Hooks::Hook s_StartCombatRoundCastHook = Hooks::HookFunction(Functions::_ZN15CNWSCombatRound20StartCombatRoundCastEj,
+    (void*)+[](CNWSCombatRound *thisPtr, uint32_t nRoundLength) -> void
+    {
+        s_StartCombatRoundCastHook->CallOriginal<void>(thisPtr, s_GrenadeLikeItemCastSpell ? 3000 : nRoundLength);
+    }, Hooks::Order::Early);
+static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23AddItemCastSpellActionsEjii6Vectorjii,
+    (void*)+[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
+            Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
+    {
+        if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItemUsed)))
+        {
+            uint32_t nBaseItem = pItem->m_nBaseItem;
+
+            if (nBaseItem == Constants::BaseItem::Grenade)
+                pItem->m_nBaseItem = Constants::BaseItem::Potions;
+
+            auto retVal = s_AddItemCastSpellActionsHook->CallOriginal<int32_t>(thisPtr, oidItemUsed, nActivePropertyIndex,
+                                                                               nSubPropertyIndex, vTargetLocation, oidTarget, bAreaTarget, bDecrementCharges);
+
+            pItem->m_nBaseItem = nBaseItem;
+
+            return retVal;
+        }
+
+        return false;
+    }, Hooks::Order::Early);
 
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
