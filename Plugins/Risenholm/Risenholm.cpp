@@ -29,7 +29,8 @@ using ArgumentStack = Events::ArgumentStack;
 namespace Risenholm
 {
 
-static bool s_GrenadeLikeItemCastSpell;
+//static bool s_GrenadeLikeItemCastSpell;
+static bool s_AddItemCastSpellGrenadeAction;
 
 
 static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature13GetFlatFootedEv,
@@ -922,6 +923,7 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functi
         }
     }, Hooks::Order::Final);
 
+/*
 static Hooks::Hook s_AIActionItemCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature21AIActionItemCastSpellEP20CNWSObjectActionNode,
     (void*)+[](CNWSCreature *thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
     {
@@ -942,27 +944,54 @@ static Hooks::Hook s_StartCombatRoundCastHook = Hooks::HookFunction(Functions::_
     {
         s_StartCombatRoundCastHook->CallOriginal<void>(thisPtr, s_GrenadeLikeItemCastSpell ? 3000 : nRoundLength);
     }, Hooks::Order::Early);
+*/
 static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23AddItemCastSpellActionsEjii6Vectorjii,
     (void*)+[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
     {
         if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItemUsed)))
         {
-            uint32_t nBaseItem = pItem->m_nBaseItem;
-
-            if (nBaseItem == Constants::BaseItem::Grenade)
-                pItem->m_nBaseItem = Constants::BaseItem::Potions;
-
+            s_AddItemCastSpellGrenadeAction = pItem->m_nBaseItem == Constants::BaseItem::Grenade;
             auto retVal = s_AddItemCastSpellActionsHook->CallOriginal<int32_t>(thisPtr, oidItemUsed, nActivePropertyIndex,
                                                                                nSubPropertyIndex, vTargetLocation, oidTarget, bAreaTarget, bDecrementCharges);
-
-            pItem->m_nBaseItem = nBaseItem;
+            s_AddItemCastSpellGrenadeAction = false;
 
             return retVal;
         }
 
         return false;
     }, Hooks::Order::Early);
+static Hooks::Hook s_AddActionHook = Hooks::HookFunction(Functions::_ZN10CNWSObject9AddActionEjtjPvjS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_,
+    (void*)+[](CNWSObject *thisPtr, uint32_t nActionId, uint16_t nGroupId,
+               uint32_t nParamType1, void *pParameter1,
+               uint32_t nParamType2, void *pParameter2,
+               uint32_t nParamType3, void *pParameter3,
+               uint32_t nParamType4, void *pParameter4,
+               uint32_t nParamType5, void *pParameter5,
+               uint32_t nParamType6, void *pParameter6,
+               uint32_t nParamType7, void *pParameter7,
+               uint32_t nParamType8, void *pParameter8,
+               uint32_t nParamType9, void *pParameter9,
+               uint32_t nParamType10, void *pParameter10,
+               uint32_t nParamType11, void *pParameter11,
+               uint32_t nParamType12, void *pParameter12) -> void
+    {
+        if (s_AddItemCastSpellGrenadeAction && nActionId == 16)
+        {
+            float fDuration = 0.25f;
+            s_AddActionHook->CallOriginal<void>(thisPtr, 30, nGroupId, 2, (float*)&fDuration,
+                                                0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr,
+                                                0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr);
+        }
+        else
+        {
+            s_AddActionHook->CallOriginal<void>(thisPtr, nActionId, nGroupId,
+                                                nParamType1, pParameter1, nParamType2, pParameter2, nParamType3, pParameter3,
+                                                nParamType4, pParameter4, nParamType5, pParameter5, nParamType6, pParameter6,
+                                                nParamType7, pParameter7, nParamType8, pParameter8, nParamType9, pParameter9,
+                                                nParamType10, pParameter10, nParamType11, pParameter11, nParamType12, pParameter12);
+        }
+    }, Hooks::Order::Late);
 
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
