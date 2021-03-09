@@ -29,7 +29,6 @@ using ArgumentStack = Events::ArgumentStack;
 namespace Risenholm
 {
 
-//static bool s_GrenadeLikeItemCastSpell;
 static bool s_AddItemCastSpellGrenadeAction;
 
 
@@ -923,28 +922,6 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functi
         }
     }, Hooks::Order::Final);
 
-/*
-static Hooks::Hook s_AIActionItemCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature21AIActionItemCastSpellEP20CNWSObjectActionNode,
-    (void*)+[](CNWSCreature *thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
-    {
-        ObjectID oidItem;
-        memcpy(&oidItem, &(pNode->m_pParameter[0]), sizeof(ObjectID));
-        auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem));
-
-        s_GrenadeLikeItemCastSpell = pItem && pItem->m_nBaseItem == Constants::BaseItem::Grenade;
-
-        auto retVal = s_AIActionItemCastSpellHook->CallOriginal<uint32_t>(thisPtr, pNode);
-
-        s_GrenadeLikeItemCastSpell = false;
-
-        return retVal;
-    }, Hooks::Order::Early);
-static Hooks::Hook s_StartCombatRoundCastHook = Hooks::HookFunction(Functions::_ZN15CNWSCombatRound20StartCombatRoundCastEj,
-    (void*)+[](CNWSCombatRound *thisPtr, uint32_t nRoundLength) -> void
-    {
-        s_StartCombatRoundCastHook->CallOriginal<void>(thisPtr, s_GrenadeLikeItemCastSpell ? 3000 : nRoundLength);
-    }, Hooks::Order::Early);
-*/
 static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23AddItemCastSpellActionsEjii6Vectorjii,
     (void*)+[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
@@ -962,19 +939,10 @@ static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions
         return false;
     }, Hooks::Order::Early);
 static Hooks::Hook s_AddActionHook = Hooks::HookFunction(Functions::_ZN10CNWSObject9AddActionEjtjPvjS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_,
-    (void*)+[](CNWSObject *thisPtr, uint32_t nActionId, uint16_t nGroupId,
-               uint32_t nParamType1, void *pParameter1,
-               uint32_t nParamType2, void *pParameter2,
-               uint32_t nParamType3, void *pParameter3,
-               uint32_t nParamType4, void *pParameter4,
-               uint32_t nParamType5, void *pParameter5,
-               uint32_t nParamType6, void *pParameter6,
-               uint32_t nParamType7, void *pParameter7,
-               uint32_t nParamType8, void *pParameter8,
-               uint32_t nParamType9, void *pParameter9,
-               uint32_t nParamType10, void *pParameter10,
-               uint32_t nParamType11, void *pParameter11,
-               uint32_t nParamType12, void *pParameter12) -> void
+    (void*)+[](CNWSObject *thisPtr, uint32_t nActionId, uint16_t nGroupId, uint32_t nParamType1, void *pParameter1, uint32_t nParamType2, void *pParameter2,
+               uint32_t nParamType3, void *pParameter3, uint32_t nParamType4, void *pParameter4, uint32_t nParamType5, void *pParameter5, uint32_t nParamType6, void *pParameter6,
+               uint32_t nParamType7, void *pParameter7, uint32_t nParamType8, void *pParameter8, uint32_t nParamType9, void *pParameter9, uint32_t nParamType10, void *pParameter10,
+               uint32_t nParamType11, void *pParameter11, uint32_t nParamType12, void *pParameter12) -> void
     {
         if (s_AddItemCastSpellGrenadeAction && nActionId == 16)
         {
