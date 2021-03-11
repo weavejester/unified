@@ -17,6 +17,7 @@
 #include "API/CNWBaseItem.hpp"
 #include "API/CServerAIMaster.hpp"
 #include "API/CTwoDimArrays.hpp"
+#include "API/CNWSAreaOfEffectObject.hpp"
 #include "External/subprocess.hpp"
 #include <cmath>
 
@@ -960,6 +961,17 @@ static Hooks::Hook s_AddActionHook = Hooks::HookFunction(Functions::_ZN10CNWSObj
                                                 nParamType10, pParameter10, nParamType11, pParameter11, nParamType12, pParameter12);
         }
     }, Hooks::Order::Late);
+
+static Hooks::Hook s_MoveToPointHook = Hooks::HookFunction(Functions::_ZN22CNWSAreaOfEffectObject11MoveToPointERK6Vector,
+    (void*)+[](CNWSAreaOfEffectObject *thisPtr, const Vector &vNewPos) -> void
+    {
+        if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(thisPtr->m_oidLinkedToObj)))
+        {
+            thisPtr->SetPosition(vNewPos);
+            pCreature->m_aInSubAreas.AddUnique(thisPtr->m_idSelf);
+            thisPtr->UpdateSubAreas();
+        }
+    }, Hooks::Order::Final);
 
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
