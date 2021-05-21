@@ -4,8 +4,93 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 8193.20-HEAD
-https://github.com/nwnxee/unified/compare/build8193.20...HEAD
+## 8193.23-HEAD
+https://github.com/nwnxee/unified/compare/build8193.23...HEAD
+
+### Added
+- N/A
+
+##### New Plugins
+- N/A
+
+##### New NWScript Functions
+- Creature: RunEquip()
+- Creature: RunUnequip()
+
+### Changed
+- N/A
+
+### Deprecated
+- N/A
+
+### Removed
+- N/A
+
+### Fixed
+- N/A
+
+## 8193.22
+https://github.com/nwnxee/unified/compare/build8193.22...build8193.23
+
+### Added
+
+##### New NWScript Functions
+- Creature: DoItemCastSpell()
+- Object: GetLastSpellCastFeat()
+
+##### New Plugins
+- Compiler: Adds command-line compilation of nss files using the in-built compiler.
+
+### Changed
+- ***ABI BREAKING:*** Effect: Apply() switched the order in which the arguments are pushed and renamed the internal function name.
+- ***API BREAKING:*** Tileset: NWNX_Tileset_GetTilesetGroupTile() needs the tileset name and group index in addition to the tile index.
+
+## 8193.21
+https://github.com/nwnxee/unified/compare/build8193.21...build8193.22
+
+### Added
+- Events: added skippable event `NWNX_ON_CLIENT_LEVEL_UP_BEGIN_*` which fires when a player clicks the levelup button.
+- Events: added skippable event `NWNX_ON_POSSESS_FAMILIAR_*` which fires when a player attempts to possess their familiar.
+- Events: added skippable event `NWNX_ON_CHARACTER_SHEET_PERMITTED_*` which fires when a player attempts to view a charactersheet.
+- Events: added events `NWNX_ON_CHARACTER_SHEET_{OPEN|CLOSE}_*` which fire when a player opens or closes a charactersheeet.   
+- Tweaks: added `NWNX_TWEAKS_SEND_TLK_OVERRIDE_BEFORE_CHARGEN` to send TlkTable overrides before Character Generation.
+- Tweaks: added `NWNX_TWEAKS_RETAIN_LOCAL_VARIABLES_ON_ITEM_SPLIT` to retain local variables when an item is split.
+- Tweaks: added `NWNX_TWEAKS_PREVENT_ATTACK_BONUS_BYPASSING_REDUCTION` to make attack bonuses not bypass reductions (soak).
+
+##### New Plugins
+- NoStack: Adds `NWNX_NOSTACK_*` variables to control ability, skill, attack and/or saving throw bonuses stacking
+
+##### New NWScript Functions
+- Creature: Get{Armor|Shield}CheckPenalty()
+- Creature: {Get/Set}BypassEffectImmunity()
+- Creature: SetLastKiller()
+- Effect: GetTrueEffectCount()
+- Effect: GetTrueEffect()
+- Effect: RemoveEffectById()
+- Effect: ReplaceEffectByIndex()
+- Effect: Apply()
+- Player: SetTlkOverride()
+- Util: GetTTY()
+
+### Changed
+- The argument stack is now cleared after every NWNX function call.
+- Effect: (Un)PackEffect functions now can retrieve the id and Item Property Source. _**ABI breaking:** You will need to update nwnx_effect.nss if you are using these functions_.
+- Events: `NWNX_ON_UNPOSSESS_FAMILIAR_*` is now skippable. 
+- ItemProperty: UnpackIP now can retrieve the item property's id. _**ABI breaking:** You will need to update nwnx_itemprop.nss if you are using these functions_.
+- ***API BREAKING*** Damage: The NWNX_Damage_AttackEventData fields have changed their names: `iAttackType -> iWeaponAttackType`, `iAttackType_REAL -> iAttackType`.
+- ***API BREAKING*** Object: The `NWNX_Object_Export` function has had its arguments reordered.
+- ***ABI BREAKING:*** `nwnx.nss` has changed, please update all your `nwnx_*.nss` scripts including `nwnx.nss` and recompile. Existing compiled scripts will still work.
+
+### Removed
+- Data and Time plugins have been removed. Compatibility scripts are provided [here](Compatibility/)
+- ***API BREAKING*** Events: removed deprecated `NWNX_ON_{ENTER|EXIT}_STEALTH_*` events. Use `NWNX_ON_STEALTH_{ENTER|EXIT}_*`
+- Tweaks: removed deprecated `NWNX_TWEAKS_HIDE_DMS_ON_CHAR_LIST` environment variable. Use `NWNX_TWEAKS_HIDE_PLAYERS_ON_CHAR_LIST`
+
+### Fixed
+- Race: Effects vs Child Races are now functional. Battle Training Vs. * feats now apply their bonus against child races as well.
+
+## 8193.20
+https://github.com/nwnxee/unified/compare/build8193.20...build8193.21
 
 ### Added
 - Events: added `NWNX_ON_INPUT_EMOTE_*` events to InputEvents, this event fires when a player uses a radial menu emote.
@@ -57,11 +142,9 @@ https://github.com/nwnxee/unified/compare/build8193.20...HEAD
 - Data: The NWNX_Data array implementation is deprecated. SQLite implementation available.  Shim include file provided for compatibility.
 - Time: The NWNX_Time implementation is deprecated. A SQLite implementation is now in use. The include file inc_sqlite_time is provided.
 
-### Removed
-- N/A
-
 ### Fixed
 - Feedback: Fixed a memory leak when suppressing messages.
+- Utils: Fixed a memory corruption in `GetAsciiTableString()`
 
 ## 8193.16
 https://github.com/nwnxee/unified/compare/build8193.16...build8193.20

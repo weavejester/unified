@@ -275,10 +275,10 @@ NWNX_EXPORT ArgumentStack GetSunMoonColors(ArgumentStack&& args)
 
         switch (type)
         {
-            case 0: return pArea->m_nMoonAmbientColor;
-            case 1: return pArea->m_nMoonDiffuseColor;
-            case 2: return pArea->m_nSunAmbientColor;
-            case 3: return pArea->m_nSunDiffuseColor;
+            case 0: return (int32_t)pArea->m_nMoonAmbientColor;
+            case 1: return (int32_t)pArea->m_nMoonDiffuseColor;
+            case 2: return (int32_t)pArea->m_nSunAmbientColor;
+            case 3: return (int32_t)pArea->m_nSunDiffuseColor;
         }
     }
 
@@ -568,16 +568,7 @@ NWNX_EXPORT ArgumentStack ExportGIT(ArgumentStack&& args)
         const auto exportUUID = !!args.extract<int32_t>();
         const auto objectFilter = args.extract<int32_t>();
 
-        std::string alias;
-        try
-        {
-            alias = args.extract<std::string>();
-        }
-        catch (const std::runtime_error& e)
-        {
-            LOG_WARNING("NWNX_Area_ExportGIT() called without alias parameter, please update nwnx_area.nss");
-            alias = "NWNX";
-        }
+        auto alias = args.extract<std::string>();
 
         if (!Utils::IsValidCustomResourceDirectoryAlias(alias))
         {

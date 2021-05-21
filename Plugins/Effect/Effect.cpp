@@ -7,6 +7,8 @@
 #include "API/Functions.hpp"
 #include "API/CVirtualMachine.hpp"
 #include "API/CNWSObject.hpp"
+#include "API/CAppManager.hpp"
+#include "API/CServerExoApp.hpp"
 
 #include <string>
 
@@ -17,10 +19,88 @@ static std::string s_effectExpiredData;
 static uint32_t s_effectExpiredDepth;
 static ObjectID s_effectExpiredCreator;
 
-
-NWNX_EXPORT ArgumentStack PackEffect(ArgumentStack&& args)
+ArgumentStack ResolveUnpack(CGameEffect *eff, bool bLink)
 {
-    CGameEffect *eff = new CGameEffect(true);
+    ArgumentStack stack;
+
+    stack.push(std::to_string(eff->m_nID));
+    stack.push((int32_t)eff->m_nType);
+    stack.push((int32_t)eff->m_nSubType);
+    stack.push((float)eff->m_fDuration);
+    stack.push((int32_t)eff->m_nExpiryCalendarDay);
+    stack.push((int32_t)eff->m_nExpiryTimeOfDay);
+    stack.push((ObjectID)eff->m_oidCreator);
+    stack.push((int32_t)eff->m_nSpellId);
+    stack.push((int32_t)eff->m_bExpose);
+    stack.push((int32_t)eff->m_bShowIcon);
+    stack.push((int32_t)eff->m_nCasterLevel);
+
+    if (bLink)
+    {
+        CGameEffect *leftLinkEff = nullptr;
+        if (eff->m_pLinkLeft != nullptr)
+        {
+            leftLinkEff = new CGameEffect(true);
+            leftLinkEff->CopyEffect(eff->m_pLinkLeft, 0);
+        }
+        stack.push(leftLinkEff);
+        stack.push(eff->m_pLinkLeft != nullptr);
+
+        CGameEffect *rightLinkEff = nullptr;
+        if (eff->m_pLinkRight != nullptr)
+        {
+            rightLinkEff = new CGameEffect(true);
+            rightLinkEff->CopyEffect(eff->m_pLinkRight, 0);
+        }
+        stack.push(rightLinkEff);
+        stack.push(eff->m_pLinkRight != nullptr);
+    }
+
+    stack.push((int32_t)eff->m_nNumIntegers);
+    stack.push((int32_t)(eff->m_nNumIntegers > 0 ? eff->m_nParamInteger[0] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 1 ? eff->m_nParamInteger[1] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 2 ? eff->m_nParamInteger[2] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 3 ? eff->m_nParamInteger[3] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 4 ? eff->m_nParamInteger[4] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 5 ? eff->m_nParamInteger[5] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 6 ? eff->m_nParamInteger[6] : -1));
+    stack.push((int32_t)(eff->m_nNumIntegers > 7 ? eff->m_nParamInteger[7] : -1));
+
+    stack.push((float)eff->m_nParamFloat[0]);
+    stack.push((float)eff->m_nParamFloat[1]);
+    stack.push((float)eff->m_nParamFloat[2]);
+    stack.push((float)eff->m_nParamFloat[3]);
+
+    stack.push(std::string(eff->m_sParamString[0].CStr()));
+    stack.push(std::string(eff->m_sParamString[1].CStr()));
+    stack.push(std::string(eff->m_sParamString[2].CStr()));
+    stack.push(std::string(eff->m_sParamString[3].CStr()));
+    stack.push(std::string(eff->m_sParamString[4].CStr()));
+    stack.push(std::string(eff->m_sParamString[5].CStr()));
+
+    stack.push((ObjectID)eff->m_oidParamObjectID[0]);
+    stack.push((ObjectID)eff->m_oidParamObjectID[1]);
+    stack.push((ObjectID)eff->m_oidParamObjectID[2]);
+    stack.push((ObjectID)eff->m_oidParamObjectID[3]);
+
+    stack.push((float)eff->m_vParamVector[0].x);
+    stack.push((float)eff->m_vParamVector[0].y);
+    stack.push((float)eff->m_vParamVector[0].z);
+
+    stack.push((float)eff->m_vParamVector[1].x);
+    stack.push((float)eff->m_vParamVector[1].y);
+    stack.push((float)eff->m_vParamVector[1].z);
+
+    stack.push(std::string(eff->m_sCustomTag.CStr()));
+
+    stack.push(std::to_string(eff->m_nItemPropertySourceId));
+
+    return stack;
+}
+
+void ResolvePack(CGameEffect *eff, ArgumentStack& args, bool bReplace)
+{
+    eff->m_nItemPropertySourceId = std::stoull(args.extract<std::string>());
 
     eff->m_sCustomTag = args.extract<std::string>().c_str();
 
@@ -63,13 +143,20 @@ NWNX_EXPORT ArgumentStack PackEffect(ArgumentStack&& args)
     // Overwrite num integers from 8
     eff->m_nNumIntegers = args.extract<int32_t>();
 
-    auto bRightLinkValid = args.extract<int32_t>();
-    auto *pRightLink = args.extract<CGameEffect*>();
-    eff->m_pLinkRight = (bRightLinkValid) ? pRightLink : nullptr;
+    bool bUpdateLinks = false;
+    if (!bReplace)
+    {
+        auto bRightLinkValid = args.extract<int32_t>();
+        auto *pRightLink = args.extract<CGameEffect*>();
+        eff->m_pLinkRight = (bRightLinkValid) ? pRightLink : nullptr;
 
-    auto bLeftLinkValid = args.extract<int32_t>();
-    auto *pLeftLink = args.extract<CGameEffect*>();
-    eff->m_pLinkLeft = (bLeftLinkValid) ? pLeftLink : nullptr;
+        auto bLeftLinkValid = args.extract<int32_t>();
+        auto *pLeftLink = args.extract<CGameEffect*>();
+        eff->m_pLinkLeft = (bLeftLinkValid) ? pLeftLink : nullptr;
+
+        if (bLeftLinkValid || bRightLinkValid)
+            bUpdateLinks = true;
+    }
 
     eff->m_nCasterLevel       = args.extract<int32_t>();
     eff->m_bShowIcon          = args.extract<int32_t>();
@@ -80,88 +167,29 @@ NWNX_EXPORT ArgumentStack PackEffect(ArgumentStack&& args)
     eff->m_nExpiryCalendarDay = args.extract<int32_t>();
     eff->m_fDuration          = args.extract<float>();
     eff->m_nSubType           = args.extract<int32_t>();
-    eff->m_nType              = args.extract<int32_t>();
 
-    if (bLeftLinkValid || bRightLinkValid)
+    if (!bReplace)
+        eff->m_nType = args.extract<int32_t>();
+
+    if (bUpdateLinks)
         eff->UpdateLinked();
-
-    return Events::Arguments(eff);
 }
+
+NWNX_EXPORT ArgumentStack PackEffect(ArgumentStack&& args)
+{
+    CGameEffect *eff = new CGameEffect(true);
+
+    ResolvePack(eff, args, false);
+
+    return eff;
+}
+
 NWNX_EXPORT ArgumentStack UnpackEffect(ArgumentStack&& args)
 {
-    ArgumentStack stack;
-    auto eff = Events::ExtractArgument<CGameEffect*>(args);
+    auto eff = args.extract<CGameEffect*>();
+    SCOPEGUARD(Utils::DestroyGameEffect(eff));
 
-    Events::InsertArgument(stack, (int32_t)eff->m_nType);
-    Events::InsertArgument(stack, (int32_t)eff->m_nSubType);
-    Events::InsertArgument(stack, (float)eff->m_fDuration);
-    Events::InsertArgument(stack, (int32_t)eff->m_nExpiryCalendarDay);
-    Events::InsertArgument(stack, (int32_t)eff->m_nExpiryTimeOfDay);
-    Events::InsertArgument(stack, (ObjectID)eff->m_oidCreator);
-    Events::InsertArgument(stack, (int32_t)eff->m_nSpellId);
-    Events::InsertArgument(stack, (int32_t)eff->m_bExpose);
-    Events::InsertArgument(stack, (int32_t)eff->m_bShowIcon);
-    Events::InsertArgument(stack, (int32_t)eff->m_nCasterLevel);
-
-    // The DestroyGameEffect at the end of this function will delete any linked effects
-    // as well so we make a copy of the linked effects and send those for unpacking
-    CGameEffect *leftLinkEff = nullptr;
-    if (eff->m_pLinkLeft != nullptr)
-    {
-        leftLinkEff = new CGameEffect(true);
-        leftLinkEff->CopyEffect(eff->m_pLinkLeft, 0);
-    }
-    Events::InsertArgument(stack, leftLinkEff);
-    Events::InsertArgument(stack, eff->m_pLinkLeft != nullptr);
-
-    CGameEffect *rightLinkEff = nullptr;
-    if (eff->m_pLinkRight != nullptr)
-    {
-        rightLinkEff = new CGameEffect(true);
-        rightLinkEff->CopyEffect(eff->m_pLinkRight, 0);
-    }
-    Events::InsertArgument(stack, rightLinkEff);
-    Events::InsertArgument(stack, eff->m_pLinkRight != nullptr);
-
-    Events::InsertArgument(stack, (int32_t)eff->m_nNumIntegers);
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 0 ? eff->m_nParamInteger[0] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 1 ? eff->m_nParamInteger[1] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 2 ? eff->m_nParamInteger[2] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 3 ? eff->m_nParamInteger[3] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 4 ? eff->m_nParamInteger[4] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 5 ? eff->m_nParamInteger[5] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 6 ? eff->m_nParamInteger[6] : -1));
-    Events::InsertArgument(stack, (int32_t)(eff->m_nNumIntegers > 7 ? eff->m_nParamInteger[7] : -1));
-
-    Events::InsertArgument(stack, (float)eff->m_nParamFloat[0]);
-    Events::InsertArgument(stack, (float)eff->m_nParamFloat[1]);
-    Events::InsertArgument(stack, (float)eff->m_nParamFloat[2]);
-    Events::InsertArgument(stack, (float)eff->m_nParamFloat[3]);
-
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[0].CStr()));
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[1].CStr()));
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[2].CStr()));
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[3].CStr()));
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[4].CStr()));
-    Events::InsertArgument(stack, std::string(eff->m_sParamString[5].CStr()));
-
-    Events::InsertArgument(stack, (ObjectID)eff->m_oidParamObjectID[0]);
-    Events::InsertArgument(stack, (ObjectID)eff->m_oidParamObjectID[1]);
-    Events::InsertArgument(stack, (ObjectID)eff->m_oidParamObjectID[2]);
-    Events::InsertArgument(stack, (ObjectID)eff->m_oidParamObjectID[3]);
-
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[0].x);
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[0].y);
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[0].z);
-
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[1].x);
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[1].y);
-    Events::InsertArgument(stack, (float)eff->m_vParamVector[1].z);
-
-    Events::InsertArgument(stack, std::string(eff->m_sCustomTag.CStr()));
-
-    Utils::DestroyGameEffect(eff);
-    return stack;
+    return ResolveUnpack(eff, true);
 }
 
 NWNX_EXPORT ArgumentStack SetEffectExpiredScript(ArgumentStack&& args)
@@ -170,7 +198,7 @@ NWNX_EXPORT ArgumentStack SetEffectExpiredScript(ArgumentStack&& args)
             Hooks::HookFunction(API::Functions::_ZN21CNWSEffectListHandler15OnEffectRemovedEP10CNWSObjectP11CGameEffect,
             (void*)+[](CNWSEffectListHandler *pEffectListHandler, CNWSObject* pObject, CGameEffect* pEffect) -> int32_t
             {
-                CExoString &sScriptName = pEffect->m_sParamString[4];
+                CExoString& sScriptName = pEffect->m_sParamString[4];
                 if (!sScriptName.IsEmpty())
                 {
                     s_effectExpiredData = std::string(pEffect->m_sParamString[5].CStr());
@@ -186,7 +214,7 @@ NWNX_EXPORT ArgumentStack SetEffectExpiredScript(ArgumentStack&& args)
                 return pOnEffectRemovedHook->CallOriginal<int32_t>(pEffectListHandler, pObject, pEffect);
             }, Hooks::Order::Early);
 
-    auto effect = Events::ExtractArgument<CGameEffect*>(args);
+    auto effect = args.extract<CGameEffect*>();
 
     // Script name
     effect->m_sParamString[4] = args.extract<std::string>().c_str();
@@ -219,6 +247,9 @@ NWNX_EXPORT ArgumentStack ReplaceEffect(ArgumentStack&& args)
     auto eOld  = args.extract<CGameEffect*>();
     auto eNew  = args.extract<CGameEffect*>();
 
+    SCOPEGUARD(Utils::DestroyGameEffect(eOld));
+    SCOPEGUARD(Utils::DestroyGameEffect(eNew));
+
     ASSERT_OR_THROW(eNew->m_nType == eOld->m_nType);
 
     if (auto* obj = Utils::AsNWSObject(Utils::GetGameObject(objId)))
@@ -242,4 +273,61 @@ NWNX_EXPORT ArgumentStack ReplaceEffect(ArgumentStack&& args)
         }
     }
     return found;
+}
+
+NWNX_EXPORT ArgumentStack GetTrueEffectCount(ArgumentStack&& args)
+{
+    if (auto *pObject = Utils::PopObject(args))
+        return pObject->m_appliedEffects.num;
+
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack GetTrueEffect(ArgumentStack&& args)
+{
+    auto *pObject = Utils::PopObject(args);
+      ASSERT_OR_THROW(pObject);
+    auto it = args.extract<int32_t>();
+      ASSERT_OR_THROW(it >= 0);
+      ASSERT_OR_THROW(it < pObject->m_appliedEffects.num);
+
+    return ResolveUnpack(pObject->m_appliedEffects[it], false);
+}
+
+NWNX_EXPORT ArgumentStack ReplaceEffectByIndex(ArgumentStack&& args)
+{
+    if (auto *pObject = Utils::PopObject(args))
+    {
+        auto index = args.extract<int32_t>();
+          ASSERT_OR_THROW(index >= 0);
+          ASSERT_OR_THROW(index < pObject->m_appliedEffects.num);
+
+        ResolvePack(pObject->m_appliedEffects[index], args, true);
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack RemoveEffectById(ArgumentStack&& args)
+{
+    if (auto *pObject = Utils::PopObject(args))
+    {
+        uint64_t id = std::stoull(args.extract<std::string>());
+        return pObject->RemoveEffectById(id);
+    }
+
+    return false;
+}
+
+NWNX_EXPORT ArgumentStack Apply(ArgumentStack&& args)
+{
+    auto *pEffect = args.extract<CGameEffect*>();
+    auto *pObject = Utils::PopObject(args);
+
+    if(pObject && pEffect)
+    {
+        pObject->ApplyEffect(pEffect, false, true);
+    }
+
+    return {};
 }

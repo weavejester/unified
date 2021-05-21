@@ -27,9 +27,16 @@
 #include "API/CEffectIconObject.hpp"
 #include "API/CNWSArea.hpp"
 #include "API/CPathfindInformation.hpp"
+#include "API/CServerAIMaster.hpp"
+#include "API/CNWSSpellScriptData.hpp"
+#include "API/CNWSpellArray.hpp"
+#include "API/CNWSpell.hpp"
+#include "API/CVirtualMachine.hpp"
 #include "API/Constants.hpp"
 #include "API/Globals.hpp"
 #include "API/Functions.hpp"
+
+#include <cmath>
 
 using namespace NWNXLib;
 using namespace NWNXLib::API;
@@ -647,7 +654,7 @@ NWNX_EXPORT ArgumentStack GetMaxSpellSlots(ArgumentStack&& args)
         {
             auto& classInfo = pCreature->m_pStats->m_ClassInfo[i];
             if (classInfo.m_nClass == classId)
-                return pCreature->m_pStats->GetSpellGainWithBonus(i, level) + classInfo.m_nBonusSpellsList[level];
+                return (int32_t)(pCreature->m_pStats->GetSpellGainWithBonus(i, level) + classInfo.m_nBonusSpellsList[level]);
         }
     }
     return -1;
@@ -1793,28 +1800,25 @@ static uint8_t CNWSCreatureStats__GetClassLevel(CNWSCreatureStats* pThis, uint8_
 {
     auto retVal = s_GetClassLevelHook->CallOriginal<uint8_t>(pThis, nMultiClass, bUseNegativeLevel);
 
-    if (s_bAdjustCasterLevel || nMultiClass < pThis->m_nNumMultiClasses)
+    if (s_bAdjustCasterLevel && nMultiClass < pThis->m_nNumMultiClasses)
     {
         auto nClass = pThis->m_ClassInfo[nMultiClass].m_nClass;
 
         if (nClass != Constants::ClassType::Invalid)
         {
-            int32_t nModifier = 0;
             auto nLevelOverride = pThis->m_pBaseCreature->nwnxGet<int>("CASTERLEVEL_OVERRIDE" + std::to_string(nClass));
             if (nLevelOverride)
-            {
-                auto nLevel = std::max(nLevelOverride.value(), 255);
-                nModifier = nLevel - pThis->m_ClassInfo[nMultiClass].m_nLevel;
-            }
+                return std::clamp(nLevelOverride.value(), 0, 255);
 
+            int32_t nModifier = 0;
             auto nLevelModifier = pThis->m_pBaseCreature->nwnxGet<int>("CASTERLEVEL_MODIFIER" + std::to_string(nClass));
             if (nLevelModifier)
                 nModifier = nLevelModifier.value();
 
             //Make sure m_nLevel doesn't over/underflow
-            nModifier = std::min(nModifier, 255 - pThis->m_ClassInfo[nMultiClass].m_nLevel);
+            nModifier = std::min(nModifier, 255 - retVal);
             if (nModifier < 0)
-                nModifier = -std::min(-nModifier, static_cast<int32_t>(pThis->m_ClassInfo[nMultiClass].m_nLevel));
+                nModifier = -std::min(-nModifier, static_cast<int32_t>(retVal));
 
             retVal += nModifier;
         }
@@ -1825,7 +1829,7 @@ static uint8_t CNWSCreatureStats__GetClassLevel(CNWSCreatureStats* pThis, uint8_
 static void InitCasterLevelHooks()
 {
     s_GetClassLevelHook = Hooks::HookFunction(Functions::_ZN17CNWSCreatureStats13GetClassLevelEhi,
-                                       (void*)&CNWSCreatureStats__GetClassLevel, Hooks::Order::Early);
+                                       (void*)&CNWSCreatureStats__GetClassLevel, Hooks::Order::Earliest);
 
     static Hooks::Hook s_ExecuteCommandGetCasterLevelHook =
             Hooks::HookFunction(Functions::_ZN25CNWVirtualMachineCommands28ExecuteCommandGetCasterLevelEii,
@@ -2767,7 +2771,7 @@ NWNX_EXPORT ArgumentStack SetPersonalSpace(ArgumentStack&& args)
         if (pCreature->m_pcPathfindInformation)
         {
             pCreature->m_pcPathfindInformation->m_fPersonalSpace = fPerspace;
-            pCreature->m_pcPathfindInformation->ComputeStepTolerance();
+            pCreature->m_pcPathfindInformation->ComputeGridStepTolerance();
         }
     }
 
@@ -2864,4 +2868,217 @@ NWNX_EXPORT ArgumentStack SetPreferredAttackDistance(ArgumentStack&& args)
     }
 
     return {};
+}
+
+NWNX_EXPORT ArgumentStack GetArmorCheckPenalty(ArgumentStack&& args)
+{
+    if (auto* pCreature = Utils::PopCreature(args))
+    {
+        return pCreature->m_pStats->m_nArmorCheckPenalty;
+    }
+
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack GetShieldCheckPenalty(ArgumentStack&& args)
+{
+    if (auto* pCreature = Utils::PopCreature(args))
+    {
+        return pCreature->m_pStats->m_nShieldCheckPenalty;
+    }
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack SetBypassEffectImmunity(ArgumentStack&& args)
+{
+    static Hooks::Hook pGetEffectImmunity_hook =
+        Hooks::HookFunction(Functions::_ZN17CNWSCreatureStats17GetEffectImmunityEhP12CNWSCreaturei,
+        (void*)+[](CNWSCreatureStats *pThis, uint8_t nType, CNWSCreature * pVersus, int32_t bConsiderFeats) -> int32_t
+        {
+            int32_t BypassCounter = 0;
+
+            auto ReturnImmBypass = [&](CNWSCreature *pBypassCreature, std::string Bypass)
+            {
+                if (auto BypassChance = pBypassCreature->nwnxGet<int32_t>(Bypass))
+                {
+                    if (rand() % 100 < abs(BypassChance.value()))
+                    {
+                        if (BypassChance.value() > 0) //Positive being "Force not immune"
+                            BypassCounter -= 1;
+                        else //Negative being "Force as immune"
+                            BypassCounter += 1;
+                    }
+                }
+            };
+
+            ReturnImmBypass(pThis->m_pBaseCreature, "BYPASS_EFF_IMM_IN" + std::to_string(nType));
+            ReturnImmBypass(pVersus, "BYPASS_EFF_IMM_OUT" + std::to_string(nType));
+            ReturnImmBypass(pThis->m_pBaseCreature, "BYPASS_EFF_IMM_IN255"); //255 used for "all"
+            ReturnImmBypass(pVersus, "BYPASS_EFF_IMM_OUT255"); //255 used for "all"
+
+            if (BypassCounter > 0)
+                return true;
+            else if (BypassCounter < 0)
+                return false;
+            else
+                return pGetEffectImmunity_hook->CallOriginal<int32_t>(pThis, nType, pVersus, bConsiderFeats);
+        }, Hooks::Order::Late);
+
+    if (auto* pCreature = Utils::PopCreature(args))
+    {
+        const auto immunityType = args.extract<int32_t>();
+        const auto chance = args.extract<int32_t>();
+        const bool persist = !!args.extract<int32_t>();
+
+        std::string varname;
+        if (immunityType > 0)
+            varname = "BYPASS_EFF_IMM_OUT" + std::to_string(immunityType);
+        else
+            varname = "BYPASS_EFF_IMM_IN" + std::to_string(abs(immunityType));
+
+        if (chance)
+            pCreature->nwnxSet(varname, chance, persist);
+        else
+            pCreature->nwnxRemove(varname);
+    }
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack GetBypassEffectImmunity(ArgumentStack&& args)
+{
+    if (auto* pCreature = Utils::PopCreature(args))
+    {
+        auto immunityType = args.extract<int32_t>();
+
+        std::string varname;
+        if (immunityType > 0)
+            varname = "BYPASS_EFF_IMM_OUT" + std::to_string(immunityType);
+        else
+            varname = "BYPASS_EFF_IMM_IN" + std::to_string(abs(immunityType));
+
+        return pCreature->nwnxGet<int32_t>(varname).value_or(0);
+    }
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack SetLastKiller(ArgumentStack&& args)
+{
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        auto killerId = args.extract<ObjectID>();
+        pCreature->m_oidKiller = killerId;
+    }
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack DoItemCastSpell(ArgumentStack&& args)
+{
+    if (auto *pCaster = Utils::PopCreature(args))
+    {
+        auto oidTarget = args.extract<ObjectID>();
+        auto oidArea = args.extract<ObjectID>();
+        auto x = args.extract<float>();
+          ASSERT_OR_THROW(x >= 0.0f);
+        auto y = args.extract<float>();
+          ASSERT_OR_THROW(y >= 0.0f);
+        auto z = args.extract<float>();
+          ASSERT_OR_THROW(z >= 0.0f);
+        auto spellID = args.extract<int32_t>();
+          ASSERT_OR_THROW(spellID >= 0);
+        auto casterLevel = args.extract<int32_t>();
+          ASSERT_OR_THROW(casterLevel >= 0);
+        auto delay = args.extract<float>();
+          ASSERT_OR_THROW(delay >= 0.0f);
+        auto projectilePathType = args.extract<int32_t>();
+        auto projectileSpellID = args.extract<int32_t>();
+
+        auto *pSpell = Globals::Rules()->m_pSpellArray->GetSpell(spellID);
+        auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
+        auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
+
+        if (!pSpell || (!pTarget && !pArea))
+            return {};
+
+        ObjectID oidTargetArea = pTarget ? pTarget->m_oidArea : pArea->m_idSelf;
+
+        if (pCaster->m_oidArea != oidTargetArea)
+            return {};
+
+        Vector vTargetPosition = pTarget ? pTarget->m_vPosition : Vector(x, y, z);
+        auto delayMs = (int32_t)(delay * 1000);
+
+        if (delayMs > 0)
+        {
+            switch (projectilePathType)
+            {
+                case 0: case 1:  case 2: case 3: break;
+                case 4: projectilePathType = 5; break;
+                default: projectilePathType = 0; break;
+            }
+
+            pCaster->BroadcastSafeProjectile(pCaster->m_idSelf, pTarget ? pTarget->m_idSelf : Constants::OBJECT_INVALID,
+                                             pCaster->m_vPosition, vTargetPosition, delayMs,
+                                             projectilePathType == 0 ? 6 : 7,
+                                             Globals::Rules()->m_pSpellArray->GetSpell(projectileSpellID) ? projectileSpellID : spellID,
+                                             1, projectilePathType);
+        }
+
+        auto *pSpellScriptData = new CNWSSpellScriptData;
+        pSpellScriptData->m_nSpellId = spellID;
+        pSpellScriptData->m_nFeatId = 0xFFFF;
+        pSpellScriptData->m_oidCaster = pCaster->m_idSelf;
+        pSpellScriptData->m_oidTarget = pTarget ? pTarget->m_idSelf : Constants::OBJECT_INVALID;
+        pSpellScriptData->m_oidItem = Constants::OBJECT_INVALID;
+        pSpellScriptData->m_vTargetPosition = vTargetPosition;
+        pSpellScriptData->m_sScript = pSpell->m_sImpactScript;
+        pSpellScriptData->m_oidArea = oidTargetArea;
+        pSpellScriptData->m_nItemCastLevel = casterLevel;
+
+        Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->AddEventDeltaTime(
+                0, delayMs, pCaster->m_idSelf, pCaster->m_idSelf, Constants::Event::ItemOnHitSpellImpact, (void*)pSpellScriptData);
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack RunEquip(ArgumentStack&& args)
+{
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        const auto oidItem = args.extract<ObjectID>();
+          ASSERT_OR_THROW(oidItem != Constants::OBJECT_INVALID);
+        auto inventorySlot = args.extract<int32_t>();
+          ASSERT_OR_THROW(inventorySlot >= 0);
+          ASSERT_OR_THROW(inventorySlot <= Constants::InventorySlot::MAX);
+
+        if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem)))
+        {
+            inventorySlot = (int32_t)std::pow(2, inventorySlot);
+            return pCreature->RunEquip(pItem->m_idSelf, inventorySlot);
+        }
+    }
+    return false;
+}
+
+NWNX_EXPORT ArgumentStack RunUnequip(ArgumentStack&& args)
+{
+    int32_t retVal = false;
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        const auto oidItem = args.extract<ObjectID>();
+          ASSERT_OR_THROW(oidItem != Constants::OBJECT_INVALID);
+
+        if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem)))
+        {
+            // The module unequip event runs instantly so we have to temporarily change the event script id of the calling script
+            // otherwise GetCurrentlyRunningEvent() doesn't return the right id
+            int32_t previousScriptEventId = Globals::VirtualMachine()->m_pVirtualMachineScript[0].m_nScriptEventID;
+            Globals::VirtualMachine()->m_pVirtualMachineScript[0].m_nScriptEventID = 3016;
+
+            retVal = pCreature->RunUnequip(pItem->m_idSelf, Constants::OBJECT_INVALID, -1, -1, false);
+
+            Globals::VirtualMachine()->m_pVirtualMachineScript[0].m_nScriptEventID = previousScriptEventId;
+        }
+    }
+    return retVal;
 }

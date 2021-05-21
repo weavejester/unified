@@ -16,49 +16,10 @@
 %pragma(csharp) imclassclassmodifiers="public unsafe class"
 %typemap(csclassmodifiers) SWIGTYPE "public unsafe class"
 
-#undef SWIG_CSBODY_PROXY
-%define SWIG_CSBODY_PROXY(PTRCTOR_VISIBILITY, CPTR_VISIBILITY, TYPE...)
-// Proxy classes (base classes, ie, not derived classes)
-%typemap(csbody) TYPE %{
-  private global::System.Runtime.InteropServices.HandleRef swigCPtr;
-  protected bool swigCMemOwn;
+// C# Wrapper Class Extensions
+%define SWIG_DOTNET_EXTENSIONS
 
-  PTRCTOR_VISIBILITY $csclassname(global::System.IntPtr cPtr, bool cMemoryOwn) {
-    swigCMemOwn = cMemoryOwn;
-    swigCPtr = new global::System.Runtime.InteropServices.HandleRef(this, cPtr);
-  }
-
-  PTRCTOR_VISIBILITY $csclassname(void* cPtr, bool cMemoryOwn) {
-    swigCMemOwn = cMemoryOwn;
-    swigCPtr = new global::System.Runtime.InteropServices.HandleRef(this, (global::System.IntPtr)cPtr);
-  }
-
-  CPTR_VISIBILITY static global::System.Runtime.InteropServices.HandleRef getCPtr($csclassname obj) {
-    return (obj == null) ? new global::System.Runtime.InteropServices.HandleRef(null, global::System.IntPtr.Zero) : obj.swigCPtr;
-  }
-%}
-
-// Derived proxy classes
-%typemap(csbody_derived) TYPE %{
-  private global::System.Runtime.InteropServices.HandleRef swigCPtr;
-
-  PTRCTOR_VISIBILITY $csclassname(global::System.IntPtr cPtr, bool cMemoryOwn) : base($imclassname.$csclazznameSWIGUpcast(cPtr), cMemoryOwn) {
-    swigCPtr = new global::System.Runtime.InteropServices.HandleRef(this, cPtr);
-  }
-
-  PTRCTOR_VISIBILITY $csclassname(void* cPtr, bool cMemoryOwn) : base($imclassname.$csclazznameSWIGUpcast((global::System.IntPtr)cPtr), cMemoryOwn) {
-    swigCPtr = new global::System.Runtime.InteropServices.HandleRef(this, (global::System.IntPtr)cPtr);
-  }
-
-  CPTR_VISIBILITY static global::System.Runtime.InteropServices.HandleRef getCPtr($csclassname obj) {
-    return (obj == null) ? new global::System.Runtime.InteropServices.HandleRef(null, global::System.IntPtr.Zero) : obj.swigCPtr;
-  }
-%}
-%enddef
-
-// Extensions
-%typemap(cscode) SWIGTYPE, SWIGTYPE *, SWIGTYPE &, SWIGTYPE (CLASS::*) %{
-  public System.IntPtr Pointer {
+  public global::System.IntPtr Pointer {
     get {
       return swigCPtr.Handle;
     }
@@ -68,8 +29,12 @@
     return (void*)self.swigCPtr.Handle;
   }
 
-  public static implicit operator System.IntPtr($csclassname self) {
-    return self.swigCPtr.Handle;
+  public static unsafe $csclassname FromPointer(void* pointer, bool memoryOwn = false) {
+    return pointer != null ? new $csclassname((global::System.IntPtr)pointer, memoryOwn) : null;
+  }
+
+  public static $csclassname FromPointer(global::System.IntPtr pointer, bool memoryOwn = false) {
+    return pointer != global::System.IntPtr.Zero ? new $csclassname(pointer, memoryOwn) : null;
   }
 
   public bool Equals($csclassname other) {
@@ -99,99 +64,57 @@
   public static bool operator !=($csclassname left, $csclassname right) {
     return !Equals(left, right);
   }
-%}
+%enddef
 
-%typemap(cscode) CExoString %{
-  public System.IntPtr Pointer {
-    get {
-      return swigCPtr.Handle;
-    }
-  }
+// C# Wrapper Class Extensions - Default
+%typemap(cscode, noblock=1) SWIGTYPE, SWIGTYPE *, SWIGTYPE &, SWIGTYPE (CLASS::*) {
+SWIG_DOTNET_EXTENSIONS
+}
 
-  public static implicit operator void*($csclassname self) {
-    return (void*)self.swigCPtr.Handle;
-  }
-
-  public static implicit operator System.IntPtr($csclassname self) {
-    return self.swigCPtr.Handle;
-  }
-
-  public bool Equals($csclassname other) {
-    if (ReferenceEquals(null, other)) {
-      return false;
-    }
-
-    if (ReferenceEquals(this, other)) {
-      return true;
-    }
-
-    return Pointer.Equals(other.Pointer);
-  }
-
-  public override bool Equals(object obj) {
-    return ReferenceEquals(this, obj) || obj is $csclassname other && Equals(other);
-  }
-
-  public override int GetHashCode() {
-    return swigCPtr.GetHashCode();
-  }
-
-  public static bool operator ==($csclassname left, $csclassname right) {
-    return Equals(left, right);
-  }
-
-  public static bool operator !=($csclassname left, $csclassname right) {
-    return !Equals(left, right);
-  }
+// C# Wrapper Class Extensions - CExoString
+%typemap(cscode, noblock=1) CExoString {
+SWIG_DOTNET_EXTENSIONS
 
   public override string ToString() {
     return CStr();
   }
-%}
+}
 
-%define MarshalType(CTYPE, CSTYPE)
-%typemap(ctype) CTYPE*,CTYPE&,CTYPE[ANY] "CTYPE*"
-%typemap(imtype) CTYPE*,CTYPE& "global::System.IntPtr"
-%typemap(imtype,
-         inattributes="[global::System.Runtime.InteropServices.In, global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.LPArray)]",
-         out="CSTYPE*") CTYPE[ANY] "CSTYPE[]"
+%define MarshalType(CTYPE, CSTYPE, CSARRAYTYPE)
+%typemap(ctype)  CTYPE*,CTYPE&,CTYPE[ANY] "CTYPE*"
+%typemap(imtype) CTYPE*,CTYPE&,CTYPE[ANY] "global::System.IntPtr"
 %typemap(cstype) CTYPE*,CTYPE& "CSTYPE*"
-%typemap(cstype) CTYPE[ANY] "CSTYPE[]"
+%typemap(cstype) CTYPE[ANY] "NativeArray<CSARRAYTYPE>"
 %typemap(csin)   CTYPE*,CTYPE& "(global::System.IntPtr)$csinput"
 %typemap(csin)   CTYPE[ANY] "$csinput"
 %typemap(in)     CTYPE*,CTYPE&,CTYPE[ANY] %{ $1 = $input; %}
 %typemap(out)    CTYPE*,CTYPE& %{ $result = $1; %}
 
-%typemap(csout, excode=SWIGEXCODE) CTYPE*,CTYPE& { 
-    System.IntPtr retVal = $imcall;$excode
+%typemap(csout, excode=SWIGEXCODE) CTYPE*,CTYPE& {
+    global::System.IntPtr retVal = $imcall;$excode
     return (CSTYPE*)retVal;
   }
-%typemap(csvarout, excode=SWIGEXCODE2) CTYPE*,CTYPE& %{ 
+
+%typemap(csvarout, excode=SWIGEXCODE2) CTYPE*,CTYPE& %{
     get {
-        System.IntPtr retVal = $imcall;$excode 
-        return (CSTYPE*)retVal; 
+        global::System.IntPtr retVal = $imcall;$excode
+        return (CSTYPE*)retVal;
     }
 %}
+
 %typemap(csout, excode=SWIGEXCODE) CTYPE[ANY] {
-    CSTYPE* arrayPtr = $imcall;$excode
-    CSTYPE[] retVal = new CSTYPE[$1_dim0];
+    global::System.IntPtr arrayPtr = $imcall;$excode
+    NativeArray<CSARRAYTYPE> retVal = new NativeArray<CSARRAYTYPE>(arrayPtr, $1_dim0);
 
-    for(int i = 0; i < $1_dim0; i++) {
-      retVal[i] = arrayPtr[i];
-    }
-
-    return retVal;
+    return retVal; // CSTYPE[$1_dim0]
   }
-%typemap(csvarout, excode=SWIGEXCODE2) CTYPE[ANY] %{ 
+
+%typemap(csvarout, excode=SWIGEXCODE2) CTYPE[ANY] %{
     get {
-      CSTYPE* arrayPtr = $imcall;$excode
-      CSTYPE[] retVal = new CSTYPE[$1_dim0];
+      global::System.IntPtr arrayPtr = $imcall;$excode
+      NativeArray<CSARRAYTYPE> retVal = new NativeArray<CSARRAYTYPE>(arrayPtr, $1_dim0);
 
-      for(int i = 0; i < $1_dim0; i++) {
-        retVal[i] = arrayPtr[i];
-      }
-
-      return retVal;
+      return retVal; // CSTYPE[$1_dim0]
     }
 %}
 %enddef
@@ -204,14 +127,15 @@
 %typemap(in)     CTYPE*,CTYPE& %{ $1 = $input; %}
 %typemap(out)    CTYPE*,CTYPE& %{ $result = $1; %}
 
-%typemap(csout, excode=SWIGEXCODE) CTYPE*,CTYPE& { 
-    System.IntPtr retVal = $imcall;$excode
+%typemap(csout, excode=SWIGEXCODE) CTYPE*,CTYPE& {
+    global::System.IntPtr retVal = $imcall;$excode
     return (CSTYPE*)retVal;
   }
-%typemap(csvarout, excode=SWIGEXCODE2) CTYPE*,CTYPE& %{ 
+
+%typemap(csvarout, excode=SWIGEXCODE2) CTYPE*,CTYPE& %{
     get {
-        System.IntPtr retVal = $imcall;$excode 
-        return (CSTYPE*)retVal; 
+        global::System.IntPtr retVal = $imcall;$excode
+        return (CSTYPE*)retVal;
     }
 %}
 %enddef
@@ -224,14 +148,18 @@
     NAME ret = (cPtr == global::System.IntPtr.Zero) ? null : new NAME(cPtr, false);
     return ret;
   }
-%typemap(csvarout, excode=SWIGEXCODE2) TYPE[ANY] %{ 
+
+%typemap(csvarout, excode=SWIGEXCODE2) TYPE[ANY] %{
     get {
         global::System.IntPtr cPtr = $imcall;$excode;
         NAME ret = (cPtr == global::System.IntPtr.Zero) ? null : new NAME(cPtr, false);
         return ret;
     }
 %}
-%typemap(cscode) NAME %{
+
+%typemap(cscode, noblock=1) NAME {
+SWIG_DOTNET_EXTENSIONS
+
   public CSTYPE this[int index] {
     get {
       return GetItem(index);
@@ -240,49 +168,7 @@
       SetItem(index, value);
     }
   }
-
-  public System.IntPtr Pointer {
-    get {
-      return swigCPtr.Handle;
-    }
-  }
-
-  public static implicit operator void*($csclassname self) {
-    return (void*)self.swigCPtr.Handle;
-  }
-
-  public static implicit operator System.IntPtr($csclassname self) {
-    return self.swigCPtr.Handle;
-  }
-
-  public bool Equals($csclassname other) {
-    if (ReferenceEquals(null, other)) {
-      return false;
-    }
-
-    if (ReferenceEquals(this, other)) {
-      return true;
-    }
-
-    return Pointer.Equals(other.Pointer);
-  }
-
-  public override bool Equals(object obj) {
-    return ReferenceEquals(this, obj) || obj is $csclassname other && Equals(other);
-  }
-
-  public override int GetHashCode() {
-    return swigCPtr.Handle.GetHashCode();
-  }
-
-  public static bool operator ==($csclassname left, $csclassname right) {
-    return Equals(left, right);
-  }
-
-  public static bool operator !=($csclassname left, $csclassname right) {
-    return !Equals(left, right);
-  }
-%}
+}
 %enddef
 
 %define DefineArray(TYPE, CSTYPE, NAME)
@@ -345,27 +231,24 @@ static NAME* FromPointer(TYPE *ptr) {
 };
 %enddef
 
-// Expose Managed Constructor
-SWIG_CSBODY_PROXY(public, internal, SWIGTYPE)
-
 // Marshal native types to managed types.
-MarshalType(void, void)
-MarshalType(void*, void*) // void**
-MarshalType(signed char, sbyte)
-MarshalType(char*, char*) // char**
-MarshalType(short int, short)
-MarshalType(int, int)
-MarshalType(int*, int*) // int**
-MarshalType(float, float)
-MarshalType(float*, float*) //float**
-MarshalType(float**, float**) //float***
-MarshalType(long, long)
-MarshalType(unsigned char, byte)
-MarshalType(unsigned char*, byte*) //unsigned char**
-MarshalType(unsigned short int, ushort)
-MarshalType(unsigned int, uint)
-MarshalType(unsigned int*, uint*) //unsigned int**
-MarshalType(unsigned long, ulong)
+MarshalType(void, void, global::System.IntPtr)
+MarshalType(void*, void*, global::System.IntPtr) // void**
+MarshalType(signed char, sbyte, sbyte)
+MarshalType(char*, char*, global::System.IntPtr) // char**
+MarshalType(short int, short, short)
+MarshalType(int, int, int)
+MarshalType(int*, int*, global::System.IntPtr) // int**
+MarshalType(float, float, float)
+MarshalType(float*, float*, global::System.IntPtr) //float**
+MarshalType(float**, float**, global::System.IntPtr) //float***
+MarshalType(long, long, long)
+MarshalType(unsigned char, byte, byte)
+MarshalType(unsigned char*, byte*, global::System.IntPtr) //unsigned char**
+MarshalType(unsigned short int, ushort, ushort)
+MarshalType(unsigned int, uint, uint)
+MarshalType(unsigned int*, uint*, global::System.IntPtr) //unsigned int**
+MarshalType(unsigned long, ulong, ulong)
 
 // Marshal pointer to pointer types.
 MarshalPtrPtr(C2DA*, void*)
@@ -382,7 +265,7 @@ MarshalPtrPtr(CFeatUseListEntry*, void*)
 MarshalPtrPtr(CGameEffect*, void*)
 MarshalPtrPtr(CGameObject*, void*)
 MarshalPtrPtr(CGameObjectArrayNode*, void*)
-MarshalPtrPtr(CItemRepository*, System.IntPtr)
+MarshalPtrPtr(CItemRepository*, global::System.IntPtr)
 MarshalPtrPtr(CKeyTableEntry*, void*)
 MarshalPtrPtr(CLastUpdateObject*, void*)
 MarshalPtrPtr(CLastUpdatePartyObject*, void*)
@@ -573,12 +456,6 @@ MarshalPtrPtr(Task::CExoTaskManager*, void*)
 %template(CResHelperNDB) CResHelper<CResNDB,2064>;
 %template(CResHelperNCS) CResHelper<CResNCS,2010>;
 
-// Add function defines to subclass in module.
-%pragma(csharp) modulecode="public static class Functions {\n"
-%include "Functions.hpp"
-%include "FunctionsLinux.hpp"
-%pragma(csharp) modulecode="}\n"
-
 // Array wrappers for structures
 MapArray(CExoArrayList<CNWSStats_Spell *>, CExoArrayListCNWSStatsSpellPtr, CExoArrayListCNWSStatsSpellPtrArray)
 MapArray(CExoArrayList<CSpell_Add *>, CExoArrayListCSpellAddPtr, CExoArrayListCSpellAddPtrArray)
@@ -601,6 +478,13 @@ MapArray(CVirtualMachineScript, CVirtualMachineScript, CVirtualMachineScriptArra
 MapArray(Vector, Vector, VectorArray);
 
 MapArray(CNWSTile, CNWSTile, CNWSTileArray);
+MapArray(CNWSQuickbarButton, CNWSQuickbarButton, CNWSQuickbarButtonArray);
+MapArray(CTlkTableToken, CTlkTableToken, CTlkTableTokenArray);
+MapArray(CTlkTableTokenCustom, CTlkTableTokenCustom, CTlkTableTokenCustomArray);
+MapArray(CNWSDialogEntry, CNWSDialogEntry, CNWSDialogEntryArray);
+MapArray(CNWSDialogReply, CNWSDialogReply, CNWSDialogReplyArray);
+MapArray(CNWSDialogLinkEntry, CNWSDialogLinkEntry, CNWSDialogLinkEntryArray);
+MapArray(CNWSDialogLinkReply, CNWSDialogLinkReply, CNWSDialogLinkReplyArray);
 
 %include "NWNXLib.i"
 
@@ -626,8 +510,18 @@ DefineArray(CVirtualMachineScript, CVirtualMachineScript, CVirtualMachineScriptA
 DefineArray(Vector, Vector, VectorArray);
 
 DefineArrayPtr(CNWSTile, CNWSTile, CNWSTileArray);
+DefineArrayPtr(CNWSQuickbarButton, CNWSQuickbarButton, CNWSQuickbarButtonArray);
+DefineArrayPtr(CTlkTableToken, CTlkTableToken, CTlkTableTokenArray);
+DefineArrayPtr(CTlkTableTokenCustom, CTlkTableTokenCustom, CTlkTableTokenCustomArray);
+DefineArrayPtr(CNWSDialogEntry, CNWSDialogEntry, CNWSDialogEntryArray);
+DefineArrayPtr(CNWSDialogReply, CNWSDialogReply, CNWSDialogReplyArray);
+DefineArrayPtr(CNWSDialogLinkEntry, CNWSDialogLinkEntry, CNWSDialogLinkEntryArray);
+DefineArrayPtr(CNWSDialogLinkReply, CNWSDialogLinkReply, CNWSDialogLinkReplyArray);
 
 // Std templates
 %template(VectorNWSyncAdvertisementManifest) std::vector<NWSyncAdvertisementManifest>;
+%template(VectorCExoString) std::vector<CExoString>;
 %template(UnorderedMapCExoStringCNWSScriptVar) std::unordered_map<CExoString, CNWSScriptVar>;
+%template(UnorderedMapUInt32CExoString) std::unordered_map<uint32_t, CExoString>;
+%template(UnorderedMapUInt32STR_RES) std::unordered_map<uint32_t, STR_RES>;
 %template(UnorderedMapStringCachedRulesetEntry) std::unordered_map<std::string, CachedRulesetEntry>;

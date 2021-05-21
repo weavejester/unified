@@ -171,6 +171,7 @@ namespace String
     std::vector<std::string> Split(const std::string& str, char delim, bool skipEmpty = true, bool trimmed = true);
 
     std::string Basename(const std::string& path);
+    bool EndsWith(const std::string& str, const std::string& suffix);
 }
 
 namespace Utils
@@ -226,7 +227,7 @@ namespace Utils
     void AddDestroyObjectEvent(ObjectID oid);
 
     // Returns the SP
-    int PushScriptContext(ObjectID oid, bool valid = true);
+    int PushScriptContext(ObjectID oid, int32_t scriptEventId, bool valid = true);
     int PopScriptContext();
 
     void SetOrientation(CNWSObject *pObject, float facing);
