@@ -55,7 +55,7 @@ static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(Functions::_ZN12CNW
         };
 
         if (pCreature->GetBlind() || pCreature->m_nState == 6/*Stunned*/ ||
-            (!IsAIState(0x0002/*Arms*/) && !IsAIState(0x0004/*Legs*/)) ||
+            (!IsAIState(Constants::AIState::CanUseLegs) && !IsAIState(Constants::AIState::CanUseHands)) ||
             (pCreature->m_nAnimation == Constants::Animation::KnockdownFront || pCreature->m_nAnimation == Constants::Animation::KnockdownButt))
             return true;
 
@@ -395,7 +395,7 @@ static Hooks::Hook s_DoCombatStepHook = Hooks::HookFunction(Functions::_ZN12CNWS
         CNWSCombatRound *pCombatRound = pThis->m_pcCombatRound;
 
         auto IsAIState = [&](uint16_t nAIState) -> bool { return ((pThis->m_nAIState & nAIState) == nAIState); };
-        if (!pTarget || !pThis->GetArea() || !IsAIState(0x0004/*Legs*/))
+        if (!pTarget || !pThis->GetArea() || !IsAIState(Constants::AIState::CanUseLegs))
         {
             pCombatRound->m_bRoundPaused = false;
             pCombatRound->SetPauseTimer(0);
@@ -668,25 +668,19 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions
             {
                 if (pThis->m_pStats->HasFeat(Constants::Feat::GreatCleave))
                 {
-                    ObjectID oidTarget = pThis->GetNearestEnemy(
-                            pThis->MaxAttackRange(Constants::OBJECT_INVALID, false, true), pCreature->m_idSelf);
-
-                    if (Utils::AsNWSCreature(Utils::GetGameObject(oidTarget)))
+                    if (auto *pNewTarget = pThis->GetNewCombatTarget(pTarget->m_idSelf))
                     {
-                        pCombatRound->m_oidNewAttackTarget = oidTarget;
-                        pCombatRound->AddCleaveAttack(oidTarget, true);
+                        pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
+                        pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf, true);
                         pThis->m_bPassiveAttackBehaviour = true;
                     }
                 }
                 else if ((pThis->m_pStats->HasFeat(Constants::Feat::Cleave) && pCombatRound->m_nCleaveAttacks > 0))
                 {
-                    ObjectID oidTarget = pThis->GetNearestEnemy(
-                            pThis->MaxAttackRange(Constants::OBJECT_INVALID, false, true), pCreature->m_idSelf);
-
-                    if (Utils::AsNWSCreature(Utils::GetGameObject(oidTarget)))
+                    if (auto *pNewTarget = pThis->GetNewCombatTarget(pTarget->m_idSelf))
                     {
-                        pCombatRound->m_oidNewAttackTarget = oidTarget;
-                        pCombatRound->AddCleaveAttack(oidTarget);
+                        pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
+                        pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf);
                         pThis->m_bPassiveAttackBehaviour = true;
                         pCombatRound->m_nCleaveAttacks--;
                     }
@@ -961,18 +955,6 @@ static Hooks::Hook s_AddActionHook = Hooks::HookFunction(Functions::_ZN10CNWSObj
                                                 nParamType10, pParameter10, nParamType11, pParameter11, nParamType12, pParameter12);
         }
     }, Hooks::Order::Late);
-
-static Hooks::Hook s_MoveToPointHook = Hooks::HookFunction(Functions::_ZN22CNWSAreaOfEffectObject11MoveToPointERK6Vector,
-    (void*)+[](CNWSAreaOfEffectObject *thisPtr, const Vector &vNewPos) -> void
-    {
-        if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(thisPtr->m_oidLinkedToObj)))
-        {
-            thisPtr->SetPosition(vNewPos);
-            pCreature->m_aInSubAreas.AddUnique(thisPtr->m_idSelf);
-            thisPtr->UpdateSubAreas();
-        }
-    }, Hooks::Order::Final);
-
 
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {

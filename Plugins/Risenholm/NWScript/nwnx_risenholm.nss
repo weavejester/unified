@@ -33,33 +33,29 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
 {
-    string sFunc = "SetPCLikeStatus";
+    NWNX_PushArgumentInt(bSetReciprocal);
+    NWNX_PushArgumentInt(bNewAttitude);
+    NWNX_PushArgumentObject(oTargetPC);
+    NWNX_PushArgumentObject(oSourcePC);
 
-    NWNX_PushArgumentInt(NWNX_Risenholm, sFunc, bSetReciprocal);
-    NWNX_PushArgumentInt(NWNX_Risenholm, sFunc, bNewAttitude);
-    NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oTargetPC);
-    NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oSourcePC);
-
-    NWNX_CallFunction(NWNX_Risenholm, sFunc);
+    NWNX_CallFunction(NWNX_Risenholm, "SetPCLikeStatus");
 }
 
 void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature)
 {
-    string sFunc = "ForceUpdateMageArmorStats";
-    NWNX_PushArgumentObject(NWNX_Risenholm, sFunc, oCreature);
-    NWNX_CallFunction(NWNX_Risenholm, sFunc);
+    NWNX_PushArgumentObject(oCreature);
+    NWNX_CallFunction(NWNX_Risenholm, "ForceUpdateMageArmorStats");
 }
 
 string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2="", string sArg3="", string sArg4="", string sArg5="", string sArg6="")
 {
-    string sFunc = "ExecuteCommand";
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg6);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg5);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg4);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg3);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg2);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sArg1);
-    NWNX_PushArgumentString(NWNX_Risenholm, sFunc, sCmd);
+    NWNX_PushArgumentString(sArg6);
+    NWNX_PushArgumentString(sArg5);
+    NWNX_PushArgumentString(sArg4);
+    NWNX_PushArgumentString(sArg3);
+    NWNX_PushArgumentString(sArg2);
+    NWNX_PushArgumentString(sArg1);
+    NWNX_PushArgumentString(sCmd);
     NWNX_CallFunction(NWNX_Risenholm, sFunc);
-    return NWNX_GetReturnValueString(NWNX_Risenholm, sFunc);
+    return NWNX_GetReturnValueString(NWNX_Risenholm, "ExecuteCommand");
 }
