@@ -16,6 +16,11 @@
 %pragma(csharp) imclassclassmodifiers="public unsafe class"
 %typemap(csclassmodifiers) SWIGTYPE "public unsafe class"
 
+namespace std {
+%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]") string "string"
+%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]") const string & "string"
+}
+
 // C# Wrapper Class Extensions
 %define SWIG_DOTNET_EXTENSIONS
 
@@ -75,11 +80,35 @@ SWIG_DOTNET_EXTENSIONS
 %typemap(cscode, noblock=1) CExoString {
 SWIG_DOTNET_EXTENSIONS
 
+  public CExoString(string source) : this(source.GetNullTerminatedString()) {
+  }
+
+  /// <summary>
+  /// Converts this CExoString to a C# string.
+  /// </summary>
+  /// <returns>The equivalent C# string for this CExoString.</returns>
   public override string ToString() {
-    return CStr();
+    return StringHelper.ReadNullTerminatedString(CStr());
   }
 }
 
+// C# Wrapper Class Extensions - CResRef
+%typemap(cscode, noblock=1) CResRef {
+SWIG_DOTNET_EXTENSIONS
+
+  public CResRef(string source) : this(source.GetNullTerminatedString()) {
+  }
+
+  /// <summary>
+  /// Gets a C# string representing this ResRef (GetResRefStr())
+  /// </summary>
+  /// <returns>A C# string representing this ResRef.</returns>
+  public override string ToString() {
+    return StringHelper.ReadNullTerminatedString(GetResRefStr());
+  }
+}
+
+// Marshal Blittable types without wrapper class.
 %define MarshalType(CTYPE, CSTYPE, CSARRAYTYPE)
 %typemap(ctype)  CTYPE*,CTYPE&,CTYPE[ANY] "CTYPE*"
 %typemap(imtype) CTYPE*,CTYPE&,CTYPE[ANY] "global::System.IntPtr"
@@ -119,6 +148,7 @@ SWIG_DOTNET_EXTENSIONS
 %}
 %enddef
 
+// Marshal pointer to pointer as void* for easier dereferencing
 %define MarshalPtrPtr(CTYPE, CSTYPE)
 %typemap(ctype)  CTYPE*,CTYPE& "CTYPE*"
 %typemap(imtype) CTYPE*,CTYPE& "global::System.IntPtr"
@@ -140,6 +170,7 @@ SWIG_DOTNET_EXTENSIONS
 %}
 %enddef
 
+// C# code for accessing native arrays
 %define MapArray(TYPE, CSTYPE, NAME)
 %typemap(cstype) TYPE[ANY] "NAME"
 %typemap(csin)   TYPE[ANY] "NAME.getCPtr($csinput)"
@@ -171,6 +202,7 @@ SWIG_DOTNET_EXTENSIONS
 }
 %enddef
 
+// Native array definition for a C-style array define.
 %define DefineArray(TYPE, CSTYPE, NAME)
 %{
 typedef TYPE NAME;
@@ -201,6 +233,7 @@ static NAME* FromPointer(TYPE *ptr) {
 };
 %enddef
 
+// Native array definition for an array defined as a pointer, with a separate length variable.
 %define DefineArrayPtr(TYPE, CSTYPE, NAME)
 %{
 typedef TYPE NAME;
@@ -225,7 +258,7 @@ void SetItem(int index, TYPE* value) {
 }
 
 static NAME* FromPointer(TYPE *ptr) {
-  return (NAME *) ptr;
+  return static_cast<NAME*>(ptr);
 }
 
 };
@@ -243,6 +276,8 @@ MarshalType(float, float, float)
 MarshalType(float*, float*, global::System.IntPtr) //float**
 MarshalType(float**, float**, global::System.IntPtr) //float***
 MarshalType(long, long, long)
+MarshalType(char, byte, byte)
+MarshalType(char*, byte*, global::System.IntPtr) // char**
 MarshalType(unsigned char, byte, byte)
 MarshalType(unsigned char*, byte*, global::System.IntPtr) //unsigned char**
 MarshalType(unsigned short int, ushort, ushort)
@@ -485,6 +520,12 @@ MapArray(CNWSDialogEntry, CNWSDialogEntry, CNWSDialogEntryArray);
 MapArray(CNWSDialogReply, CNWSDialogReply, CNWSDialogReplyArray);
 MapArray(CNWSDialogLinkEntry, CNWSDialogLinkEntry, CNWSDialogLinkEntryArray);
 MapArray(CNWSDialogLinkReply, CNWSDialogLinkReply, CNWSDialogLinkReplyArray);
+MapArray(CNWRace, CNWRace, CNWRaceArray);
+MapArray(CNWFeat, CNWFeat, CNWFeatArray);
+MapArray(CResRef, CResRef, CResRefArray);
+MapArray(CNWClass, CNWClass, CNWClassArray);
+MapArray(CNWSkill, CNWSkill, CNWSkillArray);
+MapArray(CNWDomain, CNWDomain, CNWDomainArray);
 
 %include "NWNXLib.i"
 
@@ -517,6 +558,12 @@ DefineArrayPtr(CNWSDialogEntry, CNWSDialogEntry, CNWSDialogEntryArray);
 DefineArrayPtr(CNWSDialogReply, CNWSDialogReply, CNWSDialogReplyArray);
 DefineArrayPtr(CNWSDialogLinkEntry, CNWSDialogLinkEntry, CNWSDialogLinkEntryArray);
 DefineArrayPtr(CNWSDialogLinkReply, CNWSDialogLinkReply, CNWSDialogLinkReplyArray);
+DefineArrayPtr(CNWRace, CNWRace, CNWRaceArray);
+DefineArrayPtr(CNWFeat, CNWFeat, CNWFeatArray);
+DefineArrayPtr(CResRef, CResRef, CResRefArray);
+DefineArrayPtr(CNWClass, CNWClass, CNWClassArray);
+DefineArrayPtr(CNWSkill, CNWSkill, CNWSkillArray);
+DefineArrayPtr(CNWDomain, CNWDomain, CNWDomainArray);
 
 // Std templates
 %template(VectorNWSyncAdvertisementManifest) std::vector<NWSyncAdvertisementManifest>;
