@@ -87,8 +87,8 @@ void HandleEffectHook(const std::string& event, bool before, CNWSObject* pObject
 
 int32_t OnEffectAppliedHook(CNWSEffectListHandler *thisPtr, CNWSObject* pObject, CGameEffect* pEffect, int32_t bLoadingGame)
 {
-    if (!pEffect || (!Events::IsIDInWhitelist("NWNX_EFFECT_SPELLID_WHITELIST", pEffect->m_nSpellId) &&
-                     !Events::IsIDInWhitelist("NWNX_EFFECT_TYPE_WHITELIST", pEffect->m_nType)))
+    if (!pEffect || (!IsIDInWhitelist("NWNX_EFFECT_SPELLID_WHITELIST", pEffect->m_nSpellId) &&
+                     !IsIDInWhitelist("NWNX_EFFECT_TYPE_WHITELIST", pEffect->m_nType)))
     {
         return s_OnEffectAppliedHook->CallOriginal<int32_t>(thisPtr, pObject, pEffect, bLoadingGame);
     }
@@ -101,8 +101,8 @@ int32_t OnEffectAppliedHook(CNWSEffectListHandler *thisPtr, CNWSObject* pObject,
 
 int32_t OnEffectRemovedHook(CNWSEffectListHandler *thisPtr, CNWSObject* pObject, CGameEffect* pEffect)
 {
-    if (!pEffect || (!Events::IsIDInWhitelist("NWNX_EFFECT_SPELLID_WHITELIST", pEffect->m_nSpellId) &&
-                     !Events::IsIDInWhitelist("NWNX_EFFECT_TYPE_WHITELIST", pEffect->m_nType)))
+    if (!pEffect || (!IsIDInWhitelist("NWNX_EFFECT_SPELLID_WHITELIST", pEffect->m_nSpellId) &&
+                     !IsIDInWhitelist("NWNX_EFFECT_TYPE_WHITELIST", pEffect->m_nType)))
     {
         return s_OnEffectRemovedHook->CallOriginal<int32_t>(thisPtr, pObject, pEffect);
     }
