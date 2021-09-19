@@ -608,7 +608,7 @@ static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(Functions::_ZN1
                     {
                         CServerAIMaster *pServerAIMaster = Globals::AppManager()->m_pServerExoApp->GetServerAIMaster();
                         pServerAIMaster->AddEventDeltaTime(0, nTimeIndex, pCreature->m_idSelf,
-                                                           pAmmoItem->m_idSelf,Constants::Event::DecrementStackSize);
+                                                           pAmmoItem->m_idSelf,Constants::AIMasterEvent::DecrementStackSize);
                     }
                 }
             }
