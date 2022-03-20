@@ -528,6 +528,9 @@ _______________________________________
     CDKEY                 | string | Public cdkey of the connecting client
     IS_DM                 | int    | Whether the client is connect as DM (1/0)
     IP_ADDRESS            | string | The IP address of the connecting client
+    VERSION_MAJOR         | int    | The client's major version, eg 8193, or 0 if unavailable.
+    VERSION_MINOR         | int    | The client's minor version, eg 34, or 0 if unavailable.
+    PLATFORM_ID           | int    | The client's platform id, PLAYER_DEVICE_PLATFORM_*, or 0 if unavailable.
 
     @note Skipping the _BEFORE event will cause the client's connection to be denied.
     You can optionally pass a reason for this in the event result.
@@ -1394,6 +1397,45 @@ _______________________________________
     ----------------------|--------|-------
     TARGET                | object | Convert to object with StringToObject() |
 _______________________________________
+    ## Player Device Property Events
+    - NWNX_ON_CLIENT_SET_DEVICE_PROPERTY_BEFORE
+    - NWNX_ON_CLIENT_SET_DEVICE_PROPERTY_AFTER
+
+    `OBJECT_SELF` = The player changing a device property (window size/gui scale)
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    PROPERTY              | string | A PLAYER_DEVICE_PROPERTY_GUI_* constant |
+    OLD_VALUE             | int    | |
+    NEW_VALUE             | int    | |
+_______________________________________
+    ## Input Drop Item Events
+    - NWNX_ON_INPUT_DROP_ITEM_BEFORE
+    - NWNX_ON_INPUT_DROP_ITEM_AFTER
+
+    `OBJECT_SELF` = The player dropping an item
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    ITEM                  | object | Convert to object with StringToObject() |
+    POS_X                 | float  | |
+    POS_Y                 | float  | |
+    POS_Z                 | float  | |
+_______________________________________
+    ## Decrement Spell Count Events
+    - NWNX_ON_DECREMENT_SPELL_COUNT_BEFORE
+    - NWNX_ON_DECREMENT_SPELL_COUNT_AFTER
+
+    `OBJECT_SELF` = The player losing a spell slot
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    SPELL_ID              | int    | |
+    CLASS                 | int    | Index of the spell casting class (0-2). Returns 254 for spell-like abilities |
+    DOMAIN                | int    | Spell level if non-default due to Domain |
+    METAMAGIC             | int    | |
+    CASTERLEVEL           | int    | Only returns for spell-like abilities |
+_______________________________________
 */
 /*
 const int NWNX_EVENTS_OBJECT_TYPE_CREATURE          = 5;
@@ -1429,6 +1471,21 @@ void NWNX_Events_SubscribeEvent(string evt, string script);
 /// @param evt The event name.
 /// @param script The script.
 void NWNX_Events_UnsubscribeEvent(string evt, string script);
+
+/// @brief Script chunks can subscribe to events.
+///
+/// Some events are dispatched via the NWNX plugin (see NWNX_EVENTS_EVENT_* constants).
+/// Others can be signalled via script code via NWNX_Events_SignalEvent().
+/// @param sEvent The event name.
+/// @param sScriptChunk The script chunk to execute when the event fires.
+/// @param bWrapIntoMain TRUE if the script chunk needs to be wrapped into a void main(){}.
+void NWNX_Events_SubscribeEventScriptChunk(string sEvent, string sScriptChunk, int bWrapIntoMain = TRUE);
+
+/// @brief Unsubscribe a script chunk from an event
+/// @param sEvent The event name.
+/// @param sScriptChunk The script chunk.
+/// @param bWrapIntoMain TRUE if the script chunk needs to be wrapped into a void main(){}. Must match the value used when subscribing.
+void NWNX_Events_UnsubscribeEventScriptChunk(string sEvent, string sScriptChunk, int bWrapIntoMain = TRUE);
 
 /// Pushes event data at the provided tag, which subscribers can access with GetEventData.
 /// This should be called BEFORE SignalEvent.
@@ -1486,6 +1543,8 @@ string NWNX_Events_GetEventData(string tag);
 /// - UnpossessFamiliar event
 /// - ClientLevelUpBegin event
 /// - CharacterSheetPermitted event
+/// - Input Drop Item
+/// - Decrement Spell Count event
 void NWNX_Events_SkipEvent();
 
 /// Set the return value of the event.
@@ -1512,15 +1571,15 @@ void NWNX_Events_SetEventResult(string data);
 /// Returns "" on error
 string NWNX_Events_GetCurrentEvent();
 
-/// Toggles DispatchListMode for sEvent+sScript
-/// If enabled, sEvent for sScript will only be signalled if the target object is on its dispatch list.
-void NWNX_Events_ToggleDispatchListMode(string sEvent, string sScript, int bEnable);
+/// Toggles DispatchListMode for sEvent+sScript(Chunk)
+/// If enabled, sEvent for sScript(Chunk) will only be signalled if the target object is on its dispatch list.
+void NWNX_Events_ToggleDispatchListMode(string sEvent, string sScriptOrChunk, int bEnable);
 
-/// Add oObject to the dispatch list for sEvent+sScript.
-void NWNX_Events_AddObjectToDispatchList(string sEvent, string sScript, object oObject);
+/// Add oObject to the dispatch list for sEvent+sScript(Chunk).
+void NWNX_Events_AddObjectToDispatchList(string sEvent, string sScriptOrChunk, object oObject);
 
-/// Remove oObject from the dispatch list for sEvent+sScript.
-void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScript, object oObject);
+/// Remove oObject from the dispatch list for sEvent+sScript(Chunk).
+void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScriptOrChunk, object oObject);
 
 /// @brief Toggle the whitelisting of IDs for sEvent. If whitelisting is enabled, the event will only fire for IDs that are
 /// on its whitelist.
@@ -1546,6 +1605,11 @@ void NWNX_Events_AddIDToWhitelist(string sEvent, int nID);
 /// @param nID The ID.
 void NWNX_Events_RemoveIDFromWhitelist(string sEvent, int nID);
 
+/// @brief Get the number of subscribers to sEvent.
+/// @param sEvent The event.
+/// @return The number of subscribers sEvent has or 0 on error.
+int NWNX_Events_GetNumSubscribers(string sEvent);
+
 /// @}
 
 void NWNX_Events_SubscribeEvent(string evt, string script)
@@ -1563,6 +1627,26 @@ void NWNX_Events_UnsubscribeEvent(string evt, string script)
 
     NWNX_PushArgumentString(script);
     NWNX_PushArgumentString(evt);
+    NWNX_CallFunction(NWNX_Events, sFunc);
+}
+
+void NWNX_Events_SubscribeEventScriptChunk(string sEvent, string sScriptChunk, int bWrapIntoMain = TRUE)
+{
+    string sFunc = "SubscribeEventScriptChunk";
+
+    NWNX_PushArgumentInt(bWrapIntoMain);
+    NWNX_PushArgumentString(sScriptChunk);
+    NWNX_PushArgumentString(sEvent);
+    NWNX_CallFunction(NWNX_Events, sFunc);
+}
+
+void NWNX_Events_UnsubscribeEventScriptChunk(string sEvent, string sScriptChunk, int bWrapIntoMain = TRUE)
+{
+    string sFunc = "UnsubscribeEventScriptChunk";
+
+    NWNX_PushArgumentInt(bWrapIntoMain);
+    NWNX_PushArgumentString(sScriptChunk);
+    NWNX_PushArgumentString(sEvent);
     NWNX_CallFunction(NWNX_Events, sFunc);
 }
 
@@ -1617,32 +1701,32 @@ string NWNX_Events_GetCurrentEvent()
     return NWNX_GetReturnValueString();
 }
 
-void NWNX_Events_ToggleDispatchListMode(string sEvent, string sScript, int bEnable)
+void NWNX_Events_ToggleDispatchListMode(string sEvent, string sScriptOrChunk, int bEnable)
 {
     string sFunc = "ToggleDispatchListMode";
 
     NWNX_PushArgumentInt(bEnable);
-    NWNX_PushArgumentString(sScript);
+    NWNX_PushArgumentString(sScriptOrChunk);
     NWNX_PushArgumentString(sEvent);
     NWNX_CallFunction(NWNX_Events, sFunc);
 }
 
-void NWNX_Events_AddObjectToDispatchList(string sEvent, string sScript, object oObject)
+void NWNX_Events_AddObjectToDispatchList(string sEvent, string sScriptOrChunk, object oObject)
 {
     string sFunc = "AddObjectToDispatchList";
 
     NWNX_PushArgumentObject(oObject);
-    NWNX_PushArgumentString(sScript);
+    NWNX_PushArgumentString(sScriptOrChunk);
     NWNX_PushArgumentString(sEvent);
     NWNX_CallFunction(NWNX_Events, sFunc);
 }
 
-void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScript, object oObject)
+void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScriptOrChunk, object oObject)
 {
     string sFunc = "RemoveObjectFromDispatchList";
 
     NWNX_PushArgumentObject(oObject);
-    NWNX_PushArgumentString(sScript);
+    NWNX_PushArgumentString(sScriptOrChunk);
     NWNX_PushArgumentString(sEvent);
     NWNX_CallFunction(NWNX_Events, sFunc);
 }
@@ -1672,4 +1756,13 @@ void NWNX_Events_RemoveIDFromWhitelist(string sEvent, int nID)
     NWNX_PushArgumentInt(nID);
     NWNX_PushArgumentString(sEvent);
     NWNX_CallFunction(NWNX_Events, sFunc);
+}
+
+int NWNX_Events_GetNumSubscribers(string sEvent)
+{
+    string sFunc = "GetNumSubscribers";
+
+    NWNX_PushArgumentString(sEvent);
+    NWNX_CallFunction(NWNX_Events, sFunc);
+    return NWNX_GetReturnValueInt();
 }

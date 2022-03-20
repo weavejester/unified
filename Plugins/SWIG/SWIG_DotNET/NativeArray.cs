@@ -24,6 +24,12 @@ namespace NWN.Native.API
       this.Length = length;
     }
 
+    public NativeArray(T* pointer, int length)
+    {
+      this.Pointer = pointer;
+      this.Length = length;
+    }
+
     public T this[int index]
     {
       get

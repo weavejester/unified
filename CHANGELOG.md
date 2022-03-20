@@ -4,20 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 8193.31-HEAD
-https://github.com/nwnxee/unified/compare/build8193.31...HEAD
+## 8193.34-HEAD
+https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 
 ### Added
-- N/A
+- Tweaks: added `NWNX_TWEAKS_CANUSEITEM_CHECK_ILR_FOR_HENCHMEN` to have the CNWSCreature::CanUseItem() function also check ILR for Henchmen.
+- Tweaks: added `NWNX_TWEAKS_FIX_DM_SELECTION_BOX` to fix the DM creature selection box not showing up when player party control is off.
+- Tweaks: added `NWNX_TWEAKS_FIX_TRIGGER_ENTER_DETECTION` to fix a rare issue where triggers/traps fire enter events without a creature inside.
+- Tweaks: added `NWNX_TWEAKS_FIX_MULTICLASS_XP_PENALTY_BUG` to fix a bug where multiclass xp penalties are calculated incorrectly.
+- Optimizations: added `NWNX_OPTIMIZATIONS_FIX_PLACEABLE_VFX_REAPPLY_BUG` to fix a bug where VFXs keep getting reapplied to placeables.
+- Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPT_CHUNKS` to cache script chunks after first execution.
+- Events: added skippable event `NWNX_ON_INPUT_DROP_ITEM_{BEFORE|AFTER}` which fires when a player attempts to drop an item.
+- Events: added skippable event `NWNX_ON_DECREMENT_SPELL_COUNT_{BEFORE|AFTER}` which fires when spell count (Memorized, non-memorized, or spell-like ability) decreases.
 
 ##### New Plugins
 - N/A
 
 ##### New NWScript Functions
-- N/A
+- Area: GetTileInfoByTileIndex()
+- Area: GetPathExists()
+- Effect: AccessorizeVisualEffect()
+- Events: SubscribeEventScriptChunk()
+- Events: UnsubscribeEventScriptChunk()
+- Events: GetNumSubscribers()
+- Regex: Match()
 
 ### Changed
-- N/A
+- Events: added event data `VERSION_MAJOR`/`VERSION_MINOR`/`PLATFORM_ID` to `NWNX_ON_CLIENT_CONNECT_*`
 
 ### Deprecated
 - N/A
@@ -26,7 +39,52 @@ https://github.com/nwnxee/unified/compare/build8193.31...HEAD
 - N/A
 
 ### Fixed
-- N/A
+- Object: GetLocalVariable() now recognizes variables of type json.
+- Tweaks: Language override tweak now works for area names.
+- Events: Fixed a crash when skipping `NWNX_ON_CLIENT_CONNECT_BEFORE`
+
+## 8193.34
+https://github.com/nwnxee/unified/compare/build8193.33...build8193.34
+
+### Added
+- Tweaks: added `NWNX_TWEAKS_HIDE_HARDCODED_ITEM_VFX` to hide various hardcoded item vfx.
+- Tweaks: added `NWNX_TWEAKS_FIX_RESMAN_MEMLEAK` that fixes a memory leak in Resman / CResGFF.
+- Tweaks: added `NWNX_TWEAKS_FIX_DM_FACTION_BUG` that fixes a DM faction bug when using a non-DMClient BIC file.
+
+##### New NWScript Functions
+- Area: RotateArea()
+- Creature: OverrideRangedProjectileVFX()
+- Object: GetAoEObjectDurationRemaining()
+
+### Changed
+- Object: `NWNX_Object_Export` added argument sAlias, default 'NWNX'
+
+### Removed
+- Tweaks: `NWNX_TWEAKS_FIX_RESMAN_MEMLEAK`, fixed in basegame.
+
+## 8193.33
+https://github.com/nwnxee/unified/compare/build8193.32...build8193.33
+
+### Added
+- Events: added event `NWNX_ON_CLIENT_SET_DEVICE_PROPERTY_BEFORE__*` which fires when a player changes a device property (window size/gui scale).
+- Tweaks: added `NWNX_TWEAKS_SUMMON_ASSOCIATE_USE_COMPUTE_SAFE_LOCATION` which makes CNWSCreature::SummonAssociate() will use ComputeSafeLocation() instead of ComputeNonVisibleLocation(), possibly fixing some Familiar/AnimalCompanion summon issues.
+
+##### New NWScript Functions
+- Util: GetModuleMtime()
+
+### Fixed
+- Chat: When using custom hearing distances, broadcast the actual message instead of the tellname.
+- Chat: When using custom hearing distances, check if a player actually has one set and don't just overwrite the distance with 0.0f if not set.
+- Chat: When using custom hearing distances, don't send messages to players that don't have a valid creature object causing a server crash.
+
+## 8193.32
+https://github.com/nwnxee/unified/compare/build8193.31...build8193.32
+
+### Added
+- Administration: added `NWNX_ADMINISTRATION_OPTION_PLAYER_PARTY_CONTROL` to {Get|Set}PlayOption() to toggle player party control.
+
+### Fixed
+- Util: fixed a memory leak in GetFirstResRef()
 
 ## 8193.31
 https://github.com/nwnxee/unified/compare/build8193.30...build8193.31
@@ -132,7 +190,7 @@ https://github.com/nwnxee/unified/compare/build8193.21...build8193.22
 - Events: added skippable event `NWNX_ON_CLIENT_LEVEL_UP_BEGIN_*` which fires when a player clicks the levelup button.
 - Events: added skippable event `NWNX_ON_POSSESS_FAMILIAR_*` which fires when a player attempts to possess their familiar.
 - Events: added skippable event `NWNX_ON_CHARACTER_SHEET_PERMITTED_*` which fires when a player attempts to view a charactersheet.
-- Events: added events `NWNX_ON_CHARACTER_SHEET_{OPEN|CLOSE}_*` which fire when a player opens or closes a charactersheeet.   
+- Events: added events `NWNX_ON_CHARACTER_SHEET_{OPEN|CLOSE}_*` which fire when a player opens or closes a charactersheeet.
 - Tweaks: added `NWNX_TWEAKS_SEND_TLK_OVERRIDE_BEFORE_CHARGEN` to send TlkTable overrides before Character Generation.
 - Tweaks: added `NWNX_TWEAKS_RETAIN_LOCAL_VARIABLES_ON_ITEM_SPLIT` to retain local variables when an item is split.
 - Tweaks: added `NWNX_TWEAKS_PREVENT_ATTACK_BONUS_BYPASSING_REDUCTION` to make attack bonuses not bypass reductions (soak).
@@ -155,7 +213,7 @@ https://github.com/nwnxee/unified/compare/build8193.21...build8193.22
 ### Changed
 - The argument stack is now cleared after every NWNX function call.
 - Effect: (Un)PackEffect functions now can retrieve the id and Item Property Source. _**ABI breaking:** You will need to update nwnx_effect.nss if you are using these functions_.
-- Events: `NWNX_ON_UNPOSSESS_FAMILIAR_*` is now skippable. 
+- Events: `NWNX_ON_UNPOSSESS_FAMILIAR_*` is now skippable.
 - ItemProperty: UnpackIP now can retrieve the item property's id. _**ABI breaking:** You will need to update nwnx_itemprop.nss if you are using these functions_.
 - ***API BREAKING*** Damage: The NWNX_Damage_AttackEventData fields have changed their names: `iAttackType -> iWeaponAttackType`, `iAttackType_REAL -> iAttackType`.
 - ***API BREAKING*** Object: The `NWNX_Object_Export` function has had its arguments reordered.
