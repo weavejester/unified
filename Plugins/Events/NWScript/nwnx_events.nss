@@ -479,21 +479,71 @@ _______________________________________
     PASSWORD              | string | The password the DM provided, only valid for NWNX_ON_DM_PLAYERDM_LOGIN_*
 
 _______________________________________
+    ## DM Set Stat Events
+    - NWNX_ON_DM_SET_STAT_BEFORE
+    - NWNX_ON_DM_SET_STAT_AFTER
+
+    `OBJECT_SELF` = The DM
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    STAT                  | int    | Returns ABILITY_* constant
+    VALUE                 | int    | 
+    TARGET                | object | Convert to object with StringToObject()
+    SET                   | int    | TRUE if setting stat, FALSE if modifying
+
+_______________________________________
+    ## DM Get Variable Events
+    - NWNX_ON_DM_GET_VARIABLE_BEFORE
+    - NWNX_ON_DM_GET_VARIABLE_AFTER
+
+    `OBJECT_SELF` = The DM
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TYPE                  | int    | Returns NWNX_EVENTS_DM_SET_VARIABLE_TYPE_*
+    TARGET                | object | Convert to object with StringToObject()
+    KEY                   | string | Variable name
+
+    @note Vector variable types aren't supported.
+
+_______________________________________
+    ## DM Set Variable Events
+    - NWNX_ON_DM_SET_VARIABLE_BEFORE
+    - NWNX_ON_DM_SET_VARIABLE_AFTER
+
+    `OBJECT_SELF` = The DM
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TYPE                  | int    | Returns NWNX_EVENTS_DM_SET_VARIABLE_TYPE_*
+    TARGET                | object | Convert to object with StringToObject()
+    KEY                   | string | Variable name
+    VALUE                 | string | Variable value
+
+    @note Vector variable types aren't supported.
+
+_______________________________________
+    ## DM Set Faction Events
+    - NWNX_ON_DM_SET_FACTION_BEFORE
+    - NWNX_ON_DM_SET_FACTION_AFTER
+
+    `OBJECT_SELF` = The DM
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TARGET                | object | Convert to object with StringToObject()
+    FACTION_ID            | int    | Not the STANDARD_FACTION_* constants. See nwnx_creature->GetFaction(). 
+    FACTION_NAME          | string | 
+
+_______________________________________
     ## DM Other Events
     - NWNX_ON_DM_APPEAR_BEFORE
     - NWNX_ON_DM_APPEAR_AFTER
     - NWNX_ON_DM_DISAPPEAR_BEFORE
     - NWNX_ON_DM_DISAPPEAR_AFTER
-    - NWNX_ON_DM_SET_FACTION_BEFORE
-    - NWNX_ON_DM_SET_FACTION_AFTER
     - NWNX_ON_DM_TAKE_ITEM_BEFORE
     - NWNX_ON_DM_TAKE_ITEM_AFTER
-    - NWNX_ON_DM_SET_STAT_BEFORE
-    - NWNX_ON_DM_SET_STAT_AFTER
-    - NWNX_ON_DM_GET_VARIABLE_BEFORE
-    - NWNX_ON_DM_GET_VARIABLE_AFTER
-    - NWNX_ON_DM_SET_VARIABLE_BEFORE
-    - NWNX_ON_DM_SET_VARIABLE_AFTER
     - NWNX_ON_DM_SET_TIME_BEFORE
     - NWNX_ON_DM_SET_TIME_AFTER
     - NWNX_ON_DM_SET_DATE_BEFORE
@@ -1276,6 +1326,25 @@ _______________________________________
     @note This event also runs for players that do not have permission to execute the command.
 
 _______________________________________
+    ## Play Visual Effect Event
+    - NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_BEFORE
+    - NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_AFTER
+
+    `OBJECT_SELF` = The DM
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TARGET_OBJECT_ID      | object | Convert to object with StringToObject() 
+    VISUAL_EFFECT         | int    | Index into visualeffects.2da 
+    DURATION              | float  | 
+    TARGET_POSITION_X     | float  | Will be 0.0 when playing visual effects on an object 
+    TARGET_POSITION_Y     | float  | Will be 0.0 when playing visual effects on an object 
+    TARGET_POSITION_Z     | float  | Will be 0.0 when playing visual effects on an object 
+
+    @note This is the `dm_visualeffect` console command.
+    `TARGET_OBJECT_ID` will be `OBJECT_INVALID` when playing visual effects at a position in an area.
+
+_______________________________________
     ## Buy/Sell Store Events
     - NWNX_ON_STORE_REQUEST_BUY_BEFORE
     - NWNX_ON_STORE_REQUEST_BUY_AFTER
@@ -1436,6 +1505,25 @@ _______________________________________
     METAMAGIC             | int    | |
     CASTERLEVEL           | int    | Only returns for spell-like abilities |
 _______________________________________
+    ## EventScript Events
+    - NWNX_ON_RUN_EVENT_SCRIPT_BEFORE
+    - NWNX_ON_RUN_EVENT_SCRIPT_AFTER
+
+    `OBJECT_SELF` = The object the event script is running on
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    EVENT_TYPE            | int    | EVENT_SCRIPT_* in nwscript.nss |
+    EVENT_SCRIPT          | int    | Script name running (can be empty) |
+    
+    @note This event should definitely be used with the Event ID Whitelist, which is turned on by default
+    for this event. Until you add your EVENT_SCRIPT_ to the whitelist this event will not function:
+    ```c
+    NWNX_Events_SubscribeEvent("NWNX_ON_RUN_EVENT_SCRIPT_BEFORE", "creature_hb_ovr");
+    NWNX_Events_AddIDToWhitelist("NWNX_ON_RUN_EVENT_SCRIPT", EVENT_SCRIPT_MODULE_ON_HEARTBEAT);
+    ```
+    @warning Toggling the Whitelist to be off for this event will degrade performance.
+_______________________________________
 */
 /*
 const int NWNX_EVENTS_OBJECT_TYPE_CREATURE          = 5;
@@ -1457,6 +1545,13 @@ const int NWNX_EVENTS_TIMING_BAR_REST          = 6;
 const int NWNX_EVENTS_TIMING_BAR_UNLOCK        = 7;
 const int NWNX_EVENTS_TIMING_BAR_LOCK          = 8;
 const int NWNX_EVENTS_TIMING_BAR_CUSTOM        = 10;
+*/
+
+/*
+const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_INT          = 0;
+const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_FLOAT        = 1;
+const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_STRING       = 2;
+const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_OBJECT       = 3;
 */
 
 /// @brief Scripts can subscribe to events.
@@ -1545,6 +1640,8 @@ string NWNX_Events_GetEventData(string tag);
 /// - CharacterSheetPermitted event
 /// - Input Drop Item
 /// - Decrement Spell Count event
+/// - Play Visual Effect event
+/// - EventScript event
 void NWNX_Events_SkipEvent();
 
 /// Set the return value of the event.
@@ -1587,6 +1684,7 @@ void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScriptOrChu
 /// ONLY WORKS WITH THE FOLLOWING EVENTS -> ID TYPES:
 /// - NWNX_ON_CAST_SPELL -> SpellID
 /// - NWNX_ON_HAS_FEAT -> FeatID (default enabled)
+/// - NWNX_ON_RUN_EVENT_SCRIPT -> EVENT_SCRIPT_* (default enabled)
 ///
 /// @note This enables the whitelist for ALL scripts subscribed to sEvent.
 /// @param sEvent The event name without _BEFORE / _AFTER.

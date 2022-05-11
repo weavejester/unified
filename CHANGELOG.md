@@ -16,6 +16,8 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPT_CHUNKS` to cache script chunks after first execution.
 - Events: added skippable event `NWNX_ON_INPUT_DROP_ITEM_{BEFORE|AFTER}` which fires when a player attempts to drop an item.
 - Events: added skippable event `NWNX_ON_DECREMENT_SPELL_COUNT_{BEFORE|AFTER}` which fires when spell count (Memorized, non-memorized, or spell-like ability) decreases.
+- Events: added skippable event `NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_{BEFORE|AFTER}` which fires when the dm_visualeffect console command is used.
+- Events: added skippable event `NWNX_ON_RUN_EVENT_SCRIPT_{BEFORE|AFTER}` which fires on all object event scripts.
 
 ##### New Plugins
 - N/A
@@ -23,14 +25,30 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 ##### New NWScript Functions
 - Area: GetTileInfoByTileIndex()
 - Area: GetPathExists()
+- Area: {Get|Set}AreaFlags()
+- Area: GetAreaWind()
+- Creature: {Get|Set}SkillPointsRemainingByLevel()
+- Creature: {Get|Set}InitiativeModifier()
+- Creature: GetBodyBag()
+- Creature: GetMovementRateFactorCap()
+- Creature: AddCastSpellActions()
 - Effect: AccessorizeVisualEffect()
+- Encounter: Destroy()
 - Events: SubscribeEventScriptChunk()
 - Events: UnsubscribeEventScriptChunk()
 - Events: GetNumSubscribers()
+- Object: SetConversationPrivate()
+- Player: UpdateWind();
 - Regex: Match()
 
 ### Changed
 - Events: added event data `VERSION_MAJOR`/`VERSION_MINOR`/`PLATFORM_ID` to `NWNX_ON_CLIENT_CONNECT_*`
+- Object: DoSpellLevelAbsorption() can now override the spellId, the level and the school of the casted spell
+- Object: DoSpellImmunity() can now override the spellId
+- Events: added event data `STAT`/`VALUE`/`TARGET`/`SET` to `NWNX_ON_DM_SET_STAT_*`
+- Events: added event data `TYPE`/`TARGET`/`KEY` to `NWNX_ON_DM_GET_VARIABLE_*`
+- Events: added event data `TYPE`/`TARGET`/`KEY`/`VALUE` to `NWNX_ON_DM_SET_VARIABLE_*`
+- Events: added event data `TARGET`/`FACTION_ID`/`FACTION_NAME` to `NWNX_ON_DM_SET_FACTION_*`
 
 ### Deprecated
 - N/A
@@ -39,9 +57,14 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - N/A
 
 ### Fixed
+- Race: Fixed an issue with feat usages being reset upon character relog
+- Feat: Fixed an issue with an Ability Score feat counting towards the server capped limit when they should not
+- Feat: Fixed an issue with bonus feats not properly being removed
 - Object: GetLocalVariable() now recognizes variables of type json.
 - Tweaks: Language override tweak now works for area names.
 - Events: Fixed a crash when skipping `NWNX_ON_CLIENT_CONNECT_BEFORE`
+- Tweaks: Fixed an issue where lobby PC list viewers would see new characters logged in when those names should be suppressed
+- Tweaks: Classes are not hidden from DMs when using `NWNX_TWEAKS_HIDE_CLASSES_ON_CHAR_LIST`
 
 ## 8193.34
 https://github.com/nwnxee/unified/compare/build8193.33...build8193.34
