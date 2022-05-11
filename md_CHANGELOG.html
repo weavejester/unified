@@ -116,6 +116,8 @@ Added</h2>
 <li>Optimizations: added <code>NWNX_OPTIMIZATIONS_CACHE_SCRIPT_CHUNKS</code> to cache script chunks after first execution.</li>
 <li>Events: added skippable event <code>NWNX_ON_INPUT_DROP_ITEM_{BEFORE|AFTER}</code> which fires when a player attempts to drop an item.</li>
 <li>Events: added skippable event <code>NWNX_ON_DECREMENT_SPELL_COUNT_{BEFORE|AFTER}</code> which fires when spell count (Memorized, non-memorized, or spell-like ability) decreases.</li>
+<li>Events: added skippable event <code>NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_{BEFORE|AFTER}</code> which fires when the dm_visualeffect console command is used.</li>
+<li>Events: added skippable event <code>NWNX_ON_RUN_EVENT_SCRIPT_{BEFORE|AFTER}</code> which fires on all object event scripts.</li>
 </ul>
 <h4><a class="anchor" id="autotoc_md11"></a>
 New Plugins</h4>
@@ -127,16 +129,32 @@ New NWScript Functions</h4>
 <ul>
 <li>Area: GetTileInfoByTileIndex()</li>
 <li>Area: GetPathExists()</li>
+<li>Area: {Get|Set}AreaFlags()</li>
+<li>Area: GetAreaWind()</li>
+<li>Creature: {Get|Set}SkillPointsRemainingByLevel()</li>
+<li>Creature: {Get|Set}InitiativeModifier()</li>
+<li>Creature: GetBodyBag()</li>
+<li>Creature: GetMovementRateFactorCap()</li>
+<li>Creature: AddCastSpellActions()</li>
 <li>Effect: AccessorizeVisualEffect()</li>
+<li>Encounter: Destroy()</li>
 <li>Events: SubscribeEventScriptChunk()</li>
 <li>Events: UnsubscribeEventScriptChunk()</li>
 <li>Events: GetNumSubscribers()</li>
+<li>Object: SetConversationPrivate()</li>
+<li>Player: UpdateWind();</li>
 <li>Regex: Match()</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md13"></a>
 Changed</h2>
 <ul>
 <li>Events: added event data <code>VERSION_MAJOR</code>/<code>VERSION_MINOR</code>/<code>PLATFORM_ID</code> to <code>NWNX_ON_CLIENT_CONNECT_*</code></li>
+<li>Object: DoSpellLevelAbsorption() can now override the spellId, the level and the school of the casted spell</li>
+<li>Object: DoSpellImmunity() can now override the spellId</li>
+<li>Events: added event data <code>STAT</code>/<code>VALUE</code>/<code>TARGET</code>/<code>SET</code> to <code>NWNX_ON_DM_SET_STAT_*</code></li>
+<li>Events: added event data <code>TYPE</code>/<code>TARGET</code>/<code>KEY</code> to <code>NWNX_ON_DM_GET_VARIABLE_*</code></li>
+<li>Events: added event data <code>TYPE</code>/<code>TARGET</code>/<code>KEY</code>/<code>VALUE</code> to <code>NWNX_ON_DM_SET_VARIABLE_*</code></li>
+<li>Events: added event data <code>TARGET</code>/<code>FACTION_ID</code>/<code>FACTION_NAME</code> to <code>NWNX_ON_DM_SET_FACTION_*</code></li>
 </ul>
 <h2><a class="anchor" id="autotoc_md14"></a>
 Deprecated</h2>
@@ -151,9 +169,14 @@ Removed</h2>
 <h2><a class="anchor" id="autotoc_md16"></a>
 Fixed</h2>
 <ul>
+<li>Race: Fixed an issue with feat usages being reset upon character relog</li>
+<li>Feat: Fixed an issue with an Ability Score feat counting towards the server capped limit when they should not</li>
+<li>Feat: Fixed an issue with bonus feats not properly being removed</li>
 <li>Object: GetLocalVariable() now recognizes variables of type json.</li>
 <li>Tweaks: Language override tweak now works for area names.</li>
 <li>Events: Fixed a crash when skipping <code>NWNX_ON_CLIENT_CONNECT_BEFORE</code></li>
+<li>Tweaks: Fixed an issue where lobby PC list viewers would see new characters logged in when those names should be suppressed</li>
+<li>Tweaks: Classes are not hidden from DMs when using <code>NWNX_TWEAKS_HIDE_CLASSES_ON_CHAR_LIST</code></li>
 </ul>
 <h1><a class="anchor" id="autotoc_md17"></a>
 8193.34</h1>
@@ -1300,7 +1323,7 @@ Fixed</h2>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Sun Mar 20 2022 05:24:54 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Wed May 11 2022 18:45:44 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>
