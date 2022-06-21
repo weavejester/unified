@@ -17,6 +17,7 @@ add_plugin(Tweaks
     "FixGreaterSanctuaryBug.cpp"
     "FixItemNullptrInCItemRepository.cpp"
     "FixMulticlassXPPenaltyBug.cpp"
+    "FixResolveSpecialAttackDamage.cpp"
     "FixTriggerEnterDetection.cpp"
     "FixUnlimitedPotionsBug.cpp"
     "HideOnCharList.cpp"
@@ -35,4 +36,5 @@ add_plugin(Tweaks
     "SummonAssociateUseComputeSafeLocation.cpp"
     "TURDByCDKey.cpp"
     "UnhardcodeShields.cpp"
+    "UncapDamageResistanceDamageFlags.cpp"
     "PreventAttackBonusBypassingReductions.cpp")
