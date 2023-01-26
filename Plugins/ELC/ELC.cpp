@@ -151,8 +151,8 @@ static int32_t s_ELCSkillID;
 static int32_t s_ELCFeatID;
 static int32_t s_ELCSpellID;
 
-static auto s_ValidateCharacter = Hooks::HookFunction(API::Functions::_ZN10CNWSPlayer17ValidateCharacterEPi,
-        (void*)+[](CNWSPlayer *pPlayer, int32_t *bFailedServerRestriction) -> int32_t
+static auto s_ValidateCharacter = Hooks::HookFunction(&CNWSPlayer::ValidateCharacter,
+        +[](CNWSPlayer *pPlayer, int32_t *bFailedServerRestriction) -> int32_t
         {
             // Reset Variables
             s_ILRItemOID = Constants::OBJECT_INVALID;
@@ -483,11 +483,7 @@ static auto s_ValidateCharacter = Hooks::HookFunction(API::Functions::_ZN10CNWSP
             uint8_t nAbility[6] = {0};
             int32_t nMods[6] = {0};
 
-            auto GetStatBonusesFromFeats = reinterpret_cast<void (*)(CExoArrayList<uint16_t> *, int32_t *, int32_t)>(
-                    Platform::GetRelocatedAddress(
-                            API::Functions::_ZN17CNWSCreatureStats23GetStatBonusesFromFeatsEP13CExoArrayListItEPii));
-
-            GetStatBonusesFromFeats(&pCreatureStats->m_lstFeats, nMods, true);
+            CNWSCreatureStats::GetStatBonusesFromFeats(&pCreatureStats->m_lstFeats, nMods, true);
 
             //LOG_DEBUG("(GetStatBonusesFromFeats) STR: %i, DEX: %i, CON: %i, INT: %i, WIS: %i, CHA: %i", nMods[0], nMods[1], nMods[2], nMods[3], nMods[4], nMods[5]);
 
@@ -712,7 +708,7 @@ static auto s_ValidateCharacter = Hooks::HookFunction(API::Functions::_ZN10CNWSP
 
                 // Add the stat bonus from feats
                 int32_t nStatMods[6] = {0};
-                GetStatBonusesFromFeats(&pLevelStats->m_lstFeats, nStatMods, false);
+                CNWSCreatureStats::GetStatBonusesFromFeats(&pLevelStats->m_lstFeats, nStatMods, false);
 
                 // Update our ability values
                 for (int nAbilityIndex = 0; nAbilityIndex <= Ability::MAX; nAbilityIndex++)

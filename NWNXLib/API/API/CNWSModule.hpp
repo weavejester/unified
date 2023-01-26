@@ -122,6 +122,7 @@ struct CNWSModule : CResHelper<CResIFO, 2014>, CGameObject
     CExoArrayList<CWorldJournalEntry> m_pWorldJournal;
     BOOL m_bModuleLoadFinished;
     int32_t m_nMaxHenchmen;
+    int32_t m_nPartyControlMode;
     CExoArrayList<OBJECT_ID> m_aGameObjectsLimbo;
     CERFFile * m_pOutFile;
     CResStruct * m_pStructIFO;
@@ -146,6 +147,7 @@ struct CNWSModule : CResHelper<CResIFO, 2014>, CGameObject
     int32_t m_nLastGuiEventType;
     int32_t m_nLastGuiEventInteger;
     OBJECT_ID m_oidLastGuiEventObject;
+    Vector m_vLastGuiEventVector;
     OBJECT_ID m_oidLastPlayerToDoTileAction;
     int32_t m_nLastPlayerTileActionId;
     Vector m_vLastPlayerTileActionPosition;

@@ -19,7 +19,7 @@ find_package(Sanitizers)
 
 execute_process(COMMAND git rev-parse --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE SHORT_HASH)
 set(TARGET_NWN_BUILD 8193)
-set(TARGET_NWN_BUILD_REVISION 34)
+set(TARGET_NWN_BUILD_REVISION 35)
 set(NWNX_BUILD_SHA ${SHORT_HASH})
 set(PLUGIN_PREFIX NWNX_)
 
@@ -47,9 +47,9 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
                            -Wno-gnu-zero-variadic-macro-arguments -Wno-global-constructors -Wno-exit-time-destructors \
                            -Wno-missing-prototypes -Wno-unused-function -Wno-weak-vtables -Wno-missing-noreturn \
                            -Wno-non-virtual-dtor -Wno-double-promotion -Wno-covered-switch-default -Wno-unused-macros \
-                           -Wno-register")
+                           -Wno-register -Wno-pmf-conversions")
 else()
-    set(WARNING_FLAGS_CXX "-Wall -Wextra")
+    set(WARNING_FLAGS_CXX "-Wall -Wextra -Wno-pmf-conversions")
 endif()
 
 set(NWNX_STANDARD_FLAGS "-m64 -march=x86-64 -fdiagnostics-show-option -fno-omit-frame-pointer -fPIC -fno-strict-aliasing")

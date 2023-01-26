@@ -20,8 +20,6 @@ function(add_swig_plugin target language interfaces)
       SWIG_INCLUDE_DIRECTORIES ../../../NWNXLib/API
       SWIG_USE_TARGET_INCLUDE_DIRECTORIES ON
       POSITION_INDEPENDENT_CODE ON)
-
-    target_link_options(${target} PRIVATE "LINKER:--no-undefined,--no-demangle")
 endfunction()
 
 if(SWIG_FOUND)
@@ -29,6 +27,6 @@ if(SWIG_FOUND)
     INCLUDE(${SWIG_USE_FILE})
 
     add_swig_plugin(SWIG_DotNET csharp
-        "${CMAKE_CURRENT_SOURCE_DIR}/SWIG_DotNET/API_NWNXLib.i;${CMAKE_CURRENT_SOURCE_DIR}/SWIG_DotNET/API_FunctionsLinux.i"
+        "${CMAKE_CURRENT_SOURCE_DIR}/SWIG_DotNET/API_NWNXLib.i"
         -DSWIGWORDSIZE64 -dllimport "${PLUGIN_PREFIX}SWIG_DotNET" -namespace "NWN.Native.API")
 endif(SWIG_FOUND)

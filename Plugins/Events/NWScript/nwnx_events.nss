@@ -1535,6 +1535,16 @@ _______________________________________
     ```
     @warning Toggling the Whitelist to be off for this event will degrade performance.
 _______________________________________
+	## Object Use Events (Placeables)
+	- NWNX_ON_OBJECT_USE_BEFORE
+	- NWNX_ON_OBJECT_USE_AFTER
+
+	`OBJECT_SELF` = The player using the object
+
+	Event Data Tag        | Type   | Notes
+	----------------------|--------|-------
+	OBJECT                | object | The Object being used |
+_______________________________________
 */
 /*
 const int NWNX_EVENTS_OBJECT_TYPE_CREATURE          = 5;
@@ -1577,6 +1587,10 @@ void NWNX_Events_SubscribeEvent(string evt, string script);
 /// @param evt The event name.
 /// @param script The script.
 void NWNX_Events_UnsubscribeEvent(string evt, string script);
+
+/// @brief Unsubscribe all scripts from all events starting with prefix.
+/// @param prefix the prefix to match against. Can be empty.
+void NWNX_Events_UnsubscribeAllStartingWith(string prefix);
 
 /// @brief Script chunks can subscribe to events.
 ///
@@ -1736,6 +1750,14 @@ void NWNX_Events_UnsubscribeEvent(string evt, string script)
 
     NWNX_PushArgumentString(script);
     NWNX_PushArgumentString(evt);
+    NWNX_CallFunction(NWNX_Events, sFunc);
+}
+
+void NWNX_Events_UnsubscribeAllStartingWith(string prefix)
+{
+    string sFunc = "UnsubscribeAllStartingWith";
+
+    NWNX_PushArgumentString(prefix);
     NWNX_CallFunction(NWNX_Events, sFunc);
 }
 

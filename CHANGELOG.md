@@ -16,11 +16,15 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Tweaks: added `NWNX_TWEAKS_FIX_RESOLVE_SPECIAL_ATTACK_DAMAGE` to fix special attacks dealing damage on a miss.
 - Optimizations: added `NWNX_OPTIMIZATIONS_FIX_PLACEABLE_VFX_REAPPLY_BUG` to fix a bug where VFXs keep getting reapplied to placeables.
 - Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPT_CHUNKS` to cache script chunks after first execution.
+- Optimizations: added `NWNX_OPTIMIZATIONS_CLIENT_GAMEOBJECT_UPDATE_TIME` to change the global client gameobject update time.
+- Optimizations: added `NWNX_OPTIMIZATIONS_CLIENT_GAMEOBJECT_UPDATE_TIME_LOADING` to change the client gameobject update time for players loading an area.
 - Events: added skippable event `NWNX_ON_INPUT_DROP_ITEM_{BEFORE|AFTER}` which fires when a player attempts to drop an item.
 - Events: added skippable event `NWNX_ON_DECREMENT_SPELL_COUNT_{BEFORE|AFTER}` which fires when spell count (Memorized, non-memorized, or spell-like ability) decreases.
 - Events: added skippable event `NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_{BEFORE|AFTER}` which fires when the dm_visualeffect console command is used.
 - Events: added skippable event `NWNX_ON_RUN_EVENT_SCRIPT_{BEFORE|AFTER}` which fires on all object event scripts.
 - Events: added skippable event `NWNX_ON_BARTER_ADD_ITEM_{BEFORE|AFTER}` which fires when an item is added to the barter window.
+- Experimental: added `NWNX_EXPERIMENTAL_IGNORE_MODULE_VERSION` to ignore the module version when loading. 
+- Events: added `NWNX_ON_OBJECT_USE_{BEFORE|AFTER}` which fires when player uses a placeable.
 
 ##### New Plugins
 - N/A
@@ -37,16 +41,20 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Creature: AddCastSpellActions()
 - Creature: GetSpellUsesLeft()
 - Creature: GetMemorizedSpellReadyCount()
+- Creature: GetIsFlanking()
 - Effect: AccessorizeVisualEffect()
 - Encounter: Destroy()
 - Events: SubscribeEventScriptChunk()
 - Events: UnsubscribeEventScriptChunk()
 - Events: GetNumSubscribers()
+- Feat: LoadFeatModifiers()
 - Object: SetConversationPrivate()
+- Object: {Get|Set}AoEObjectRadius()
 - Player: UpdateWind();
 - Player: UpdateSkyBox();
 - Player: UpdateFogColor();
 - Player: UpdateFogAmount();
+- Player: GetGameObject()
 - Regex: Match()
 
 ### Changed
