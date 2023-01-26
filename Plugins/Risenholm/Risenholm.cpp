@@ -33,8 +33,8 @@ namespace Risenholm
 static bool s_AddItemCastSpellGrenadeAction;
 
 
-static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature13GetFlatFootedEv,
-    (void*)+[](CNWSCreature *pCreature) -> int32_t
+static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(&CNWSCreature::GetFlatFooted,
+    +[](CNWSCreature *pCreature) -> int32_t
     {
         auto *pCreatureStats = pCreature->m_pStats;
         auto *pScriptVarTable = Utils::GetScriptVarTable(pCreature);
@@ -185,8 +185,8 @@ static void ResolvePlaceableSneakAndDeathAttack(CNWSCreature *pThis, CNWSPlaceab
     pAttackData->m_bSneakAttack = hasSneakAttack;
     pAttackData->m_bDeathAttack = hasDeathAttack;
 }
-static Hooks::Hook s_ResolveAttackRollHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17ResolveAttackRollEP10CNWSObject,
-    (void*)+[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
+static Hooks::Hook s_ResolveAttackRollHook = Hooks::HookFunction(&CNWSCreature::ResolveAttackRoll,
+    +[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
     {
         if (!pTarget)
             return;
@@ -381,8 +381,8 @@ static Hooks::Hook s_AcquireItemHook = Hooks::HookFunction(Functions::_ZN12CNWSC
 */
 
 
-static Hooks::Hook s_DoCombatStepHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature12DoCombatStepEhij,
-    (void*)+[](CNWSCreature *pThis, uint8_t nStepType, int32_t nAnimationTime, ObjectID oidTarget) -> void
+static Hooks::Hook s_DoCombatStepHook = Hooks::HookFunction(&CNWSCreature::DoCombatStep,
+    +[](CNWSCreature *pThis, uint8_t nStepType, int32_t nAnimationTime, ObjectID oidTarget) -> void
     {
         static CExoString sVarName = "DISABLE_COMBAT_SHUFFLE";
         if (!Utils::GetScriptVarTable(pThis)->GetInt(sVarName))
@@ -571,8 +571,8 @@ static Hooks::Hook s_DoCombatStepHook = Hooks::HookFunction(Functions::_ZN12CNWS
     }, Hooks::Order::Latest);
 
 
-static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17ResolveAmmunitionEj,
-    (void*)+[](CNWSCreature *pCreature, uint32_t nTimeIndex) -> void
+static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(&CNWSCreature::ResolveAmmunition,
+    +[](CNWSCreature *pCreature, uint32_t nTimeIndex) -> void
     {
         if (auto *pItem = pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::RightHand))
         {
@@ -616,8 +616,8 @@ static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(Functions::_ZN1
     }, Hooks::Order::Final);
 
 
-static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23ResolvePostRangedDamageEP10CNWSObject,
-    (void*)+[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
+static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(&CNWSCreature::ResolvePostRangedDamage,
+    +[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
     {
         if (!pTarget)
             return;
@@ -712,8 +712,8 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(Functions
     }, Hooks::Order::Final);
 
 
-static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature17AIActionCastSpellEP20CNWSObjectActionNode,
-    (void*)+[](CNWSCreature* thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
+static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(&CNWSCreature::AIActionCastSpell,
+    +[](CNWSCreature* thisPtr, CNWSObjectActionNode *pNode) -> uint32_t
     {
         BOOL bHasted = thisPtr->m_bHasted;
 
@@ -724,8 +724,8 @@ static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(Functions::_ZN1
         return retVal;
     }, Hooks::Order::Early);
 
-static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(Functions::_ZN15CNWSCombatRound15GetTotalAttacksEv,
-    (void*)+[](CNWSCombatRound* thisPtr) -> uint8_t
+static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(&CNWSCombatRound::GetTotalAttacks,
+    +[](CNWSCombatRound* thisPtr) -> uint8_t
     {
         int32_t nTotalAttacks = thisPtr->m_nOnHandAttacks + thisPtr->m_nOffHandAttacks + thisPtr->m_nAdditionalAttacks + thisPtr->m_nBonusEffectAttacks;
 
@@ -736,8 +736,8 @@ static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(Functions::_ZN15C
     }, Hooks::Order::Final);
 
 
-static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(Functions::_ZN17CNWSCreatureStats9GetDEXModEi,
-    (void*)+[](CNWSCreatureStats* thisPtr, BOOL bUseArmourPenalty) -> char
+static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(&CNWSCreatureStats::GetDEXMod,
+    +[](CNWSCreatureStats* thisPtr, BOOL bUseArmourPenalty) -> char
     {
         int32_t nMaxDexMod = 0;
 
@@ -782,8 +782,8 @@ static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(Functions::_ZN17CNWSCre
         else
             return thisPtr->m_nDexterityModifier;
     }, Hooks::Order::Final);
-static Hooks::Hook s_ItemComputeArmorClassHook = Hooks::HookFunction(Functions::_ZN8CNWSItem17ComputeArmorClassEv,
-    (void*)+[](CNWSItem *thisPtr) -> int32_t
+static Hooks::Hook s_ItemComputeArmorClassHook = Hooks::HookFunction(&CNWSItem::ComputeArmorClass,
+    +[](CNWSItem *thisPtr) -> int32_t
     {
         if (Globals::Rules()->m_pBaseItemArray->GetBaseItem(thisPtr->m_nBaseItem)->m_nModelType != 3)
         {
@@ -816,8 +816,8 @@ static Hooks::Hook s_ItemComputeArmorClassHook = Hooks::HookFunction(Functions::
 
         return (int32_t)fACBonus;
     }, Hooks::Order::Final);
-static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature18ComputeArmourClassEP8CNWSItemii,
-    (void*)+[](CNWSCreature *thisPtr, CNWSItem *pItemToEquip, BOOL, BOOL) -> void
+static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(&CNWSCreature::ComputeArmourClass,
+    +[](CNWSCreature *thisPtr, CNWSItem *pItemToEquip, BOOL, BOOL) -> void
     {
         bool bSendFeedbackMessage = false;
         auto *pInventory = thisPtr->m_pInventory;
@@ -917,8 +917,8 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(Functi
         }
     }, Hooks::Order::Final);
 
-static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature23AddItemCastSpellActionsEjii6Vectorjii,
-    (void*)+[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
+static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(&CNWSCreature::AddItemCastSpellActions,
+    +[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
     {
         if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItemUsed)))
@@ -933,8 +933,8 @@ static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(Functions
 
         return false;
     }, Hooks::Order::Early);
-static Hooks::Hook s_AddActionHook = Hooks::HookFunction(Functions::_ZN10CNWSObject9AddActionEjtjPvjS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_jS0_,
-    (void*)+[](CNWSObject *thisPtr, uint32_t nActionId, uint16_t nGroupId, uint32_t nParamType1, void *pParameter1, uint32_t nParamType2, void *pParameter2,
+static Hooks::Hook s_AddActionHook = Hooks::HookFunction(&CNWSObject::AddAction,
+    +[](CNWSObject *thisPtr, uint32_t nActionId, uint16_t nGroupId, uint32_t nParamType1, void *pParameter1, uint32_t nParamType2, void *pParameter2,
                uint32_t nParamType3, void *pParameter3, uint32_t nParamType4, void *pParameter4, uint32_t nParamType5, void *pParameter5, uint32_t nParamType6, void *pParameter6,
                uint32_t nParamType7, void *pParameter7, uint32_t nParamType8, void *pParameter8, uint32_t nParamType9, void *pParameter9, uint32_t nParamType10, void *pParameter10,
                uint32_t nParamType11, void *pParameter11, uint32_t nParamType12, void *pParameter12) -> void
