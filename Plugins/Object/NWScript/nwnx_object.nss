@@ -368,6 +368,18 @@ void NWNX_Object_SetAoEObjectRadius(object oAoE, float fRadius);
 /// @return The radius or 0.0f on error
 float NWNX_Object_GetAoEObjectRadius(object oAoE);
 
+/// @brief Gets whether the last spell cast of oObject was spontaneous.
+/// @note Should be called in a spell script.
+/// @param oObject The object.
+/// @return true if the last spell was cast spontaneously
+int NWNX_Object_GetLastSpellCastSpontaneous(object oObject);
+
+/// @brief Gets the last spell cast domain level.
+/// @note Should be called in a spell script.
+/// @param oObject The object.
+/// @return Domain level of the cast spell, 0 if not a domain spell
+int NWNX_Object_GetLastSpellCastDomainLevel(object oObject);
+
 /// @brief Force the given object to carry the given UUID. Any other object currently owning the UUID is stripped of it.
 /// @param oObject The object
 /// @param sUUID The UUID to force
@@ -925,6 +937,26 @@ float NWNX_Object_GetAoEObjectRadius(object oAoE)
     NWNX_CallFunction(NWNX_Object, sFunc);
 
     return NWNX_GetReturnValueFloat();
+}
+
+int NWNX_Object_GetLastSpellCastSpontaneous(object oObject)
+{
+    string sFunc = "GetLastSpellCastSpontaneous";
+
+    NWNX_PushArgumentObject(oObject);
+    NWNX_CallFunction(NWNX_Object, sFunc);
+
+    return NWNX_GetReturnValueInt();
+}
+
+int NWNX_Object_GetLastSpellCastDomainLevel(object oObject)
+{
+    string sFunc = "GetLastSpellCastDomainLevel";
+
+    NWNX_PushArgumentObject(oObject);
+    NWNX_CallFunction(NWNX_Object, sFunc);
+
+    return NWNX_GetReturnValueInt();
 }
 
 void NWNX_Object_ForceAssignUUID(object oObject, string sUUID)

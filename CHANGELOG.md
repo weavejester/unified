@@ -14,10 +14,12 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Tweaks: added `NWNX_TWEAKS_FIX_MULTICLASS_XP_PENALTY_BUG` to fix a bug where multiclass xp penalties are calculated incorrectly.
 - Tweaks: added `NWNX_TWEAKS_UNCAP_DAMAGE_RESISTANCE_DAMAGE_FLAGS` to uncap the compounded damage type flags of EffectDamageResistance().
 - Tweaks: added `NWNX_TWEAKS_FIX_RESOLVE_SPECIAL_ATTACK_DAMAGE` to fix special attacks dealing damage on a miss.
+- Tweaks: added `NWNX_TWEAKS_FIX_TURD_EFFECT_UNLINKING` to fix effects unlinking when restored from a TURD due to their effect id changing.
 - Optimizations: added `NWNX_OPTIMIZATIONS_FIX_PLACEABLE_VFX_REAPPLY_BUG` to fix a bug where VFXs keep getting reapplied to placeables.
 - Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPT_CHUNKS` to cache script chunks after first execution.
 - Optimizations: added `NWNX_OPTIMIZATIONS_CLIENT_GAMEOBJECT_UPDATE_TIME` to change the global client gameobject update time.
 - Optimizations: added `NWNX_OPTIMIZATIONS_CLIENT_GAMEOBJECT_UPDATE_TIME_LOADING` to change the client gameobject update time for players loading an area.
+- Optimizations: added `NWNX_OPTIMIZATIONS_UPDATE_LIST_COMPARISONS` which optimizes the visibility and vvf list comparisons.
 - Events: added skippable event `NWNX_ON_INPUT_DROP_ITEM_{BEFORE|AFTER}` which fires when a player attempts to drop an item.
 - Events: added skippable event `NWNX_ON_DECREMENT_SPELL_COUNT_{BEFORE|AFTER}` which fires when spell count (Memorized, non-memorized, or spell-like ability) decreases.
 - Events: added skippable event `NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_{BEFORE|AFTER}` which fires when the dm_visualeffect console command is used.
@@ -42,6 +44,8 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Creature: GetSpellUsesLeft()
 - Creature: GetMemorizedSpellReadyCount()
 - Creature: GetIsFlanking()
+- Creature: DecrementRemainingSpellSlots()
+- Creature: IncrementRemainingSpellSlots()
 - Effect: AccessorizeVisualEffect()
 - Encounter: Destroy()
 - Events: SubscribeEventScriptChunk()
@@ -50,6 +54,8 @@ https://github.com/nwnxee/unified/compare/build8193.34...HEAD
 - Feat: LoadFeatModifiers()
 - Object: SetConversationPrivate()
 - Object: {Get|Set}AoEObjectRadius()
+- Object: GetLastSpellCastSpontaneous()
+- Object: GetLastSpellCastDomainLevel()
 - Player: UpdateWind();
 - Player: UpdateSkyBox();
 - Player: UpdateFogColor();

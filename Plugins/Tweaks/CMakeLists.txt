@@ -16,6 +16,7 @@ add_plugin(Tweaks
     "FixItemNullptrInCItemRepository.cpp"
     "FixResolveSpecialAttackDamage.cpp"
     "FixTriggerEnterDetection.cpp"
+    "FixTURDEffectUnlinking.cpp"
     "FixUnlimitedPotionsBug.cpp"
     "HideOnCharList.cpp"
     "HideHardcodedItemVFX.cpp"

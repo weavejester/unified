@@ -5,7 +5,7 @@
 
 #include <memory>
 
-using ArgumentStack = NWNXLib::Events::ArgumentStack;
+using ArgumentStack = NWNXLib::ArgumentStack;
 
 namespace SQL {
 
@@ -46,6 +46,7 @@ private:
     bool m_queryMetrics;
     bool m_queryPrepared;
     bool m_utf8;
+    std::string m_databaseType;
 };
 
 }

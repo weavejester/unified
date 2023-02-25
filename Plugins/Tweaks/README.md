@@ -44,6 +44,7 @@ Tweaks stuff. See below.
 | `NWNX_TWEAKS_FIX_TRIGGER_ENTER_DETECTION` | true or false | Adds an additional bounds check for triggers to fix a trigger detection bug. |
 | `NWNX_TWEAKS_UNCAP_DAMAGE_RESISTANCE_DAMAGE_FLAGS` | true or false | Uncaps the compounded damage flags of EffectDamageResistance. |
 | `NWNX_TWEAKS_FIX_RESOLVE_SPECIAL_ATTACK_DAMAGE` | true or false | Stops damage from being resolved when a special attack misses. |
+| `NWNX_TWEAKS_FIX_TURD_EFFECT_UNLINKING` | true or false | Stops effects from unlinking when restored from a TURD due to their effect ID changing. |
 
 ## Environment variable values
 

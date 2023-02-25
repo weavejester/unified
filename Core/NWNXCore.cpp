@@ -181,7 +181,7 @@ void NWNXCore::InitialSetupHooks()
     m_vmTagEffectHook      = Hooks::HookFunction(&CNWVirtualMachineCommands::ExecuteCommandTagEffect, &TagEffectHandler, Hooks::Order::Final);
     m_vmTagItemProperyHook = Hooks::HookFunction(&CNWVirtualMachineCommands::ExecuteCommandTagItemProperty, &TagItemPropertyHandler, Hooks::Order::Final);
     m_vmPlaySoundHook      = Hooks::HookFunction(&CNWVirtualMachineCommands::ExecuteCommandPlaySound, &PlaySoundHandler, Hooks::Order::Final);
-    
+
 
     m_destroyServerHook    = Hooks::HookFunction(&CAppManager::DestroyServer, &DestroyServerHandler, Hooks::Order::Final);
     m_mainLoopInternalHook = Hooks::HookFunction(&CServerExoAppInternal::MainLoop, &MainLoopInternalHandler, Hooks::Order::Final);
@@ -225,6 +225,24 @@ void NWNXCore::InitialSetupHooks()
                     g_core->m_ScriptChunkRecursion += 1;
                     auto retVal = runScriptChunkHook->CallOriginal<int32_t>(pVirtualMachine, sScriptChunk, oid, bOidValid, bWrapIntoMain);
                     g_core->m_ScriptChunkRecursion -= 1;
+                    return retVal;
+                }, Hooks::Order::VeryEarly);
+
+        static Hooks::Hook runScriptSituationHook = Hooks::HookFunction(
+                &CVirtualMachine::RunScriptSituation,
+                +[](CVirtualMachine *pVirtualMachine, void * pScriptSituation, OBJECT_ID oid, BOOL bOidValid) -> BOOL
+                {
+                    auto *pVirtualMachineScript = (CVirtualMachineScript*)pScriptSituation;
+                    bool isScriptChunk = !pVirtualMachineScript->m_sScriptChunk.IsEmpty();
+
+                    if (isScriptChunk)
+                        g_core->m_ScriptChunkRecursion += 1;
+
+                    auto retVal = runScriptSituationHook->CallOriginal<BOOL>(pVirtualMachine, pScriptSituation, oid, bOidValid);
+
+                    if (isScriptChunk)
+                        g_core->m_ScriptChunkRecursion -= 1;
+
                     return retVal;
                 }, Hooks::Order::VeryEarly);
     }
@@ -367,7 +385,7 @@ void NWNXCore::InitialSetupResourceDirectories()
 
                     g_core->m_CustomResourceDirectoryAliases.emplace_back(resDir.first);
 
-                    Globals::ExoBase()->m_pcExoAliasList->Add(alias, path);
+                    Globals::ExoBase()->m_pcExoAliasList->Add(resDir.first, path);
                     Globals::ExoResMan()->CreateDirectory(alias);
                     Globals::ExoResMan()->AddResourceDirectory(alias, resDir.second.second, true);
                 }
