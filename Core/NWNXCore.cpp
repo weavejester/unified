@@ -308,7 +308,7 @@ void NWNXCore::InitialSetupPlugins()
         const std::string& pluginName = dynamicLibrary;
         const std::string pluginNameWithoutExtension = String::Basename(pluginName);
 
-        if (pluginNameWithoutExtension == NWNX_CORE_PLUGIN_NAME || pluginNameWithoutExtension.compare(0, prefix.size(), prefix) != 0)
+        if (pluginNameWithoutExtension.compare(0, prefix.size(), prefix) != 0)
         {
             continue; // Not a plugin.
         }
@@ -319,7 +319,9 @@ void NWNXCore::InitialSetupPlugins()
         }
 
         auto services = ConstructProxyServices(pluginNameWithoutExtension);
-        if (Config::Get<bool>("SKIP", (bool)skipAllPlugins, pluginNameWithoutExtension))
+
+        // Always load core.
+        if (pluginNameWithoutExtension != NWNX_CORE_PLUGIN_NAME && Config::Get<bool>("SKIP", (bool)skipAllPlugins, pluginNameWithoutExtension))
         {
             LOG_INFO("Skipping plugin %s due to configuration.", pluginNameWithoutExtension);
             continue;
@@ -611,6 +613,11 @@ int32_t NWNXCore::MainLoopInternalHandler(CServerExoAppInternal *pServerExoAppIn
     Commands::RunScheduled();
 
     return g_core->m_mainLoopInternalHook->CallOriginal<int32_t>(pServerExoAppInternal);
+}
+
+NWNX_EXPORT ArgumentStack PluginExists(ArgumentStack&& args)
+{
+    return Plugin::Find(args.extract<std::string>()) ? 1 : 0;
 }
 
 }

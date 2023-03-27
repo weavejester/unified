@@ -8,7 +8,7 @@ function(add_swig_plugin target language interfaces)
         OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${target}/NWNXLib.i
         DEPENDS Core
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/generate.sh
-        COMMAND chmod a+x ../generate.sh && mkdir -p ./out && ../generate.sh
+        COMMAND chmod a+x ../generate.sh && ../generate.sh
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${target}
     )
 
@@ -16,13 +16,26 @@ function(add_swig_plugin target language interfaces)
     set_property(SOURCE ${interfaces} PROPERTY DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${target}/NWNXLib.i)
     set_property(SOURCE ${interfaces} PROPERTY COMPILE_OPTIONS ${ARGN})
 
-    swig_add_library(${target} TYPE SHARED LANGUAGE ${language} SOURCES ${interfaces})
+    swig_add_library(${target} TYPE SHARED LANGUAGE ${language} SOURCES ${interfaces} OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/${target}/out )
     configure_plugin(${target})
+
+    # By adding nwserver-linux to the SWIG directory, we can check for any undefined symbols from mismatching headers.
+    if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/nwserver-linux)
+        add_library( nwserver SHARED IMPORTED )
+        set_target_properties( nwserver PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/nwserver-linux )
+        target_link_libraries(${target} nwserver)
+        target_link_options(${target} PRIVATE "LINKER:--no-undefined")
+    endif()
 
     set_target_properties(${target} PROPERTIES
       SWIG_INCLUDE_DIRECTORIES ../../../NWNXLib/API
       SWIG_USE_TARGET_INCLUDE_DIRECTORIES ON
       POSITION_INDEPENDENT_CODE ON)
+
+    add_custom_command(TARGET ${target}_swig_compilation POST_BUILD
+            COMMAND chmod a+x postprocess.sh && ./postprocess.sh
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${target}
+    )
 endfunction()
 
 if(SWIG_FOUND)
