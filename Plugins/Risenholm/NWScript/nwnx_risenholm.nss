@@ -56,6 +56,6 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
     NWNX_PushArgumentString(sArg2);
     NWNX_PushArgumentString(sArg1);
     NWNX_PushArgumentString(sCmd);
-    NWNX_CallFunction(NWNX_Risenholm, sFunc);
+    NWNX_CallFunction(NWNX_Risenholm, "ExecuteCommand");
     return NWNX_GetReturnValueString(NWNX_Risenholm, "ExecuteCommand");
 }
