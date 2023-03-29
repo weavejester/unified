@@ -41,7 +41,7 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
     std::string params = R"(
     {
         "model": "$1",
-        "prompt": "$2",
+        "messages": [{"role": "user", "content": "$2"}],
         "temperature": $3,
         "max_tokens": $4
     })";
@@ -51,12 +51,12 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
     params.replace(params.find("$3"), 2, std::to_string(randomness));
     params.replace(params.find("$4"), 2, std::to_string(maxTokens));
 
-    LOG_DEBUG("Making request %s", params.c_str());
-    httplib::Result result = client.Post("/v1/completions", header, params, "application/json");
+    LOG_INFO("Making request %s", params.c_str());
+    httplib::Result result = client.Post("/v1/chat/completions", header, params, "application/json");
 
     if (result)
     {
-        LOG_DEBUG("Got result %s", result->body.c_str());
+        LOG_INFO("Got result %s", result->body.c_str());
 
         json bodyAsJson = json::parse(result->body);
         const std::string text = bodyAsJson["choices"][0]["text"];
@@ -79,9 +79,9 @@ NWNX_EXPORT ArgumentStack ChatAsync(ArgumentStack&& args)
 {
     const std::string model = args.extract<std::string>();
     const std::string prompt = args.extract<std::string>();
-    const std::string token = args.extract<std::string>();
+    const std::string id = args.extract<std::string>();
     const float randomness = args.extract<float>();
     const int maxTokens = args.extract<int>();
-    std::async(std::launch::async, &DoRequest, model, prompt, token, randomness, maxTokens);
+    std::async(std::launch::async, &DoRequest, model, prompt, id, randomness, maxTokens);
     return {};
 }
