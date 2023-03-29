@@ -62,11 +62,11 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
     NWNX_PushArgumentString(sArg1);
     NWNX_PushArgumentString(sCmd);
     NWNX_CallFunction(NWNX_Risenholm, "ExecuteCommand");
-    return NWNX_GetReturnValueString(NWNX_Risenholm, "ExecuteCommand");
+    return NWNX_GetReturnValueString();
 }
 
 int NWNX_Risenholm_CheckForShutdownFile()
 {
     NWNX_CallFunction(NWNX_Risenholm, "CheckForShutdownFile");
-    return NWNX_GetReturnValueInt(NWNX_Risenholm, "CheckForShutdownFile");
+    return NWNX_GetReturnValueInt();
 }
