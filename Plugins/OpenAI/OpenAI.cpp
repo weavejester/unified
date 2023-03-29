@@ -25,7 +25,7 @@ static std::string escape_json(const std::string& s) {
     return o.str();
 }
 
-void DoRequest(const std::string& prompt, const std::string& token, const float randomness, const int maxTokens)
+void DoRequest(const std::string& model, const std::string& prompt, const std::string& id, const float randomness, const int maxTokens)
 {
     httplib::Client client("https://api.openai.com");
     client.enable_server_certificate_verification(false);
@@ -46,7 +46,7 @@ void DoRequest(const std::string& prompt, const std::string& token, const float 
         "max_tokens": $4
     })";
 
-    params.replace(params.find("$1"), 2, "text-davinci-003");
+    params.replace(params.find("$1"), 2, escape_json(String::ToUTF8(model)));
     params.replace(params.find("$2"), 2, escape_json(String::ToUTF8(prompt)));
     params.replace(params.find("$3"), 2, std::to_string(randomness));
     params.replace(params.find("$4"), 2, std::to_string(maxTokens));
@@ -65,7 +65,7 @@ void DoRequest(const std::string& prompt, const std::string& token, const float 
             {
                 auto moduleOid = NWNXLib::Utils::ObjectIDToString(Utils::GetModule()->m_idSelf);
                 MessageBus::Broadcast("NWNX_EVENT_PUSH_EVENT_DATA", { "RESPONSE", text });
-                MessageBus::Broadcast("NWNX_EVENT_PUSH_EVENT_DATA", { "TOKEN", token });
+                MessageBus::Broadcast("NWNX_EVENT_PUSH_EVENT_DATA", { "REQUEST_ID", id });
                 MessageBus::Broadcast("NWNX_EVENT_SIGNAL_EVENT", { "NWNX_ON_OPENAI_RESPONSE", moduleOid });
             });
     }
@@ -77,10 +77,11 @@ void DoRequest(const std::string& prompt, const std::string& token, const float 
 
 NWNX_EXPORT ArgumentStack ChatAsync(ArgumentStack&& args)
 {
+    const std::string model = args.extract<std::string>();
     const std::string prompt = args.extract<std::string>();
     const std::string token = args.extract<std::string>();
     const float randomness = args.extract<float>();
     const int maxTokens = args.extract<int>();
-    std::async(std::launch::async, &DoRequest, prompt, token, randomness, maxTokens);
+    std::async(std::launch::async, &DoRequest, model, prompt, token, randomness, maxTokens);
     return {};
 }
