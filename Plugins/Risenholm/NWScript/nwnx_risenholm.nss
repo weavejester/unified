@@ -29,6 +29,11 @@ void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature);
 /// @param sArg6 An optional 6th argument
 string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2="", string sArg3="", string sArg4="", string sArg5="", string sArg6="");
 
+/// @brief Checks for a file that indicates a shutdown should take place.
+/// @note Deletes the file afterward.
+/// @return True if the shutdown file was found, false otherwise
+int NWNX_Risenholm_CheckForShutdownFile();
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -58,4 +63,10 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
     NWNX_PushArgumentString(sCmd);
     NWNX_CallFunction(NWNX_Risenholm, "ExecuteCommand");
     return NWNX_GetReturnValueString(NWNX_Risenholm, "ExecuteCommand");
+}
+
+int NWNX_Risenholm_CheckForShutdownFile()
+{
+    NWNX_CallFunction(NWNX_Risenholm, "CheckForShutdownFile");
+    return NWNX_GetReturnValueInt(NWNX_Risenholm, "CheckForShutdownFile");
 }

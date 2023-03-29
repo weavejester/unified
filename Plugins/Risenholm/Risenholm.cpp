@@ -1012,4 +1012,18 @@ NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
     return input.str();
 }
 
+NWNX_EXPORT ArgumentStack CheckForShutdownFile(ArgumentStack&& args)
+{
+    std::string filePath = "/nwn/home/shutdown.txt";
+    std::ifstream file(filePath);
+    if (file.good()) {
+        file.close();
+        if (std::remove(filePath.c_str()) != 0) {
+            LOG_ERROR("Error deleting file: %s", filePath);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 }
