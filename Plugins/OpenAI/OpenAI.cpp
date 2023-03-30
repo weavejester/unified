@@ -25,7 +25,7 @@ static std::string escape_json(const std::string& s) {
     return o.str();
 }
 
-void DoRequest(const std::string& model, const std::string& prompt, const std::string& id, const float randomness, const int maxTokens)
+void DoRequest(const json& messages, const std::string& id, const std::string& model, const float randomness, const int maxTokens)
 {
     httplib::Client client("https://api.openai.com");
     client.enable_server_certificate_verification(false);
@@ -33,7 +33,6 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
     client.set_write_timeout(std::chrono::seconds(60));
 
     // See https://platform.openai.com/docs/api-reference/completions/create
-
     httplib::Headers header = {
         { "Authorization", "Bearer " + Config::Get<std::string>("TOKEN", "SET_ENV_CONFIG") }
     };
@@ -41,13 +40,13 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
     std::string params = R"(
     {
         "model": "$1",
-        "messages": [{"role": "user", "content": "$2"}],
+        "messages": $2,
         "temperature": $3,
         "max_tokens": $4
     })";
 
     params.replace(params.find("$1"), 2, escape_json(String::ToUTF8(model)));
-    params.replace(params.find("$2"), 2, escape_json(String::ToUTF8(prompt)));
+    params.replace(params.find("$2"), 2, messages.dump());
     params.replace(params.find("$3"), 2, std::to_string(randomness));
     params.replace(params.find("$4"), 2, std::to_string(maxTokens));
 
@@ -77,11 +76,11 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
 
 NWNX_EXPORT ArgumentStack ChatAsync(ArgumentStack&& args)
 {
-    const std::string model = args.extract<std::string>();
-    const std::string prompt = args.extract<std::string>();
+    const json messages = args.extract<JsonEngineStructure>().m_shared->m_json;
     const std::string id = args.extract<std::string>();
+    const std::string model = args.extract<std::string>();
     const float randomness = args.extract<float>();
     const int maxTokens = args.extract<int>();
-    std::async(std::launch::async, &DoRequest, model, prompt, id, randomness, maxTokens);
+    std::async(std::launch::async, &DoRequest, messages, id, model, randomness, maxTokens);
     return {};
 }
