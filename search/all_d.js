@@ -1429,7 +1429,7 @@ var searchData=
   ['nwnx_5fon_5fwebhook_5ffailure_1740',['NWNX_ON_WEBHOOK_FAILURE',['../group__events.html#gae4351c2b51c9cc74c5f040a481b797c5',1,'nwnx_events.nss']]],
   ['nwnx_5fon_5fwebhook_5fsuccess_1741',['NWNX_ON_WEBHOOK_SUCCESS',['../group__events.html#ga3f3069b1715e593b23dbc5c3d0a561df',1,'nwnx_events.nss']]],
   ['nwnx_5fopenai_2enss_1742',['nwnx_openai.nss',['../nwnx__openai_8nss.html',1,'']]],
-  ['nwnx_5fopenai_5fchatasync_1743',['NWNX_OpenAI_ChatAsync',['../nwnx__openai_8nss.html#ab8bdb5231f55e205d4a7150651eff642',1,'NWNX_OpenAI_ChatAsync(string prompt, string token=&quot;&quot;, float randomness=0.8, int maxTokens=300):&#160;nwnx_openai.nss'],['../nwnx__openai_8nss.html#a834c5963c7da1b3d9716c04aacac4190',1,'NWNX_OpenAI_ChatAsync(string model, string prompt, string token, float randomness, int maxTokens):&#160;nwnx_openai.nss']]],
+  ['nwnx_5fopenai_5fchatasync_1743',['NWNX_OpenAI_ChatAsync',['../nwnx__openai_8nss.html#a993f85bd877a9d7423ee9b19e824ca8e',1,'nwnx_openai.nss']]],
   ['nwnx_5fplayer_2enss_1744',['nwnx_player.nss',['../nwnx__player_8nss.html',1,'']]],
   ['nwnx_5fplayer_5faddcustomjournalentry_1745',['NWNX_Player_AddCustomJournalEntry',['../group__player.html#ga85bdd2dedfa94e2858c1a38cf8d63035',1,'nwnx_player.nss']]],
   ['nwnx_5fplayer_5fapplyinstantvisualeffecttoobject_1746',['NWNX_Player_ApplyInstantVisualEffectToObject',['../group__player.html#gabe2b46878c91200619eb7186a7b3c6f0',1,'nwnx_player.nss']]],

@@ -457,7 +457,7 @@ var searchData=
   ['nwnx_5fobject_5fsetstring_3326',['NWNX_Object_SetString',['../group__object.html#gadc1a34e2cbe53faef7bd5a1fffaae8a1',1,'nwnx_object.nss']]],
   ['nwnx_5fobject_5fsettriggergeometry_3327',['NWNX_Object_SetTriggerGeometry',['../group__object.html#ga3ba2a01f7ba3088280c122708bb0ba84',1,'nwnx_object.nss']]],
   ['nwnx_5fobject_5fstringtoobject_3328',['NWNX_Object_StringToObject',['../nwnx__deprecated_8nss.html#a785dbe351d67f4fb128ba801021f23a6',1,'nwnx_deprecated.nss']]],
-  ['nwnx_5fopenai_5fchatasync_3329',['NWNX_OpenAI_ChatAsync',['../nwnx__openai_8nss.html#ab8bdb5231f55e205d4a7150651eff642',1,'NWNX_OpenAI_ChatAsync(string prompt, string token=&quot;&quot;, float randomness=0.8, int maxTokens=300):&#160;nwnx_openai.nss'],['../nwnx__openai_8nss.html#a834c5963c7da1b3d9716c04aacac4190',1,'NWNX_OpenAI_ChatAsync(string model, string prompt, string token, float randomness, int maxTokens):&#160;nwnx_openai.nss']]],
+  ['nwnx_5fopenai_5fchatasync_3329',['NWNX_OpenAI_ChatAsync',['../nwnx__openai_8nss.html#a993f85bd877a9d7423ee9b19e824ca8e',1,'nwnx_openai.nss']]],
   ['nwnx_5fplayer_5faddcustomjournalentry_3330',['NWNX_Player_AddCustomJournalEntry',['../group__player.html#ga85bdd2dedfa94e2858c1a38cf8d63035',1,'nwnx_player.nss']]],
   ['nwnx_5fplayer_5fapplyinstantvisualeffecttoobject_3331',['NWNX_Player_ApplyInstantVisualEffectToObject',['../group__player.html#gabe2b46878c91200619eb7186a7b3c6f0',1,'nwnx_player.nss']]],
   ['nwnx_5fplayer_5fapplyloopingvisualeffecttoobject_3332',['NWNX_Player_ApplyLoopingVisualEffectToObject',['../group__player.html#ga73a710fc8c8f8dcaa5bcf0d72a9e71fd',1,'nwnx_player.nss']]],
