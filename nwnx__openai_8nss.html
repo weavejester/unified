@@ -108,12 +108,14 @@ $(document).ready(function(){initNavTree('nwnx__openai_8nss.html',''); initResiz
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a993f85bd877a9d7423ee9b19e824ca8e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="nwnx__openai_8nss.html#a993f85bd877a9d7423ee9b19e824ca8e">NWNX_OpenAI_ChatAsync</a> (json messages, string id=&quot;&quot;, string model=&quot;gpt-3.5-turbo&quot;, float randomness=0.8, int maxTokens=300)</td></tr>
-<tr class="separator:a993f85bd877a9d7423ee9b19e824ca8e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae3dce0047b4afa9a77662b951493edc7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="nwnx__openai_8nss.html#ae3dce0047b4afa9a77662b951493edc7">NWNX_OpenAI_ChatAsync</a> (json payload, string id=&quot;&quot;)</td></tr>
+<tr class="separator:ae3dce0047b4afa9a77662b951493edc7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a209e009409e5db2eed645bdd50f2d97e"><td class="memItemLeft" align="right" valign="top">json&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="nwnx__openai_8nss.html#a209e009409e5db2eed645bdd50f2d97e">NWNX_OpenAI_Payload</a> (string message, string model=&quot;gpt-3.5-turbo&quot;, float temperature=0.8, int maxTokens=300)</td></tr>
+<tr class="separator:a209e009409e5db2eed645bdd50f2d97e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="a993f85bd877a9d7423ee9b19e824ca8e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a993f85bd877a9d7423ee9b19e824ca8e">&#9670;&nbsp;</a></span>NWNX_OpenAI_ChatAsync()</h2>
+<a id="ae3dce0047b4afa9a77662b951493edc7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae3dce0047b4afa9a77662b951493edc7">&#9670;&nbsp;</a></span>NWNX_OpenAI_ChatAsync()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -122,13 +124,37 @@ Functions</h2></td></tr>
           <td class="memname">void NWNX_OpenAI_ChatAsync </td>
           <td>(</td>
           <td class="paramtype">json&#160;</td>
-          <td class="paramname"><em>messages</em>, </td>
+          <td class="paramname"><em>payload</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">string&#160;</td>
-          <td class="paramname"><em>id</em> = <code>&quot;&quot;</code>, </td>
+          <td class="paramname"><em>id</em> = <code>&quot;&quot;</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="nwnx__openai_8nss_source.html#l00007">7</a> of file <a class="el" href="nwnx__openai_8nss_source.html">nwnx_openai.nss</a>.</p>
+
+</div>
+</div>
+<a id="a209e009409e5db2eed645bdd50f2d97e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a209e009409e5db2eed645bdd50f2d97e">&#9670;&nbsp;</a></span>NWNX_OpenAI_Payload()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">json NWNX_OpenAI_Payload </td>
+          <td>(</td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>message</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -140,7 +166,7 @@ Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">float&#160;</td>
-          <td class="paramname"><em>randomness</em> = <code>0.8</code>, </td>
+          <td class="paramname"><em>temperature</em> = <code>0.8</code>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -156,7 +182,7 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="nwnx__openai_8nss_source.html#l00005">5</a> of file <a class="el" href="nwnx__openai_8nss_source.html">nwnx_openai.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__openai_8nss_source.html#l00014">14</a> of file <a class="el" href="nwnx__openai_8nss_source.html">nwnx_openai.nss</a>.</p>
 
 </div>
 </div>
@@ -167,7 +193,7 @@ Functions</h2></td></tr>
 			<ul>
 				<li class="navelem"><a class="el" href="dir_0b4eaef40a1fe20bedafe9e8e719ce66.html">Plugins</a></li><li class="navelem"><a class="el" href="dir_f0bb79a6510888fe921b0c2a07eaf4bb.html">OpenAI</a></li><li class="navelem"><a class="el" href="dir_69f21708f83e5ba369449a0c4829588f.html">NWScript</a></li><li class="navelem"><a class="el" href="nwnx__openai_8nss.html">nwnx_openai.nss</a></li>
 				<li class="footer">
-					Generated on Thu Mar 30 2023 14:12:32 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Thu Mar 30 2023 21:32:03 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>
