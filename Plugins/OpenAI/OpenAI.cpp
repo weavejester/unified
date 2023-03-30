@@ -59,7 +59,7 @@ void DoRequest(const std::string& model, const std::string& prompt, const std::s
         LOG_INFO("Got result %s", result->body.c_str());
 
         json bodyAsJson = json::parse(result->body);
-        const std::string text = bodyAsJson["choices"][0]["text"];
+        const std::string text = bodyAsJson["choices"][0]["message"]["content"];
 
         Tasks::QueueOnMainThread([=]()
             {
