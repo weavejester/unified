@@ -10,22 +10,7 @@
 
 using namespace NWNXLib;
 
-// from webhook
-static std::string escape_json(const std::string& s) {
-    std::ostringstream o;
-    for (auto c = s.cbegin(); c != s.cend(); c++) {
-        if (*c == '"' || *c == '\\' || ('\x00' <= *c && *c <= '\x1f')) {
-            o << "\\u"
-                << std::hex << std::setw(4) << std::setfill('0') << (int)*c;
-        }
-        else {
-            o << *c;
-        }
-    }
-    return o.str();
-}
-
-void DoRequest(const json& messages, const std::string& id, const std::string& model, const float randomness, const int maxTokens)
+void DoRequest(const json& payload, const std::string& id)
 {
     httplib::Client client("https://api.openai.com");
     client.enable_server_certificate_verification(false);
@@ -37,21 +22,10 @@ void DoRequest(const json& messages, const std::string& id, const std::string& m
         { "Authorization", "Bearer " + Config::Get<std::string>("TOKEN", "SET_ENV_CONFIG") }
     };
 
-    std::string params = R"(
-    {
-        "model": "$1",
-        "messages": $2,
-        "temperature": $3,
-        "max_tokens": $4
-    })";
+    std::string payload_s = payload.dump();
 
-    params.replace(params.find("$1"), 2, escape_json(String::ToUTF8(model)));
-    params.replace(params.find("$2"), 2, messages.dump());
-    params.replace(params.find("$3"), 2, std::to_string(randomness));
-    params.replace(params.find("$4"), 2, std::to_string(maxTokens));
-
-    LOG_INFO("Making request %s", params.c_str());
-    httplib::Result result = client.Post("/v1/chat/completions", header, params, "application/json");
+    LOG_INFO("Making request %s", payload_s.c_str());
+    httplib::Result result = client.Post("/v1/chat/completions", header, payload_s, "application/json");
 
     if (result)
     {
@@ -76,11 +50,8 @@ void DoRequest(const json& messages, const std::string& id, const std::string& m
 
 NWNX_EXPORT ArgumentStack ChatAsync(ArgumentStack&& args)
 {
-    const json messages = args.extract<JsonEngineStructure>().m_shared->m_json;
-    const std::string id = args.extract<std::string>();
-    const std::string model = args.extract<std::string>();
-    const float randomness = args.extract<float>();
-    const int maxTokens = args.extract<int>();
-    std::async(std::launch::async, &DoRequest, messages, id, model, randomness, maxTokens);
+    const auto payload = args.extract<JsonEngineStructure>();
+    const auto id = args.extract<std::string>();
+    std::async(std::launch::async, &DoRequest, payload.m_shared->m_json, id);
     return {};
 }
