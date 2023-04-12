@@ -25,6 +25,8 @@
 using namespace NWNXLib;
 using namespace NWNXLib::API;
 
+static uint32_t s_PostFixVersion;
+
 static void (*nwn_crash_handler)(int);
 extern "C" void nwnx_signal_handler(int sig)
 {
@@ -40,10 +42,18 @@ extern "C" void nwnx_signal_handler(int sig)
 
     std::fprintf(stdout, " NWNX Signal Handler:\n"
         "==============================================================\n"
-        " NWNX %d.%d (%s) has crashed. Fatal error: %s (%d).\n"
+        " NWNX %d.%d-%d (%s) has crashed. Fatal error: %s (%d).\n"
         " Please file a bug at https://github.com/nwnxee/unified/issues\n"
         "==============================================================\n",
-        NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, NWNX_BUILD_SHA, err, sig);
+        NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, NWNX_TARGET_NWN_BUILD_POSTFIX, NWNX_BUILD_SHA, err, sig);
+
+    if (s_PostFixVersion != NWNX_TARGET_NWN_BUILD_POSTFIX)
+    {
+        std::fprintf(stdout, " Postfix Version Mismatch: Expected: %d, Got: %d\n"
+                " This may have been the cause of this crash.\n"
+                "==============================================================\n",
+                NWNX_TARGET_NWN_BUILD_POSTFIX, s_PostFixVersion);
+    }
 
     std::fputs(NWNXLib::Platform::GetStackTrace(20).c_str(), stdout);
     std::fflush(stdout);
@@ -121,7 +131,7 @@ NWNXCore::NWNXCore()
     // NOTE: We should do the version check here, but the global in the binary hasn't been initialised yet at this point.
     // This will be fixed in a future release of NWNX:EE. For now, the version check will happen *too late* - we may
     // crash before the version check happens.
-    std::printf("Starting NWNX %d.%d [%s]\n", NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, NWNX_BUILD_SHA);
+    std::printf("Starting NWNX %d.%d-%d [%s]\n", NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, NWNX_TARGET_NWN_BUILD_POSTFIX, NWNX_BUILD_SHA);
 
     // Initialise export table. New plugin code should endeavour to use direct linking
     // for hook naming, but these might help if you want to target a overloaded function.
@@ -252,19 +262,29 @@ void NWNXCore::InitialVersionCheck()
 {
     CExoString *pBuildNumber = Globals::BuildNumber();
     CExoString *pBuildRevision = Globals::BuildRevision();
+    CExoString *pBuildPostfix = Globals::BuildPostfix();
 
-    if (pBuildNumber && pBuildRevision)
+    if (pBuildNumber && pBuildRevision && pBuildPostfix)
     {
         const uint32_t version = std::stoul(pBuildNumber->m_sString);
         const uint32_t revision = std::stoul(pBuildRevision->m_sString);
+        const uint32_t postfix = std::stoul(pBuildPostfix->m_sString);
+
+        s_PostFixVersion = postfix;
 
         if (version != NWNX_TARGET_NWN_BUILD || revision != NWNX_TARGET_NWN_BUILD_REVISION)
         {
-            std::fprintf(stdout, "NWNX: Expected build version %u revision %u, got build version %u revision %u.\n",
-                                      NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, version, revision);
+            std::fprintf(stdout, "NWNX: Expected build %u.%u, got build %u.%u.\n", NWNX_TARGET_NWN_BUILD, NWNX_TARGET_NWN_BUILD_REVISION, version, revision);
             std::fprintf(stdout, "NWNX: Will terminate. Please use the correct NWNX build for your game version.\n");
             std::fflush(stdout);
             std::exit(1);
+        }
+
+        if (postfix != NWNX_TARGET_NWN_BUILD_POSTFIX)
+        {
+            std::fprintf(stdout, "NWNX: WARNING: POSTFIX VERSION MISMATCH: EXPECTED: %d, GOT: %d\n", NWNX_TARGET_NWN_BUILD_POSTFIX, postfix);
+            std::fprintf(stdout, "NWNX:          THE NWNX API MAY NOT BE UP TO DATE AND CRASH YOUR SERVER.\n");
+            std::fflush(stdout);
         }
     }
     else
