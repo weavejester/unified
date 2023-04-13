@@ -1,5 +1,5 @@
-#include "API/CNWSModule.hpp"
 #include "nwnx.hpp"
+#include "API/CNWSModule.hpp"
 
 #include "External/json/json.hpp"
 
