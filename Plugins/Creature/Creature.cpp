@@ -1259,12 +1259,21 @@ NWNX_EXPORT ArgumentStack LevelUp(ArgumentStack&& args)
 
         const auto cls = args.extract<int32_t>();
         const auto count = args.extract<int32_t>();
+        int32_t package = 255;
+        try
+        {
+            package = args.extract<int32_t>();
+        }
+        catch(const std::runtime_error& e)
+        {
+            LOG_WARNING("NWNX_Creature_LevelUp: Missing argument \"package\". Continuing with \"package\" = PACKAGE_INVALID. Please update nwnx_creature.nss and recompile your module!");
+        }
 
         // Allow leveling outside of regular rules
         bSkipLevelUpValidation = true;
         for (int32_t i = 0; i < count; i++)
         {
-            if (!pCreature->m_pStats->LevelUpAutomatic(cls, true, Constants::ClassType::Invalid))
+            if (!pCreature->m_pStats->LevelUpAutomatic(cls, true, package))
             {
                 LOG_WARNING("Failed to add level of class %d, aborting", cls);
                 break;
@@ -2850,9 +2859,12 @@ NWNX_EXPORT ArgumentStack DoItemCastSpell(ArgumentStack&& args)
           ASSERT_OR_THROW(delay >= 0.0f);
         auto projectilePathType = args.extract<int32_t>();
         auto projectileSpellID = args.extract<int32_t>();
+        auto oidItem = args.extract<ObjectID>();
+        auto impactScript = args.extract<std::string>();
 
         auto *pSpell = Globals::Rules()->m_pSpellArray->GetSpell(spellID);
         auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
+        auto *pItem = Utils::AsNWSObject(Utils::GetGameObject(oidItem));
         auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
 
         if (!pSpell || (!pTarget && !pArea))
@@ -2887,9 +2899,9 @@ NWNX_EXPORT ArgumentStack DoItemCastSpell(ArgumentStack&& args)
         pSpellScriptData->m_nFeatId = 0xFFFF;
         pSpellScriptData->m_oidCaster = pCaster->m_idSelf;
         pSpellScriptData->m_oidTarget = pTarget ? pTarget->m_idSelf : Constants::OBJECT_INVALID;
-        pSpellScriptData->m_oidItem = Constants::OBJECT_INVALID;
+        pSpellScriptData->m_oidItem = pItem ? pItem->m_idSelf : Constants::OBJECT_INVALID;
         pSpellScriptData->m_vTargetPosition = vTargetPosition;
-        pSpellScriptData->m_sScript = pSpell->m_sImpactScript;
+        pSpellScriptData->m_sScript = !impactScript.empty() ? CExoString(impactScript) : pSpell->m_sImpactScript;
         pSpellScriptData->m_oidArea = oidTargetArea;
         pSpellScriptData->m_nItemCastLevel = casterLevel;
 
@@ -3297,6 +3309,86 @@ NWNX_EXPORT ArgumentStack SetMaximumBonusAttacks(ArgumentStack&& args)
             pCreature->nwnxRemove("MAXIMUM_BONUS_ATTACKS");
 
         RecalculateBonusAttacks(pCreature);
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack DoCleaveAttack(ArgumentStack&& args)
+{
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        auto *pCombatRound = pCreature->m_pcCombatRound;
+
+        if (pCombatRound->GetTotalAttacks() < 50)
+        {
+            bool bHasGreatCleave = pCreature->m_pStats->HasFeat(Constants::Feat::GreatCleave);
+            if (bHasGreatCleave || (pCreature->m_pStats->HasFeat(Constants::Feat::Cleave) && pCombatRound->m_nCleaveAttacks > 0))
+            {
+                float fAttackRange = pCreature->MaxAttackRange(pCreature->m_idSelf, false, true);
+                auto oidNearestEnemy = pCreature->GetNearestEnemy(fAttackRange, pCreature->m_oidAttackTarget, true, false);
+                if (oidNearestEnemy != Constants::OBJECT_INVALID)
+                {
+                    pCombatRound->m_oidNewAttackTarget = oidNearestEnemy;
+                    pCombatRound->AddCleaveAttack(oidNearestEnemy, bHasGreatCleave);
+                    pCreature->m_bPassiveAttackBehaviour = 1;
+
+                    if (!bHasGreatCleave)
+                        pCombatRound->m_nCleaveAttacks--;
+                }
+            }
+        }
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack GetLockOrientationToObject(ArgumentStack&& args)
+{
+    ObjectID retval = Constants::OBJECT_INVALID;
+
+    if (auto *pObject = Utils::PopObject(args))
+    {
+        if (auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(pObject->GetLockOrientationToObject())))
+        {
+            retval = pTarget->m_idSelf;
+        }
+    }
+
+    return retval;
+}
+
+NWNX_EXPORT ArgumentStack SetLockOrientationToObject(ArgumentStack&& args)
+{
+    if (auto *pObject = Utils::PopObject(args))
+    {
+        const auto oidTarget = args.extract<ObjectID>();
+
+        if (auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget)))
+        {
+            pObject->SetLockOrientationToObject(pTarget->m_idSelf);
+        }
+        else
+        {
+            pObject->SetLockOrientationToObject(Constants::OBJECT_INVALID);
+        }
+    }
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack BroadcastAttackOfOpportunity(ArgumentStack&& args)
+{
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        auto oidSingleTarget = Constants::OBJECT_INVALID;
+        
+        if (auto *pTarget = Utils::PopCreature(args))
+            oidSingleTarget = pTarget->m_idSelf;
+
+        bool bMovement = !!args.extract<int32_t>();
+
+        pCreature->BroadcastAttackOfOpportunity(oidSingleTarget, bMovement);
     }
 
     return {};

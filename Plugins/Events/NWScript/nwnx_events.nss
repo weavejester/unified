@@ -691,6 +691,32 @@ _______________________________________
     SPELL_SPONTANEOUS     | int | |
 
 _______________________________________
+    ## Spell Failed Events
+    - NWNX_ON_SPELL_FAILED_BEFORE
+    - NWNX_ON_SPELL_FAILED_AFTER
+
+    `OBJECT_SELF` = The creature whose spell failed
+
+    Event Data Tag        | Type   | Notes |
+    ----------------------|--------|-------|
+    SPELL_ID              | int    | |
+    MULTI_CLASS           | int    | Index of the spell casting class (0-7) |
+    DOMAIN                | int    | |
+    METAMAGIC             | int    | |
+    FEAT                  | int    | |
+    SPELL_SPONTANEOUS     | int    | |
+    DEFENSIVELY_CAST      | int    | |
+    TARGET_OBJECT_ID      | object | Convert to object with StringToObject() |
+    TARGET_POSITION_X     | float  | |
+    TARGET_POSITION_Y     | float  | |
+    TARGET_POSITION_Z     | float  | |
+    IS_INSTANT_SPELL      | int    | |
+    PROJECTILE_PATH_TYPE  | int    | |
+    CASTERLEVEL           | int    | |
+    IS_FAKE               | int    | |
+    REASON                | int    | @ref events_spellfailreason "NWNX_EVENTS_SPELLFAIL_REASON_*" |
+
+_______________________________________
     ## Healer Kit Use Events
     - NWNX_ON_HEALER_KIT_BEFORE
     - NWNX_ON_HEALER_KIT_AFTER
@@ -1312,7 +1338,24 @@ _______________________________________
     SPELL_ID              | int    | |
     MULTI_CLASS           | int    | |
     FEAT                  | int    | 65535 if a feat wasn't used, otherwise the feat ID |
+    TARGET_OBJECT_ID      | object | Convert to object with StringToObject() |
+    TARGET_POSITION_X     | float  | |
+    TARGET_POSITION_Y     | float  | |
+    TARGET_POSITION_Z     | float  | |
+    SPELL_DOMAIN          | int    | |
+    SPELL_SPONTANEOUS     | int    | |
+    SPELL_METAMAGIC       | int    | METAMAGIC_* |
+    PROJECTILE_PATH_TYPE  | int    | PROJECTILE_PATH_TYPE_* |
 
+    @note TARGET_OBJECT_ID, TARGET_POSITION_*, SPELL_DOMAIN, SPELL_SPONTANEOUS, SPELL_METAMAGIC, and PROJECTILE_PATH_TYPE may
+          be invalid if BroadcastCastSpell was called outside AIActionCastSpell.
+          This can be tested for by checking if TARGET_OBJECT_ID is the caster's area and if all three TARGET_POSITION_* equal 0.0.
+          \code{.c}
+          if (oTarget == GetArea(oCaster) && Vector(vX, vY, fZ) == Vector())
+          {
+            // ...
+          }
+          \endcode
 _______________________________________
     ## RunScript Debug Event
     - NWNX_ON_DEBUG_RUN_SCRIPT_BEFORE
@@ -1550,15 +1593,73 @@ _______________________________________
     ```
     @warning Toggling the Whitelist to be off for this event will degrade performance.
 _______________________________________
-	## Object Use Events (Placeables)
-	- NWNX_ON_OBJECT_USE_BEFORE
-	- NWNX_ON_OBJECT_USE_AFTER
+    ## Object Use Events (Placeables)
+    - NWNX_ON_OBJECT_USE_BEFORE
+    - NWNX_ON_OBJECT_USE_AFTER
 
-	`OBJECT_SELF` = The player using the object
+    `OBJECT_SELF` = The player using the object
 
-	Event Data Tag        | Type   | Notes
-	----------------------|--------|-------
-	OBJECT                | object | The Object being used |
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    OBJECT                | object | The Object being used |
+_______________________________________
+    ## Broadcast Safe Projectile Events
+    - NWNX_ON_BROADCAST_SAFE_PROJECTILE_BEFORE
+    - NWNX_ON_BROADCAST_SAFE_PROJECTILE_AFTER
+
+    `OBJECT_SELF` = The creature casting the spell
+
+    Event Data Tag        | Type   | Notes |
+    ----------------------|--------|-------|
+    TARGET_OBJECT_ID      | string | Convert to object with StringToObject() |
+    TARGET_POSITION_X     | float  | |
+    TARGET_POSITION_Y     | float  | |
+    TARGET_POSITION_Z     | float  | |
+    DELTA                 | int    | Time in milliseconds before the projectile reaches its destination |
+    PROJECTILE_TYPE       | int    | @ref events_projtype "NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_*" |
+    SPELL_ID              | int    | |
+    ATTACK_RESULT         | int    | 0=n/a, 1=hit, 2=parried, 3=critical hit, 4=miss, 5=resisted, 7=automatic hit, 8=concealed, 9=miss chance, 10=devastating crit |
+    PROJECTILE_PATH_TYPE  | int    | @nwn{Projectile_path_type,PROJECTILE_PATH_TYPE_*} |
+
+    @note This event fires for all projectiles. It's recommended to use ID whitelists with this event. You can whitelist the event by the projectile type, spell id, or both:
+          \code{.c}
+          NWNX_Events_AddIDToWhitelist("NWNX_ON_BROADCAST_SAFE_PROJECTILE_TYPE", NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_*);
+          NWNX_Events_AddIDToWhitelist("NWNX_ON_BROADCAST_SAFE_PROJECTILE_SPELL", SPELL_*);
+          \endcode
+          `TARGET_OBJECT_ID` will be `OBJECT_INVALID` if the projectile is cast at a location
+_______________________________________
+    ## Broadcast Attack of Opportunity Events
+    - NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_BEFORE
+    - NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_AFTER
+
+    `OBJECT_SELF` = The creature broadcasting the Attack of Opportunity event
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TARGET_OBJECT_ID      | object | A single object the attack of opportunity is being broadcast to. Convert to object with StringToObject() |
+    MOVEMENT              | int    | Whether this attack of opportunity is being triggered from movement |
+_______________________________________
+    ## Combat Attack of Opportunity Events
+    - NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_BEFORE
+    - NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_AFTER
+
+    `OBJECT_SELF` = The creature performing the Attack of Opportunity against the broadcasting target.
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    TARGET_OBJECT_ID      | object | The target of the attack of opportunity. Convert to object with StringToObject() |
+
+    @note If the BEFORE event is skipped the broadcasting creature will still make a tumble skill roll if moving.
+_______________________________________
+    ## Area Play Battle Music Events
+    - NWNX_ON_AREA_PLAY_BATTLE_MUSIC_BEFORE
+    - NWNX_ON_AREA_PLAY_BATTLE_MUSIC_AFTER
+
+    `OBJECT_SELF` = The area playing or stopping the battle music.
+
+    Event Data Tag        | Type   | Notes
+    ----------------------|--------|-------
+    PLAY                  | int | TRUE if the area is starting to play battle music, FALSE if stopping. |
 _______________________________________
 */
 
@@ -1713,6 +1814,8 @@ const string NWNX_ON_CLEAR_MEMORIZED_SPELL_SLOT_BEFORE = "NWNX_CLEAR_MEMORIZED_S
 const string NWNX_ON_CLEAR_MEMORIZED_SPELL_SLOT_AFTER = "NWNX_CLEAR_MEMORIZED_SPELL_SLOT_AFTER";
 const string NWNX_ON_SPELL_INTERRUPTED_BEFORE = "NWNX_ON_SPELL_INTERRUPTED_BEFORE";
 const string NWNX_ON_SPELL_INTERRUPTED_AFTER = "NWNX_ON_SPELL_INTERRUPTED_AFTER";
+const string NWNX_ON_SPELL_FAILED_BEFORE = "NWNX_ON_SPELL_FAILED_BEFORE";
+const string NWNX_ON_SPELL_FAILED_AFTER = "NWNX_ON_SPELL_FAILED_AFTER";
 const string NWNX_ON_HEALER_KIT_BEFORE = "NWNX_ON_HEALER_KIT_BEFORE";
 const string NWNX_ON_HEALER_KIT_AFTER = "NWNX_ON_HEALER_KIT_AFTER";
 const string NWNX_ON_HEAL_BEFORE = "NWNX_ON_HEAL_BEFORE";
@@ -1886,6 +1989,14 @@ const string NWNX_ON_RUN_EVENT_SCRIPT_BEFORE = "NWNX_ON_RUN_EVENT_SCRIPT_BEFORE"
 const string NWNX_ON_RUN_EVENT_SCRIPT_AFTER = "NWNX_ON_RUN_EVENT_SCRIPT_AFTER";
 const string NWNX_ON_OBJECT_USE_BEFORE = "NWNX_ON_OBJECT_USE_BEFORE";
 const string NWNX_ON_OBJECT_USE_AFTER = "NWNX_ON_OBJECT_USE_AFTER";
+const string NWNX_ON_BROADCAST_SAFE_PROJECTILE_BEFORE = "NWNX_ON_BROADCAST_SAFE_PROJECTILE_BEFORE";
+const string NWNX_ON_BROADCAST_SAFE_PROJECTILE_AFTER = "NWNX_ON_BROADCAST_SAFE_PROJECTILE_AFTER";
+const string NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_BEFORE = "NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_BEFORE";
+const string NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_AFTER = "NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_AFTER";
+const string NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_BEFORE = "NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_BEFORE";
+const string NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_AFTER = "NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_AFTER";
+const string NWNX_ON_AREA_PLAY_BATTLE_MUSIC_BEFORE = "NWNX_ON_AREA_PLAY_BATTLE_MUSIC_BEFORE";
+const string NWNX_ON_AREA_PLAY_BATTLE_MUSIC_AFTER = "NWNX_ON_AREA_PLAY_BATTLE_MUSIC_AFTER";
 /// @}
 
 /// @name Events ObjectType Constants
@@ -1921,6 +2032,35 @@ const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_INT          = 0;
 const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_FLOAT        = 1;
 const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_STRING       = 2;
 const int NWNX_EVENTS_DM_SET_VARIABLE_TYPE_OBJECT       = 3;
+/// @}
+
+/// @name Events BroadcastSafeProjectile Constants
+/// @anchor events_projtype
+/// @{
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_NONE = 0;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_ACID = 1;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_COLD = 2;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_ELECTRICAL = 3;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_FIRE = 4;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_WEAPON_VFX_SONIC = 5;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_SPELL_DEFAULT = 6;
+const int NWNX_EVENTS_BROADCAST_SAFE_PROJECTILE_TYPE_SPELL_USE_PATH = 7;
+/// @}
+
+/// @name Spell failed event reasons
+/// @anchor events_spellfailreason
+/// @{
+const int NWNX_EVENTS_SPELLFAIL_REASON_CANCELED               = 0;
+const int NWNX_EVENTS_SPELLFAIL_REASON_COUNTERSPELL           = 1;
+const int NWNX_EVENTS_SPELLFAIL_REASON_ASF                    = 2;
+const int NWNX_EVENTS_SPELLFAIL_REASON_SPELLFAILURE           = 3;
+const int NWNX_EVENTS_SPELLFAIL_REASON_LOST_TARGET            = 4;
+const int NWNX_EVENTS_SPELLFAIL_REASON_SILENCED               = 5;
+const int NWNX_EVENTS_SPELLFAIL_REASON_DEFCAST_CONCENTRATION  = 6;
+const int NWNX_EVENTS_SPELLFAIL_REASON_ENTANGLE_CONCENTRATION = 7;
+const int NWNX_EVENTS_SPELLFAIL_REASON_POLYMORPHED            = 8;
+const int NWNX_EVENTS_SPELLFAIL_REASON_CANT_CAST              = 9;
+const int NWNX_EVENTS_SPELLFAIL_REASON_CANT_USE_HANDS         = 10;
 /// @}
 
 /// @brief Scripts can subscribe to events.
@@ -1990,7 +2130,7 @@ string NWNX_Events_GetEventData(string tag);
 /// - DMAction events
 /// - Client connect event
 /// - Client Export Character event
-/// - Spell events
+/// - Spell events (except SPELL_FAILED)
 /// - QuickChat events
 /// - Barter event (START/ADD_ITEM only)
 /// - Trap events
@@ -2015,6 +2155,8 @@ string NWNX_Events_GetEventData(string tag);
 /// - Decrement Spell Count event
 /// - Play Visual Effect event
 /// - EventScript event
+/// - Broadcast Safe Projectile event
+/// - Attack of Opportunity events
 void NWNX_Events_SkipEvent();
 
 /// Set the return value of the event.
@@ -2056,8 +2198,10 @@ void NWNX_Events_RemoveObjectFromDispatchList(string sEvent, string sScriptOrChu
 ///
 /// ONLY WORKS WITH THE FOLLOWING EVENTS -> ID TYPES:
 /// - NWNX_ON_CAST_SPELL -> SpellID
+/// - NWNX_ON_SPELL_FAILED -> SpellID
 /// - NWNX_ON_HAS_FEAT -> FeatID (default enabled)
 /// - NWNX_ON_RUN_EVENT_SCRIPT -> EVENT_SCRIPT_* (default enabled)
+/// - NWNX_ON_BROADCAST_SAFE_PROJECTILE -> NWNX_ON_BROADCAST_SAFE_PROJECTILE_TYPE for ProjectileType, NWNX_ON_BROADCAST_SAFE_PROJECTILE_SPELL for SpellID
 ///
 /// @note This enables the whitelist for ALL scripts subscribed to sEvent.
 /// @param sEvent The event name without _BEFORE / _AFTER.

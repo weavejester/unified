@@ -5,19 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
-https://github.com/nwnxee/unified/compare/build8193.35.37...HEAD
+https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 
 ### Added
-- N/A
+- Feat: added modifier `NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSCHOOL` to modify a creature's spell DC for a spell school
+- Feat: added modifier `NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSPELL` to modify a creature's spell DC for an individual spell
+- Events: added event `NWNX_ON_SPELL_FAILED_{BEFORE|AFTER}` which fires when the casting of a spell did not finish for any reason.
 
 ##### New Plugins
 - N/A
 
 ##### New NWScript Functions
-- N/A
+- Object: GetLastSpellInstant()
 
 ### Changed
-- N/A
+- Creature: Added an argument for passing a class package to `NWNX_Creature_LevelUp()` 
 
 ### Deprecated
 - N/A
@@ -27,6 +29,36 @@ https://github.com/nwnxee/unified/compare/build8193.35.37...HEAD
 
 ### Fixed
 - N/A
+
+## 8193.35.40
+https://github.com/nwnxee/unified/compare/build8193.35.37...build8193.35.40
+
+### Added
+- Tweaks: added `NWNX_TWEAKS_RANGED_WEAPONS_USE_ON_HIT_EFFECT_ITEM_PROPERTIES` which makes all bows, crossbows, and slings use On Hit: Effect item properties (in addition to their ammunition).
+- Tweaks: added `NWNX_TWEAKS_RANGED_WEAPONS_USE_ON_HIT_CAST_SPELL_ITEM_PROPERTIES` which makes all bows, crossbows, and slings use On Hit: Cast Spell item properties (in addition to their ammunition).
+- Tweaks: added `NWNX_TWEAKS_CAST_ALL_ON_HIT_CAST_SPELL_ITEM_PROPERTIES` which casts all On Hit: Cast Spell item properties on hit, instead of only the first property.
+- Events: added skippable event `NWNX_ON_BROADCAST_SAFE_PROJECTILE_{BEFORE|AFTER}` which fires whenever a projectile VFX is created for ranged weapons and spells.
+- Events: added skippable event `NWNX_ON_BROADCAST_ATTACK_OF_OPPORTUNITY_{BEFORE|AFTER}` which allows skipping a creature provoking attacks of opportunities from enemies.
+- Events: added skippable event `NWNX_ON_COMBAT_ATTACK_OF_OPPORTUNITY_{BEFORE|AFTER}` which allows stopping a creature from performing an attack of opportunity against a target.
+- Events: added skippable event `NWNX_ON_AREA_PLAY_BATTLE_MUSIC_{BEFORE|AFTER}` which allows skipping the starting/stopping of an area's battle music.
+- Experimental: Added `NWNX_EXPERIMENTAL_END_COMBATROUND_AFTER_SPELLCAST` to end combat rounds right after casting or canceling a spell so that a new spell can be cast immediately after
+
+##### New NWScript Functions
+- Object: GetInventoryItemCount()
+- Object: OverrideSpellProjectileVFX()
+- Util: GetStringLevenshteinDistance()
+- Creature: DoCleaveAttack()
+- Creature: {Get|Set}LockOrientationToObject()
+- Creature: BroadcastAttackOfOpportunity()
+
+### Changed
+- Events: Added event data `TARGET_OBJECT_ID`/`TARGET_POSITION_{X|Y|Z}`/`SPELL_DOMAIN`/`SPELL_SPONTANEOUS`/`SPELL_METAMAGIC`/`PROJECTILE_PATH_TYPE` to `NWNX_ON_BROADCAST_CAST_SPELL_*`
+- ***ABI BREAKING:*** Creature: DoItemCastSpell() can now override the spell impact script, and set the spell cast item retrieved by GetSpellCastItem().
+- ***ABI BREAKING:*** Damage: SetAttackEventData() can now set `AttackEventData.iSneakAttack`. This only affects the attack roll message and floating text feedback. Immunities and damage will have already been resolved by the time the attack event script is ran.
+
+### Fixed
+- Tweaks: FixResolveSpecialAttackDamage: fixed a crash involving ranged special attacks interacting oddly with Epic Dodge. 
+- Player: fixed ToggleDM() not working correctly with EffectTimeStopImmunity().
 
 ## 8193.35.37
 https://github.com/nwnxee/unified/compare/build8193.35.36...build8193.35.37
