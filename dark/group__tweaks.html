@@ -35,7 +35,7 @@
 						<td id="projectlogo"><img width="80" height="74" alt="Logo" src="logo-transparent.png"/></td>
 						<td id="projectalign" style="padding-left: 0.5em;">
 							<div id="projectname">NWNX:EE
-								&#160;<span id="projectnumber">8193.35.37</span>
+								&#160;<span id="projectnumber">8193.35.40</span>
 							</div>
 						</td>
 						<td>        <div id="MSearchBox" class="MSearchBoxInactive">
@@ -102,7 +102,7 @@ $(document).ready(function(){initNavTree('group__tweaks.html',''); initResizable
 <div class="contents">
 
 
-<h3><a id="tweaks"></a>Readme</h3><div class="textblock">Tweaks stuff. See below.<h2><a class="anchor" id="autotoc_md573"></a>
+<h3><a id="tweaks"></a>Readme</h3><div class="textblock">Tweaks stuff. See below.<h2><a class="anchor" id="autotoc_md589"></a>
 Environment Variables</h2>
 <table class="markdownTable">
 <tr class="markdownTableHead">
@@ -181,10 +181,16 @@ Environment Variables</h2>
 <td class="markdownTableBodyNone"><code>NWNX_TWEAKS_FIX_RESOLVE_SPECIAL_ATTACK_DAMAGE</code> </td><td class="markdownTableBodyNone">true or false </td><td class="markdownTableBodyNone">Stops damage from being resolved when a special attack misses.  </td></tr>
 <tr class="markdownTableRowOdd">
 <td class="markdownTableBodyNone"><code>NWNX_TWEAKS_FIX_TURD_EFFECT_UNLINKING</code> </td><td class="markdownTableBodyNone">true or false </td><td class="markdownTableBodyNone">Stops effects from unlinking when restored from a TURD due to their effect ID changing.  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_TWEAKS_RANGED_WEAPONS_USE_ON_HIT_EFFECT_ITEM_PROPERTIES</code> </td><td class="markdownTableBodyNone">true or false </td><td class="markdownTableBodyNone">Makes all bows, crossbows, and slings use On Hit: Effect item properties (in addition to their ammunition).  </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_TWEAKS_RANGED_WEAPONS_USE_ON_HIT_CAST_SPELL_ITEM_PROPERTIES</code> </td><td class="markdownTableBodyNone">true or false </td><td class="markdownTableBodyNone">Makes all bows, crossbows, and slings use On Hit: Cast Spell item properties (in addition to their ammunition).  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_TWEAKS_CAST_ALL_ON_HIT_CAST_SPELL_ITEM_PROPERTIES</code> </td><td class="markdownTableBodyNone">true or false </td><td class="markdownTableBodyNone">Casts all On Hit: Cast Spell item properties on hit, instead of only the first property.  </td></tr>
 </table>
-<h2><a class="anchor" id="autotoc_md574"></a>
+<h2><a class="anchor" id="autotoc_md590"></a>
 Environment variable values</h2>
-<h3><a class="anchor" id="autotoc_md575"></a>
+<h3><a class="anchor" id="autotoc_md591"></a>
 NWNX_TWEAKS_HIDE_PLAYERS_ON_CHAR_LIST</h3>
 <p>Values between 1 and 3 are valid. Any of those values will adjust who is shown on the Module Character Listing. Note: DMs always see all PCs and DMs logged in.</p>
 <table class="markdownTable">
@@ -197,7 +203,7 @@ NWNX_TWEAKS_HIDE_PLAYERS_ON_CHAR_LIST</h3>
 <tr class="markdownTableRowOdd">
 <td class="markdownTableBodyRight">3 </td><td class="markdownTableBodyNone">Both PCs and DMs are hidden on the module character list.  </td></tr>
 </table>
-<h3><a class="anchor" id="autotoc_md576"></a>
+<h3><a class="anchor" id="autotoc_md592"></a>
 NWNX_TWEAKS_ITEM_CHARGES_COST_MODE</h3>
 <p>Values between 1 and 3 are valid. Any of those values will adjust the item cost to the old values used in 1.69 for items with 50 charges or less.</p>
 <table class="markdownTable">
@@ -210,7 +216,7 @@ NWNX_TWEAKS_ITEM_CHARGES_COST_MODE</h3>
 <tr class="markdownTableRowOdd">
 <td class="markdownTableBodyRight">3 </td><td class="markdownTableBodyNone">Cost will be calculated linearly based on the number of charges the same it was in 1.69, making items with 250 charges 5 times as expensive as 50 charges ones.  </td></tr>
 </table>
-<h3><a class="anchor" id="autotoc_md577"></a>
+<h3><a class="anchor" id="autotoc_md593"></a>
 NWNX_TWEAKS_LANGUAGE_OVERRIDE</h3>
 <table class="markdownTable">
 <tr class="markdownTableHead">
@@ -236,7 +242,7 @@ NWNX_TWEAKS_LANGUAGE_OVERRIDE</h3>
 <tr class="markdownTableRowEven">
 <td class="markdownTableBodyRight">131 </td><td class="markdownTableBodyNone">Japanese  </td></tr>
 </table>
-<h3><a class="anchor" id="autotoc_md578"></a>
+<h3><a class="anchor" id="autotoc_md594"></a>
 NWNX_TWEAKS_HIDE_HARDCODED_ITEM_VFX</h3>
 <p>Add the numbers of the VFX you want to hide. For example to hide all Elemental Damage Bonus, Holy Avenger and OnHitVorpal visual effects you'd set the environment variable to 318 (2 + 4 + 8 + 16 + 32 + 256)</p>
 <p>Specific VFX values in order of priority:</p>
@@ -297,7 +303,7 @@ NWNX_TWEAKS_HIDE_HARDCODED_ITEM_VFX</h3>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Thu Apr 13 2023 22:35:13 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon May 29 2023 21:48:17 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="../">Light version</a>
 				</li>

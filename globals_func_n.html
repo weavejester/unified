@@ -35,7 +35,7 @@
 						<td id="projectlogo"><img width="80" height="74" alt="Logo" src="logo-transparent.png"/></td>
 						<td id="projectalign" style="padding-left: 0.5em;">
 							<div id="projectname">NWNX:EE
-								&#160;<span id="projectnumber">8193.35.37</span>
+								&#160;<span id="projectnumber">8193.35.40</span>
 							</div>
 						</td>
 						<td>        <div id="MSearchBox" class="MSearchBoxInactive">
@@ -387,6 +387,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 <li>NWNX_Creature_AddSpecialAbility()
 : <a class="el" href="group__creature.html#ga8d3a2b5fb8297982f3dd2b85b2aae0b5">nwnx_creature.nss</a>
 </li>
+<li>NWNX_Creature_BroadcastAttackOfOpportunity()
+: <a class="el" href="group__creature.html#gae049e21bae9c132cf1072e29e014c725">nwnx_creature.nss</a>
+</li>
 <li>NWNX_Creature_ClearMemorisedKnownSpells()
 : <a class="el" href="nwnx__deprecated_8nss.html#a00bd7741a7c1f3bb65ef4dc92c3f6218">nwnx_deprecated.nss</a>
 </li>
@@ -402,8 +405,11 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 <li>NWNX_Creature_DeserializeQuickbar()
 : <a class="el" href="group__creature.html#gab71f0c54c88e6c54bfdb025c67a5aa44">nwnx_creature.nss</a>
 </li>
+<li>NWNX_Creature_DoCleaveAttack()
+: <a class="el" href="group__creature.html#ga35b4eb49fb912f626928f80d2977387d">nwnx_creature.nss</a>
+</li>
 <li>NWNX_Creature_DoItemCastSpell()
-: <a class="el" href="group__creature.html#gaf03a816c11492f7465ebbe977c278bbf">nwnx_creature.nss</a>
+: <a class="el" href="group__creature.html#gaed84f6ef274ccc147e687d16ee9c0756">nwnx_creature.nss</a>
 </li>
 <li>NWNX_Creature_DoPerceptionUpdateOnCreature()
 : <a class="el" href="group__creature.html#ga07ef1d837354f127b72d7d301555c857">nwnx_creature.nss</a>
@@ -522,6 +528,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 <li>NWNX_Creature_GetLastItemCasterLevel()
 : <a class="el" href="group__creature.html#ga236441a51419c1f8d8f334c9255798e1">nwnx_creature.nss</a>
 </li>
+<li>NWNX_Creature_GetLockOrientationToObject()
+: <a class="el" href="group__creature.html#gadae179f00dc664572de797fb99e1d9b9">nwnx_creature.nss</a>
+</li>
 <li>NWNX_Creature_GetMaxHitPointsByLevel()
 : <a class="el" href="group__creature.html#gaff45e8b400ebbbfeeccba81785fc5c17">nwnx_creature.nss</a>
 </li>
@@ -616,7 +625,7 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 : <a class="el" href="group__creature.html#ga2789c514094503115b75d44a73c5122f">nwnx_creature.nss</a>
 </li>
 <li>NWNX_Creature_LevelUp()
-: <a class="el" href="group__creature.html#ga5d15b832ee6f67e78eb84896deef2fff">nwnx_creature.nss</a>
+: <a class="el" href="group__creature.html#gad9c359948d6fca590e670986a7ed083d">nwnx_creature.nss</a>
 </li>
 <li>NWNX_Creature_ModifyRawAbilityScore()
 : <a class="el" href="group__creature.html#gac927f01d12df06dc070988e9f5fad3f1">nwnx_creature.nss</a>
@@ -764,6 +773,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 </li>
 <li>NWNX_Creature_SetLevelByPosition()
 : <a class="el" href="group__creature.html#ga69f0f037d2b2ccc1185da9588fe5901c">nwnx_creature.nss</a>
+</li>
+<li>NWNX_Creature_SetLockOrientationToObject()
+: <a class="el" href="group__creature.html#gae248e97e200f68b22baac808e89a6ecf">nwnx_creature.nss</a>
 </li>
 <li>NWNX_Creature_SetMaxHitPointsByLevel()
 : <a class="el" href="group__creature.html#gaf0464ca588c7ed2019b1c60b9d483efb">nwnx_creature.nss</a>
@@ -1371,6 +1383,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 <li>NWNX_Object_GetInternalObjectType()
 : <a class="el" href="group__object.html#gab3df9d22e8d2ecb09084ea585a77cda5">nwnx_object.nss</a>
 </li>
+<li>NWNX_Object_GetInventoryItemCount()
+: <a class="el" href="group__object.html#gad7eb3bf209f3637c8b3c5b28e7010d51">nwnx_object.nss</a>
+</li>
 <li>NWNX_Object_GetIsDestroyable()
 : <a class="el" href="group__object.html#ga78ec105f4a5438d13687f98c294ce228">nwnx_object.nss</a>
 </li>
@@ -1382,6 +1397,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 </li>
 <li>NWNX_Object_GetLastSpellCastSpontaneous()
 : <a class="el" href="group__object.html#gaf0263fbe80a9703b80532502160c1fd7">nwnx_object.nss</a>
+</li>
+<li>NWNX_Object_GetLastSpellInstant()
+: <a class="el" href="group__object.html#gaa7bd95e05561a86c7e99e890854f30e7">nwnx_object.nss</a>
 </li>
 <li>NWNX_Object_GetLocalVariable()
 : <a class="el" href="group__object.html#gaf2230d31bc03edaa2b5a1be654846a46">nwnx_object.nss</a>
@@ -1403,6 +1421,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 </li>
 <li>NWNX_Object_GetTriggerGeometry()
 : <a class="el" href="group__object.html#ga2f86d560eb6cf0e0502fe161482acdaf">nwnx_object.nss</a>
+</li>
+<li>NWNX_Object_OverrideSpellProjectileVFX()
+: <a class="el" href="group__object.html#gab9ade3b58934c2d91d6df894cbcf4cbb">nwnx_object.nss</a>
 </li>
 <li>NWNX_Object_PeekUUID()
 : <a class="el" href="group__object.html#gadaee4243a13c21ff4b802f40998fd385">nwnx_object.nss</a>
@@ -2685,6 +2706,9 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 <li>NWNX_Util_GetServerTicksPerSecond()
 : <a class="el" href="nwnx__deprecated_8nss.html#ac9df9a6c3e6b9a8b767719c04a485188">nwnx_deprecated.nss</a>
 </li>
+<li>NWNX_Util_GetStringLevenshteinDistance()
+: <a class="el" href="group__util.html#ga702f3eead5be67d20df768f72f5938da">nwnx_util.nss</a>
+</li>
 <li>NWNX_Util_GetTTY()
 : <a class="el" href="group__util.html#gadfdd32feae60ad5d4835d455a6990c38">nwnx_util.nss</a>
 </li>
@@ -2827,7 +2851,7 @@ $(document).ready(function(){initNavTree('globals_func_n.html',''); initResizabl
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Thu Apr 13 2023 22:35:12 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon May 29 2023 21:48:16 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>
