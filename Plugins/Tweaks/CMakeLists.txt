@@ -37,4 +37,7 @@ add_plugin(Tweaks
     "PreventAttackBonusBypassingReductions.cpp"
     "RangedWeaponsUseOnHitEffectItemProperties.cpp"
     "RangedWeaponsUseOnHitCastSpellItemProperties.cpp"
-    "CastAllOnHitCastSpellItemProperties.cpp")
+    "CastAllOnHitCastSpellItemProperties.cpp"
+    "FixAutoMapCrash.cpp"
+    "SetAreaCallsSetPosition.cpp"
+    "EquipUnequipEventTweaks.cpp")

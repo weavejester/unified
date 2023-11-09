@@ -27,6 +27,8 @@
 #include "API/CLoopingVisualEffect.hpp"
 #include "API/CNWSpellArray.hpp"
 #include "API/CNWSSpellScriptData.hpp"
+#include "API/CNWSStore.hpp"
+#include "API/CNWSFaction.hpp"
 #include "API/CVirtualMachine.hpp"
 #include <cstring>
 
@@ -1008,6 +1010,22 @@ NWNX_EXPORT ArgumentStack ForceAssignUUID(ArgumentStack&& args)
     return {};
 }
 
+int32_t GetItemRepositoryCount(CItemRepository *pRepo) 
+{
+    auto nItems = 0;
+    for (auto *pNode = pRepo->m_oidItems.m_pcExoLinkedListInternal->pHead; pNode; pNode = pNode->pNext)
+    {
+        if (auto *pItem = pRepo->ItemListGetItem(pNode))
+        {
+            nItems++;
+            if (auto *pItemRepo = pItem->m_pItemRepository)
+                nItems += pItemRepo->m_oidItems.Count();
+            }
+        }
+
+    return nItems;
+}
+
 NWNX_EXPORT ArgumentStack GetInventoryItemCount(ArgumentStack&& args)
 {
     if (auto *pObject = Utils::PopObject(args))
@@ -1020,20 +1038,20 @@ NWNX_EXPORT ArgumentStack GetInventoryItemCount(ArgumentStack&& args)
             pRepo = pPlaceable->m_pcItemRepository;
         else if (auto *pItem = Utils::AsNWSItem(pObject))
             pRepo = pItem->m_pItemRepository;
+        else if (auto *pStore = Utils::AsNWSStore(pObject))
+        {
+            auto nItems = 0;
+            for (int n = 0; n < 5; n++)
+            {
+                pRepo = pStore->m_aInventory[n];
+                nItems += GetItemRepositoryCount (pRepo);
+            }
+            return nItems;
+        }
         else
             return 0;
 
-        auto nItems = 0;
-        for (auto *pNode = pRepo->m_oidItems.m_pcExoLinkedListInternal->pHead; pNode; pNode = pNode->pNext)
-        {
-            if (auto *pItem = pRepo->ItemListGetItem(pNode))
-            {
-                nItems++;
-                if (auto *pItemRepo = pItem->m_pItemRepository)
-                    nItems += pItemRepo->m_oidItems.Count();
-            }
-        }
-
+        auto nItems = GetItemRepositoryCount(pRepo);
         return nItems;
     }
 
@@ -1239,4 +1257,37 @@ NWNX_EXPORT ArgumentStack GetLastSpellInstant(ArgumentStack&&)
     }, Hooks::Order::Late);
 
     return s_LastSpellInstant;
+}
+
+NWNX_EXPORT ArgumentStack SetTrapCreator(ArgumentStack&& args)
+{
+    if (auto *pObject = Utils::PopObject(args))
+    {
+        auto newCreator = Constants::OBJECT_INVALID;
+        auto newFaction = 1; //STANDARD_FACTION_HOSTILE
+
+        if(auto *pCreator = Utils::PopCreature(args))
+        {
+            newCreator = pCreator->m_idSelf;
+            if (auto *pFaction = pCreator->GetFaction())
+                newFaction = pFaction->m_nFactionId;
+        }
+
+        if (auto *pDoor = Utils::AsNWSDoor(pObject))
+        {
+            pDoor->m_oidTrapCreator = newCreator;
+            pDoor->m_nTrapFactionId = newFaction;
+        }
+        else if (auto *pPlaceable = Utils::AsNWSPlaceable(pObject))
+        {
+            pPlaceable->m_oidTrapCreator = newCreator;
+            pPlaceable->m_nTrapFaction = newFaction;
+        }
+        else if (auto *pTrigger = Utils::AsNWSTrigger(pObject))
+        {
+            pTrigger->m_oidCreator = newCreator;
+            pTrigger->m_nFactionId = newFaction;
+        }
+    }
+    return {};
 }

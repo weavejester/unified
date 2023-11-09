@@ -11,15 +11,36 @@ https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 - Feat: added modifier `NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSCHOOL` to modify a creature's spell DC for a spell school
 - Feat: added modifier `NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSPELL` to modify a creature's spell DC for an individual spell
 - Events: added event `NWNX_ON_SPELL_FAILED_{BEFORE|AFTER}` which fires when the casting of a spell did not finish for any reason.
+- Tweaks: added `NWNX_TWEAKS_FIX_AUTOMAP_CRASH` which fixes a server crash that happens when automap data is outdated for a player.
+- Events: added event `NWNX_ON_ATTACK_TARGET_CHANGE_{BEFORE|AFTER}` which fires when a creature changes its attack target.
+- Events: added `NWNX_ON_PLACEABLE_OPEN_{BEFORE|AFTER}` which fires when player opens a placeable.
+- Events: added `NWNX_ON_PLACEABLE_CLOSE_{BEFORE|AFTER}` which fires when player closes a placeable.
+- Events: added event `NWNX_ON_CREATURE_TILE_CHANGE_{BEFORE|AFTER}` which fires when a creature changes the tile it's on.
+- Tweaks: added `NWNX_TWEAKS_SETAREA_CALLS_SETPOSITION` which will enable firing of the `NWNX_ON_MATERIALCHANGE_*` and `NWNX_ON_CREATURE_TILE_CHANGE_*` events when a creature is first added to an area.
+- Events: added `NWNX_ON_CREATURE_JUMP_TO_POSITION_{BEFORE|AFTER}` which fires when a creature is being jumped to a new location (area + x/y/z coordinates).
+- Events: added `NWNX_ON_CREATURE_JUMP_TO_OBJECT_{BEFORE|AFTER}` which fires when a creature is being jumped to a new location (to an object).
+- Events: added skippable events `NWNX_ON_ITEMPROPERTY_EFFECT_(APPLIED|REMOVED)_*` which fire when the game applies or removes the effects from an itemproperty.
+- Tweaks: added `NWNX_TWEAKS_FIRE_EQUIP_EVENTS_FOR_ALL_CREATURES` which makes the module OnPlayerEquipItem and OnPlayerUnEquipItem events fire for all creatures.
+- Tweaks: added `NWNX_TWEAKS_DONT_DELAY_EQUIP_EVENT` which fixes Unequip/Equip events being out of sync if an item is equipped/unequipped multiple times per server tick.
 
 ##### New Plugins
-- N/A
+- Resources: Adds `RESOURCES_*` variables for adding NWSync as a resource source, and specifying a replacement hak list.
 
 ##### New NWScript Functions
 - Object: GetLastSpellInstant()
+- Object: SetTrapCreator()
+- Creature: {Get|Set}MaxSellToStorePriceOverride()
+- Creature: {Get|Set}AbilityIncreaseByLevel()
+- Util: GetModuleFile()
+- Creature: NWNX_Creature_GetMaxAttackRange()
+- Player: GetTURD()
 
 ### Changed
-- Creature: Added an argument for passing a class package to `NWNX_Creature_LevelUp()` 
+- Creature: Added an argument for passing a class package to `NWNX_Creature_LevelUp()`
+- Player: Added arguments for passing transform data (scale, translation, rotation) to `NWNX_Player_ShowVisualEffect()` and `NWNX_Player_ApplyInstantVisualEffectToObject()`
+- Damage: The damage event now also fires for doors
+- Feat: Added the 'Damage'(Increase/Decrease) as an option
+- Object: GetInventoryItemCount() will also work on stores.
 
 ### Deprecated
 - N/A
@@ -28,7 +49,8 @@ https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 - N/A
 
 ### Fixed
-- N/A
+- Experimental: PlayerHitpointsAsPercentage: added the new argument nMessageLimit to SendServerToPlayerGameObjUpdate hook
+- Reveal: Fixed Reveal plugin always revealing all PCs regardless of plugin usage.
 
 ## 8193.35.40
 https://github.com/nwnxee/unified/compare/build8193.35.37...build8193.35.40
@@ -57,7 +79,7 @@ https://github.com/nwnxee/unified/compare/build8193.35.37...build8193.35.40
 - ***ABI BREAKING:*** Damage: SetAttackEventData() can now set `AttackEventData.iSneakAttack`. This only affects the attack roll message and floating text feedback. Immunities and damage will have already been resolved by the time the attack event script is ran.
 
 ### Fixed
-- Tweaks: FixResolveSpecialAttackDamage: fixed a crash involving ranged special attacks interacting oddly with Epic Dodge. 
+- Tweaks: FixResolveSpecialAttackDamage: fixed a crash involving ranged special attacks interacting oddly with Epic Dodge.
 - Player: fixed ToggleDM() not working correctly with EffectTimeStopImmunity().
 
 ## 8193.35.37
@@ -131,7 +153,7 @@ https://github.com/nwnxee/unified/compare/build8193.34final...build8193.35.36
   - Effect: SetEffectExpiredScript()
   - Effect: GetEffectExpiredData()
   - Effect: GetEffectExpiredCreator()
-  - Effect: AccessorizeVisualEffect() 
+  - Effect: AccessorizeVisualEffect()
   - Object: StringToObject()
   - Object: CheckFit()
   - Object: AddIconEffect()
@@ -169,7 +191,7 @@ https://github.com/nwnxee/unified/compare/build8193.34...build8193.34final
 - Events: added skippable event `NWNX_ON_DEBUG_PLAY_VISUAL_EFFECT_{BEFORE|AFTER}` which fires when the dm_visualeffect console command is used.
 - Events: added skippable event `NWNX_ON_RUN_EVENT_SCRIPT_{BEFORE|AFTER}` which fires on all object event scripts.
 - Events: added skippable event `NWNX_ON_BARTER_ADD_ITEM_{BEFORE|AFTER}` which fires when an item is added to the barter window.
-- Experimental: added `NWNX_EXPERIMENTAL_IGNORE_MODULE_VERSION` to ignore the module version when loading. 
+- Experimental: added `NWNX_EXPERIMENTAL_IGNORE_MODULE_VERSION` to ignore the module version when loading.
 - Events: added `NWNX_ON_OBJECT_USE_{BEFORE|AFTER}` which fires when player uses a placeable.
 
 ##### New NWScript Functions

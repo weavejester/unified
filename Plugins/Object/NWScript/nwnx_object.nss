@@ -393,7 +393,7 @@ int NWNX_Object_GetLastSpellCastDomainLevel(object oObject);
 void NWNX_Object_ForceAssignUUID(object oObject, string sUUID);
 
 /// @brief Returns how many items are in oObject's inventory.
-/// @param oObject A creature, placeable, or item.
+/// @param oObject A creature, placeable, item or store.
 /// @return Returns a count of how many items are in oObject's inventory.
 int NWNX_Object_GetInventoryItemCount(object oObject);
 
@@ -411,6 +411,12 @@ void NWNX_Object_OverrideSpellProjectileVFX(object oCreature, int nProjectileTyp
 /// @note To initialize the hooks used by this function it is recommended to call this function once in your module load script.
 /// @return TRUE if the last spell was instant.
 int NWNX_Object_GetLastSpellInstant();
+
+/// @brief Sets the creator of a trap on door, placeable, or trigger. Also changes trap Faction to that of the new Creator.
+/// @note Triggers (ground traps) will instantly update colour (Green/Red). Placeable/doors will not change if client has already seen them.
+/// @param oObject Door, placeable or trigger (trap) object
+/// @param oCreator The new creator of the trap. Any non-creature creator will assign OBJECT_INVALID (similar to toolset-laid traps)
+void NWNX_Object_SetTrapCreator(object oObject, object oCreator);
 
 /// @}
 
@@ -1021,4 +1027,12 @@ int NWNX_Object_GetLastSpellInstant()
     string sFunc = "GetLastSpellInstant";
     NWNX_CallFunction(NWNX_Object, sFunc);
     return NWNX_GetReturnValueInt();
+}
+
+void NWNX_Object_SetTrapCreator(object oObject, object oCreator)
+{
+    string sFunc = "SetTrapCreator";
+    NWNX_PushArgumentObject(oCreator);
+    NWNX_PushArgumentObject(oObject);
+    NWNX_CallFunction(NWNX_Object, sFunc);
 }
