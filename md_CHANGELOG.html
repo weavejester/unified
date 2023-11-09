@@ -111,21 +111,42 @@ Added</h2>
 <li>Feat: added modifier <code>NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSCHOOL</code> to modify a creature's spell DC for a spell school</li>
 <li>Feat: added modifier <code>NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSPELL</code> to modify a creature's spell DC for an individual spell</li>
 <li>Events: added event <code>NWNX_ON_SPELL_FAILED_{BEFORE|AFTER}</code> which fires when the casting of a spell did not finish for any reason.</li>
+<li>Tweaks: added <code>NWNX_TWEAKS_FIX_AUTOMAP_CRASH</code> which fixes a server crash that happens when automap data is outdated for a player.</li>
+<li>Events: added event <code>NWNX_ON_ATTACK_TARGET_CHANGE_{BEFORE|AFTER}</code> which fires when a creature changes its attack target.</li>
+<li>Events: added <code>NWNX_ON_PLACEABLE_OPEN_{BEFORE|AFTER}</code> which fires when player opens a placeable.</li>
+<li>Events: added <code>NWNX_ON_PLACEABLE_CLOSE_{BEFORE|AFTER}</code> which fires when player closes a placeable.</li>
+<li>Events: added event <code>NWNX_ON_CREATURE_TILE_CHANGE_{BEFORE|AFTER}</code> which fires when a creature changes the tile it's on.</li>
+<li>Tweaks: added <code>NWNX_TWEAKS_SETAREA_CALLS_SETPOSITION</code> which will enable firing of the <code>NWNX_ON_MATERIALCHANGE_*</code> and <code>NWNX_ON_CREATURE_TILE_CHANGE_*</code> events when a creature is first added to an area.</li>
+<li>Events: added <code>NWNX_ON_CREATURE_JUMP_TO_POSITION_{BEFORE|AFTER}</code> which fires when a creature is being jumped to a new location (area + x/y/z coordinates).</li>
+<li>Events: added <code>NWNX_ON_CREATURE_JUMP_TO_OBJECT_{BEFORE|AFTER}</code> which fires when a creature is being jumped to a new location (to an object).</li>
+<li>Events: added skippable events <code>NWNX_ON_ITEMPROPERTY_EFFECT_(APPLIED|REMOVED)_*</code> which fire when the game applies or removes the effects from an itemproperty.</li>
+<li>Tweaks: added <code>NWNX_TWEAKS_FIRE_EQUIP_EVENTS_FOR_ALL_CREATURES</code> which makes the module OnPlayerEquipItem and OnPlayerUnEquipItem events fire for all creatures.</li>
+<li>Tweaks: added <code>NWNX_TWEAKS_DONT_DELAY_EQUIP_EVENT</code> which fixes Unequip/Equip events being out of sync if an item is equipped/unequipped multiple times per server tick.</li>
 </ul>
 <h4><a class="anchor" id="autotoc_md12"></a>
 New Plugins</h4>
 <ul>
-<li>N/A</li>
+<li>Resources: Adds <code>RESOURCES_*</code> variables for adding NWSync as a resource source, and specifying a replacement hak list.</li>
 </ul>
 <h4><a class="anchor" id="autotoc_md13"></a>
 New NWScript Functions</h4>
 <ul>
 <li>Object: GetLastSpellInstant()</li>
+<li>Object: SetTrapCreator()</li>
+<li>Creature: {Get|Set}MaxSellToStorePriceOverride()</li>
+<li>Creature: {Get|Set}AbilityIncreaseByLevel()</li>
+<li>Util: GetModuleFile()</li>
+<li>Creature: <a class="el" href="group__creature.html#ga352946dceda094041e3d49b2a851451f" title="Returns the creature&#39;s maximum attack range to a target.">NWNX_Creature_GetMaxAttackRange()</a></li>
+<li>Player: GetTURD()</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md14"></a>
 Changed</h2>
 <ul>
 <li>Creature: Added an argument for passing a class package to <code><a class="el" href="group__creature.html#gad9c359948d6fca590e670986a7ed083d" title="Add levels of class to the creature, bypassing all validation.">NWNX_Creature_LevelUp()</a></code></li>
+<li>Player: Added arguments for passing transform data (scale, translation, rotation) to <code><a class="el" href="group__player.html#ga7dbffb81ef377eb430f50011b675573d" title="Plays the VFX at the target position in current area for the given player only.">NWNX_Player_ShowVisualEffect()</a></code> and <code><a class="el" href="group__player.html#ga9c984ffe634a7d8d57464c758f6cc6aa" title="Apply visualeffect to target that only player can see.">NWNX_Player_ApplyInstantVisualEffectToObject()</a></code></li>
+<li>Damage: The damage event now also fires for doors</li>
+<li>Feat: Added the 'Damage'(Increase/Decrease) as an option</li>
+<li>Object: GetInventoryItemCount() will also work on stores.</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md15"></a>
 Deprecated</h2>
@@ -140,7 +161,8 @@ Removed</h2>
 <h2><a class="anchor" id="autotoc_md17"></a>
 Fixed</h2>
 <ul>
-<li>N/A</li>
+<li>Experimental: PlayerHitpointsAsPercentage: added the new argument nMessageLimit to SendServerToPlayerGameObjUpdate hook</li>
+<li>Reveal: Fixed Reveal plugin always revealing all PCs regardless of plugin usage.</li>
 </ul>
 <h1><a class="anchor" id="autotoc_md18"></a>
 8193.35.40</h1>
@@ -1522,7 +1544,7 @@ Fixed</h2>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon May 29 2023 21:48:15 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Thu Nov 9 2023 14:31:39 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>
