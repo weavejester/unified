@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
-https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
+https://github.com/nwnxee/unified/compare/build8193.36.9...HEAD
+
+### Added
+- Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPTS` to cache scripts after first execution.
+
+##### New Plugins
+- N/A
+
+##### New NWScript Functions
+- N/A
+
+### Changed
+- NWNX_Item_RestoreItemAppearance() will now force an immediate update to the items AC, depending on new appearance.
+
+### Deprecated
+- N/A
+
+### Removed
+- N/A
+
+### Fixed
+- N/A
+
+## 8193.36.9
+https://github.com/nwnxee/unified/compare/build8193.36.8...build8193.36.9
+
+### Added
+- Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPTS` to cache scripts after first execution.
+
+## 8193.36.7
+https://github.com/nwnxee/unified/compare/build8193.35.40...build8193.36.7
 
 ### Added
 - Feat: added modifier `NWNX_FEAT_MODIFIER_SPELLSAVEDCFORSCHOOL` to modify a creature's spell DC for a spell school
@@ -25,6 +55,7 @@ https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 
 ##### New Plugins
 - Resources: Adds `RESOURCES_*` variables for adding NWSync as a resource source, and specifying a replacement hak list.
+- NWSQLiteExtensions: Adds various extensions for the game's built-in sqlite databases.
 
 ##### New NWScript Functions
 - Object: GetLastSpellInstant()
@@ -34,6 +65,8 @@ https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 - Util: GetModuleFile()
 - Creature: NWNX_Creature_GetMaxAttackRange()
 - Player: GetTURD()
+- Item: {Get|Set}MinEquipLevel{Modifier|Override}()
+- Util: UpdateClientObject()
 
 ### Changed
 - Creature: Added an argument for passing a class package to `NWNX_Creature_LevelUp()`
@@ -42,15 +75,14 @@ https://github.com/nwnxee/unified/compare/build8193.35.40...HEAD
 - Feat: Added the 'Damage'(Increase/Decrease) as an option
 - Object: GetInventoryItemCount() will also work on stores.
 
-### Deprecated
-- N/A
-
 ### Removed
-- N/A
+- Tweaks: `NWNX_TWEAKS_FIX_AUTOMAP_CRASH`, fixed in basegame.
+- Tweaks: `NWNX_TWEAKS_FIX_TURD_EFFECT_UNLINKING`, fixed in basegame.
 
 ### Fixed
 - Experimental: PlayerHitpointsAsPercentage: added the new argument nMessageLimit to SendServerToPlayerGameObjUpdate hook
 - Reveal: Fixed Reveal plugin always revealing all PCs regardless of plugin usage.
+- Area: RotateArea's 'NewOrientation' corrected for NWN bearings, correcting direction of objects within the area after 90 or 270 degree rotation.
 
 ## 8193.35.40
 https://github.com/nwnxee/unified/compare/build8193.35.37...build8193.35.40
