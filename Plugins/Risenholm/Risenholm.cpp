@@ -64,7 +64,7 @@ static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(&CNWSCreature::GetF
 static void ResolvePlaceableSneakAndDeathAttack(CNWSCreature *pThis, CNWSPlaceable *pPlaceable)
 {
     static const float SNEAK_ATTACK_DISTANCE =
-            std::pow(Globals::Rules()->GetRulesetFloatEntry("MAX_RANGED_SNEAK_ATTACK_DISTANCE", 10.0f), 2);
+            std::pow(Globals::Rules()->GetRulesetFloatEntry(CRULES_HASHEDSTR("MAX_RANGED_SNEAK_ATTACK_DISTANCE"), 10.0f), 2);
 
     if (!pPlaceable)
         return;
@@ -266,7 +266,7 @@ static Hooks::Hook s_ResolveAttackRollHook = Hooks::HookFunction(&CNWSCreature::
                     !pAttackData->m_bRangedAttack &&
                     !pCreature->GetRangeWeaponEquipped())
                 {
-                    static int32_t nParryRiposteDifference = Globals::Rules()->GetRulesetIntEntry("PARRY_RIPOSTE_DIFFERENCE", 10);
+                    static int32_t nParryRiposteDifference = Globals::Rules()->GetRulesetIntEntry(CRULES_HASHEDSTR("PARRY_RIPOSTE_DIFFERENCE"), 10);
                     int32_t nParryRoll = Globals::Rules()->RollDice(1, 20) +
                             pCreature->m_pStats->GetSkillRank(Constants::Skill::Parry, Utils::AsNWSObject(pThis));
 
@@ -636,7 +636,7 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(&CNWSCrea
                     pAttackData->m_bKillingBlow = true;
             }
 
-            static int32_t nMaxRangedCoupDeGraceSquared = std::pow(Globals::Rules()->GetRulesetIntEntry("MAX_RANGED_COUP_DE_GRACE", 10), 2);
+            static int32_t nMaxRangedCoupDeGraceSquared = std::pow(Globals::Rules()->GetRulesetIntEntry(CRULES_HASHEDSTR("MAX_RANGED_COUP_DE_GRACE"), 10), 2);
             Vector v = pThis->m_vPosition;
             v.x -= pTarget->m_vPosition.x;
             v.y -= pTarget->m_vPosition.y;
@@ -748,7 +748,7 @@ static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(&CNWSCreatureStats::Get
             if (auto *pChestItem = thisPtr->m_pBaseCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest))
             {
                 int32_t nArmorClass = pChestItem->ComputeArmorClass();
-                Globals::Rules()->m_p2DArrays->m_pArmorTable->GetINTEntry(nArmorClass, "DEXBONUS", &nMaxDexMod);
+                Globals::Rules()->m_p2DArrays->GetArmorTable()->GetINTEntry(nArmorClass, "DEXBONUS", &nMaxDexMod);
 
                 // RISENHOLM MODIFICATION: If creature has Mage Armor, set max dex bonus limit to 5
                 if (pScriptVarTable && pScriptVarTable->GetInt(sVarName))
@@ -802,7 +802,7 @@ static Hooks::Hook s_ItemComputeArmorClassHook = Hooks::HookFunction(&CNWSItem::
         }
 
         float fACBonus;
-        Globals::Rules()->m_p2DArrays->m_pPartsChest->GetFLOATEntry(thisPtr->m_nArmorModelPart[7], "ACBonus", &fACBonus);
+        Globals::Rules()->m_p2DArrays->GetPartsChest()->GetFLOATEntry(thisPtr->m_nArmorModelPart[7], "ACBonus", &fACBonus);
 
         // RISENHOLM MODIFICATION: If creature has Mage Armor, return 5 if ACBonus is lower than 5
         if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(thisPtr->m_oidPossessor)))
@@ -823,7 +823,7 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(&CNWSC
     {
         bool bSendFeedbackMessage = false;
         auto *pInventory = thisPtr->m_pInventory;
-        auto *pArmorTable = Globals::Rules()->m_p2DArrays->m_pArmorTable;
+        auto *pArmorTable = Globals::Rules()->m_p2DArrays->GetArmorTable();
         auto *pStats = thisPtr->m_pStats;
 
         if (auto *pChestItem = pInventory->GetItemInSlot(Constants::EquipmentSlot::Chest))
