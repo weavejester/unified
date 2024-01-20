@@ -137,6 +137,9 @@ Functions</h2></td></tr>
 <tr class="memitem:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">NWNX_Risenholm_CheckForShutdownFile</a> ()</td></tr>
 <tr class="memdesc:gaa490256e4506eb5370c3c7391dbd8f87"><td class="mdescLeft">&#160;</td><td class="mdescRight">Checks for a file that indicates a shutdown should take place.  <a href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">More...</a><br /></td></tr>
 <tr class="separator:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gae59705d5cc960d1caaffc730d1822fc3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">NWNX_Risenholm_FixItemDestroySkipUseableState</a> (object oItem)</td></tr>
+<tr class="memdesc:gae59705d5cc960d1caaffc730d1822fc3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event.  <a href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">More...</a><br /></td></tr>
+<tr class="separator:gae59705d5cc960d1caaffc730d1822fc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -188,7 +191,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00039">39</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00043">43</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -217,7 +220,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00049">49</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00053">53</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -292,7 +295,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00055">55</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00059">59</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -315,7 +318,35 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00068">68</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00072">72</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="gae59705d5cc960d1caaffc730d1822fc3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gae59705d5cc960d1caaffc730d1822fc3">&#9670;&nbsp;</a></span>NWNX_Risenholm_FixItemDestroySkipUseableState()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_FixItemDestroySkipUseableState </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oItem</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oItem</td><td>The item to fix </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00078">78</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -325,7 +356,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Wed Jan 17 2024 21:22:35 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Sat Jan 20 2024 18:32:41 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="../">Light version</a>
 				</li>
