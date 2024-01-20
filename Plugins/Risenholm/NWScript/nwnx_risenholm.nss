@@ -34,6 +34,10 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
 /// @return True if the shutdown file was found, false otherwise
 int NWNX_Risenholm_CheckForShutdownFile();
 
+/// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
+/// @param oItem The item to fix
+void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -69,4 +73,12 @@ int NWNX_Risenholm_CheckForShutdownFile()
 {
     NWNX_CallFunction(NWNX_Risenholm, "CheckForShutdownFile");
     return NWNX_GetReturnValueInt();
+}
+
+void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem)
+{
+    string sFunc = "FixItemDestroySkipUseableState";
+
+    NWNX_PushArgumentObject(oItem);
+    NWNX_CallFunction(NWNX_Item, sFunc);
 }

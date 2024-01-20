@@ -1030,3 +1030,13 @@ NWNX_EXPORT ArgumentStack CheckForShutdownFile(ArgumentStack&& args)
 }
 
 }
+
+NWNX_EXPORT ArgumentStack FixItemDestroySkipUseableState(ArgumentStack&& args)
+{
+    if (auto *pItem = Utils::PopItem(args))
+    {
+        pItem->RestoreUsedActiveProperties(false);
+        pItem->UpdateUsedActiveProperties();
+    }
+    return {};
+}
