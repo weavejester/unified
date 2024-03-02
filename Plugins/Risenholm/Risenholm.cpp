@@ -1040,3 +1040,19 @@ NWNX_EXPORT ArgumentStack FixItemDestroySkipUseableState(ArgumentStack&& args)
     }
     return {};
 }
+
+NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
+{
+	if (auto *pCreature = Utils::PopCreature(args))
+	{
+		auto *pCombatRound = pCreature->m_pcCombatRound;
+		if (pCombatRound->GetTotalAttacks() < 50)
+		{
+			auto oidTarget = args.extract<ObjectID>();
+			if (oidTarget != Constants::OBJECT_INVALID)
+				pCombatRound->AddAttackOfOpportunity(oidTarget); 
+		}
+	}
+
+    return {};
+} 
