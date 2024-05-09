@@ -5,19 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
-https://github.com/nwnxee/unified/compare/build8193.36.9...HEAD
+https://github.com/nwnxee/unified/compare/build8193.36.12...HEAD
 
 ### Added
-- Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPTS` to cache scripts after first execution.
-
-##### New Plugins
 - N/A
 
+##### New Plugins
+- Store: Enables getting and setting store data.
+
 ##### New NWScript Functions
-- Util: CleanResourceDirectory()
+- Util: GetModuleTlkFile()
+- Object: {Set|Get}LocalizedName()
+- Store: GetIsRestrictedBuyItem()
+- Store: {Get|Set}BlackMarketMarkDown()
+- Store: {Get|Set}MarkDown()
+- Store: {Get|Set}MarkUp()
+- Player: ReloadTlk()
+- Player: ReloadColorPalettes()
 
 ### Changed
-- NWNX_Item_RestoreItemAppearance() will now force an immediate update to the items AC, depending on new appearance.
+- Player: added bChatWindow parameter to FloatingTextStringOnCreature() 
+- Damage: added iSpellId to the NWNX_Damage_DamageEventData struct.
 
 ### Deprecated
 - N/A
@@ -27,6 +35,21 @@ https://github.com/nwnxee/unified/compare/build8193.36.9...HEAD
 
 ### Fixed
 - N/A
+
+## 8193.36.10
+https://github.com/nwnxee/unified/compare/build8193.36.9...build8193.36.10
+
+### Added
+- Optimizations: added `NWNX_OPTIMIZATIONS_CACHE_SCRIPTS` to cache scripts after first execution.
+
+##### New NWScript Functions
+- Util: CleanResourceDirectory()
+
+### Changed
+- NWNX_Item_RestoreItemAppearance() will now force an immediate update to the items AC, depending on new appearance.
+
+### Fixed
+- Weapon: fixed SetWeaponFinesseSize() clobbering the baseitems.2da values.
 
 ## 8193.36.9
 https://github.com/nwnxee/unified/compare/build8193.36.8...build8193.36.9

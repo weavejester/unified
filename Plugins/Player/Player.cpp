@@ -1264,14 +1264,25 @@ NWNX_EXPORT ArgumentStack FloatingTextStringOnCreature(ArgumentStack&& args)
         auto text = args.extract<std::string>();
           ASSERT_OR_THROW(!text.empty());
 
+        int32_t bChatWindow = true;
+        try
+        {
+            bChatWindow = !!args.extract<int32_t>();
+        }
+        catch(const std::runtime_error&)
+        {
+            LOG_WARNING("NWNX_Player_FloatingTextStringOnCreature() called from NWScript without 'bChatWindow' parameter. Please update nwnx_player.nss");
+        }
+
         if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(oidCreature)))
         {
-            if (auto *pMessage = static_cast<CNWSMessage*>(Globals::AppManager()->m_pServerExoApp->GetNWSMessage()))
+            if (auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
             {
                 CNWCCMessageData messageData;
                 messageData.SetObjectID(0, pCreature->m_idSelf);
                 messageData.SetInteger(9, 94);
                 messageData.SetString(0, text);
+                messageData.SetInteger(0, bChatWindow);
 
                 pMessage->SendServerToPlayerCCMessage(pPlayer->m_nPlayerID, Constants::MessageClientSideMsgMinor::Feedback, &messageData, nullptr);
             }
@@ -1711,6 +1722,30 @@ NWNX_EXPORT ArgumentStack SetTlkOverride(ArgumentStack&& args)
     return {};
 }
 
+NWNX_EXPORT ArgumentStack ReloadTlk(ArgumentStack&& args)
+{
+    if (auto *pPlayer = Utils::PopPlayer(args))
+    {
+        if (auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
+        {
+            pMessage->CreateWriteMessage(4, pPlayer->m_nPlayerID, 1);
+            pMessage->WriteDWORD(0x10);
+            uint8_t *buffer;
+            uint32_t size;
+            if (pMessage->GetWriteMessage(&buffer, &size))
+            {
+                pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID,
+                                                    Constants::MessageMajor::Resman,
+                                                    0x4,
+                                                    buffer, size);
+            }
+        }
+    }
+
+    return {};
+}
+
+
 NWNX_EXPORT ArgumentStack UpdateWind(ArgumentStack&& args)
 {
     if (auto *pPlayer = Utils::PopPlayer(args))
@@ -1968,4 +2003,27 @@ NWNX_EXPORT ArgumentStack GetTURD(ArgumentStack&& args)
     }
 
     return Constants::OBJECT_INVALID;
+}
+
+NWNX_EXPORT ArgumentStack ReloadColorPalettes(ArgumentStack&& args)
+{
+    if (auto* pPlayer = Utils::PopPlayer(args))
+    {
+        if (auto* pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
+        {
+            pMessage->CreateWriteMessage(4, pPlayer->m_nPlayerID, 1);
+            pMessage->WriteDWORD(0x20);
+            uint8_t* buffer;
+            uint32_t size;
+            if (pMessage->GetWriteMessage(&buffer, &size))
+            {
+                pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID,
+                    Constants::MessageMajor::Resman,
+                    0x4,
+                    buffer, size);
+            }
+        }
+    }
+
+    return {};
 }

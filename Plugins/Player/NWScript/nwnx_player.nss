@@ -329,7 +329,8 @@ void NWNX_Player_SetCreatureNameOverride(object oPlayer, object oCreature, strin
 /// @param oPlayer The player to display the text to.
 /// @param oCreature The creature to display the text above.
 /// @param sText The text to display.
-void NWNX_Player_FloatingTextStringOnCreature(object oPlayer, object oCreature, string sText);
+/// @param bChatWindow If TRUE, sText will be displayed in oPlayer's chat window.
+void NWNX_Player_FloatingTextStringOnCreature(object oPlayer, object oCreature, string sText, int bChatWindow = TRUE);
 
 /// @brief Toggle oPlayer's PlayerDM status.
 /// @note This function does nothing for actual DMClient DMs or players with a client version < 8193.14
@@ -396,6 +397,10 @@ void NWNX_Player_CloseStore(object oPlayer);
 /// @note Overrides will not persist through relogging.
 void NWNX_Player_SetTlkOverride(object oPlayer, int nStrRef, string sOverride, int bRestoreGlobal = TRUE);
 
+/// @brief Make the player reload it's TlkTable.
+/// @param oPlayer The player.
+void NWNX_Player_ReloadTlk(object oPlayer);
+
 /// @brief Update wind for oPlayer only.
 /// @param oPlayer The player.
 /// @param vDirection The Wind's direction.
@@ -444,6 +449,10 @@ void NWNX_Player_SendPartyInvite(object oPlayer, object oInviter, int bForceInvi
 /// @param oPlayer The offline player to get the TURD from
 /// @return the TURD object of oPlayer, or OBJECT_INVALID if no TURD exists
 object NWNX_Player_GetTURD(object oPlayer);
+
+/// @brief Reloads the color palettes for oPlayer
+/// @param oPlayer The player to reload the color palette for
+void NWNX_Player_ReloadColorPalettes(object oPlayer);
 
 /// @}
 
@@ -910,10 +919,11 @@ void NWNX_Player_SetCreatureNameOverride(object oPlayer, object oCreature, strin
     NWNX_CallFunction(NWNX_Player, sFunc);
 }
 
-void NWNX_Player_FloatingTextStringOnCreature(object oPlayer, object oCreature, string sText)
+void NWNX_Player_FloatingTextStringOnCreature(object oPlayer, object oCreature, string sText, int bChatWindow = TRUE)
 {
     string sFunc = "FloatingTextStringOnCreature";
 
+    NWNX_PushArgumentInt(bChatWindow);
     NWNX_PushArgumentString(sText);
     NWNX_PushArgumentObject(oCreature);
     NWNX_PushArgumentObject(oPlayer);
@@ -1050,6 +1060,14 @@ void NWNX_Player_SetTlkOverride(object oPlayer, int nStrRef, string sOverride, i
     NWNX_CallFunction(NWNX_Player, sFunc);
 }
 
+void NWNX_Player_ReloadTlk(object oPlayer)
+{
+    string sFunc = "ReloadTlk";
+
+    NWNX_PushArgumentObject(oPlayer);
+    NWNX_CallFunction(NWNX_Player, sFunc);
+}
+
 void NWNX_Player_UpdateWind(object oPlayer, vector vDirection, float fMagnitude, float fYaw, float fPitch)
 {
     string sFunc = "UpdateWind";
@@ -1131,6 +1149,14 @@ object NWNX_Player_GetTURD(object oPlayer)
 
     NWNX_PushArgumentObject(oPlayer);
     NWNX_CallFunction(NWNX_Player, sFunc);
-    
+
     return NWNX_GetReturnValueObject();
+}
+
+void NWNX_Player_ReloadColorPalettes(object oPlayer)
+{
+    string sFunc = "ReloadColorPalettes";
+
+    NWNX_PushArgumentObject(oPlayer);
+    NWNX_CallFunction(NWNX_Player, sFunc);
 }

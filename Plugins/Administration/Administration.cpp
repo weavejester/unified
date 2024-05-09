@@ -270,8 +270,6 @@ NWNX_EXPORT ArgumentStack GetPlayOption(ArgumentStack&& args)
 
     const auto option = args.extract<int32_t>();
 
-    ASSERT_OR_THROW(option >= 0); ASSERT_OR_THROW(option <= 26);
-
     switch (option)
     {
         case 0: // NWNX_ADMINISTRATION_OPTION_ALL_KILLABLE
@@ -403,7 +401,6 @@ NWNX_EXPORT ArgumentStack SetPlayOption(ArgumentStack&& args)
     const auto option = args.extract<int32_t>();
     const auto value = args.extract<int32_t>();
 
-    ASSERT_OR_THROW(option >= 0); ASSERT_OR_THROW(option <= 26);
     ASSERT_OR_THROW(value >= 0);
 
     switch (option)
