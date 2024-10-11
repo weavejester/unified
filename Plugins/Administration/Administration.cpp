@@ -117,7 +117,6 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
     std::string bicname     = player->m_resFileName.GetResRefStr();
     std::string servervault = CExoString(Globals::ExoBase()->m_pcExoAliasList->GetAliasPath("SERVERVAULT", 0)).CStr();
     std::string playerdir;
-    std::string cdkey = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_lstKeys.element[0].sPublic.CStr();
     if (exoApp->GetServerInfo()->m_PersistantWorldOptions.bServerVaultByPlayerName)
     {
         playerdir = player->GetPlayerName().CStr();
