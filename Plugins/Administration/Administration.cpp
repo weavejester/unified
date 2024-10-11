@@ -139,16 +139,14 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
 
     CNWSCreature* creature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(objectId);
     std::string characterName, characterLastName;
-    std::string uuid;
     if (creature && creature->m_pStats)
     {
         characterName = Utils::ExtractLocString(creature->m_pStats->m_lsFirstName);
         characterLastName = Utils::ExtractLocString(creature->m_pStats->m_lsLastName);
-        uuid = creature->m_pUUID.GetOrAssignRandom().CStr();
     }
 
     Tasks::QueueOnMainThread(
-        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, cdkey, uuid]
+        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, playerdir]
         {
             // Will show "Delete Character" message to PC. Best match from dialog.tlk
             Globals::AppManager()->m_pServerExoApp->GetNetLayer()->DisconnectPlayer(playerId, 10392, 1, kickMessage);
@@ -175,7 +173,7 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
 
             CExoLinkedListNode *foundNode = FindTURD(playerName, chararacterFullName);
             if (!foundNode)
-                foundNode = FindTURD(cdkey+uuid, chararacterFullName);
+                foundNode = FindTURD(playerdir, chararacterFullName);
 
             if (foundNode)
             {
