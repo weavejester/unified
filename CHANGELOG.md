@@ -8,10 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 https://github.com/nwnxee/unified/compare/build8193.36.12...HEAD
 
 ### Added
-- N/A
+- DotNET: Added `NWNX_DOTNET_METHOD` option to change entrypoint method (default: `Bootstrap`)
+- DotNET: Added `NWNX_DOTNET_NEW_BOOTSTRAP` option to enable a new bootstrap method with less boilerplate code.
+- DotNET: Added `RequestFunctionHook`, `ReturnFunctionHook`.
+- Events: Added events `NWNX_ON_SET_EXPERIENCE_{BEFORE|AFTER}` which fire when the XP of a player changes.
+- NoStack: Added `NWNX_NOSTACK_IGNORE_SUPERNATURAL_INNATE` to ignore effects created by the Feat, Race and SkillRanks plugins when stacking.
+- Tweaks: added `NWNX_TWEAKS_CUTSCENE_MODE_NO_TURD` to not drop a TURD when SetCutsceneMode() is called.
 
 ##### New Plugins
 - Store: Enables getting and setting store data.
+- HTTPClient: Perform HTTP Action like POST and GET and return responses.
 
 ##### New NWScript Functions
 - Util: GetModuleTlkFile()
@@ -24,17 +30,24 @@ https://github.com/nwnxee/unified/compare/build8193.36.12...HEAD
 - Player: ReloadColorPalettes()
 
 ### Changed
-- Player: added bChatWindow parameter to FloatingTextStringOnCreature() 
+- Player: added bChatWindow parameter to FloatingTextStringOnCreature()
 - Damage: added iSpellId to the NWNX_Damage_DamageEventData struct.
+- Docker: Add dotnet-runtime-8.0, dotnet-apphost-pack-8.0 packages.
+- Item: Added parameter `bUpdateCreatureAppearance` to SetItemAppearance() to update the appearance of the item's possessor.
+- Events: Added PLAYER_NAME, CDKEY as event data to the client disconnect events `NWNX_ON_CLIENT_DISCONNECT_{BEFORE|AFTER}`.
 
 ### Deprecated
-- N/A
+- DotNET: GetFunctionPointer()
+- DotNET: GetNWNXExportedGlobals()
 
 ### Removed
 - N/A
 
 ### Fixed
-- N/A
+- Race: Documentation updated as `NWNX_Utils` is no longer required with introduction of native `Get2DARowCount()`.
+- Core README indicated wrong argument for logging. `NWNX_CORE_LOG_FILE_NAME` should have been `NWNX_CORE_LOG_FILE_PATH`.
+- MaxLevel: Fixed levelling down not working correctly.
+- Events: Fixed `NWNX_ON_DETECT_ENTER_*` events firing when it should have been `NWNX_ON_DETECT_EXIT_*`.
 
 ## 8193.36.10
 https://github.com/nwnxee/unified/compare/build8193.36.9...build8193.36.10

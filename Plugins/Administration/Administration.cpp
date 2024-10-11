@@ -124,7 +124,7 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
     }
     else
     {
-        playerdir = cdkey;
+        playerdir = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_cCDKey.sPublic.CStr();
     }
 
     std::string filename = servervault + playerdir + "/" + bicname + ".bic";

@@ -32,13 +32,7 @@ void TURDByCDKey()
             {
                 if (auto *pPlayerInfo = Globals::AppManager()->m_pServerExoApp->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID))
                 {
-                    CExoString sUUID;
-                    if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject)))
-                    {
-                        sUUID = pCreature->m_pUUID.GetOrAssignRandom();
-                    }
-
-                    return pPlayerInfo->m_lstKeys[0].sPublic + sUUID;
+                    return pPlayerInfo->m_cCDKey.sPublic;
                 }
 
                 return CExoString("");
