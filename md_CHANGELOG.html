@@ -35,7 +35,7 @@
 						<td id="projectlogo"><img width="80" height="74" alt="Logo" src="logo-transparent.png"/></td>
 						<td id="projectalign" style="padding-left: 0.5em;">
 							<div id="projectname">NWNX:EE
-								&#160;<span id="projectnumber">8193.36.12</span>
+								&#160;<span id="projectnumber">8193.37.10</span>
 							</div>
 						</td>
 						<td>        <div id="MSearchBox" class="MSearchBoxInactive">
@@ -108,12 +108,18 @@ Unreleased</h1>
 <h2><a class="anchor" id="autotoc_md11"></a>
 Added</h2>
 <ul>
-<li>N/A</li>
+<li>DotNET: Added <code>NWNX_DOTNET_METHOD</code> option to change entrypoint method (default: <code>Bootstrap</code>)</li>
+<li>DotNET: Added <code>NWNX_DOTNET_NEW_BOOTSTRAP</code> option to enable a new bootstrap method with less boilerplate code.</li>
+<li>DotNET: Added <code>RequestFunctionHook</code>, <code>ReturnFunctionHook</code>.</li>
+<li>Events: Added events <code>NWNX_ON_SET_EXPERIENCE_{BEFORE|AFTER}</code> which fire when the XP of a player changes.</li>
+<li>NoStack: Added <code>NWNX_NOSTACK_IGNORE_SUPERNATURAL_INNATE</code> to ignore effects created by the Feat, Race and SkillRanks plugins when stacking.</li>
+<li>Tweaks: added <code>NWNX_TWEAKS_CUTSCENE_MODE_NO_TURD</code> to not drop a TURD when SetCutsceneMode() is called.</li>
 </ul>
 <h4><a class="anchor" id="autotoc_md12"></a>
 New Plugins</h4>
 <ul>
 <li>Store: Enables getting and setting store data.</li>
+<li>HTTPClient: Perform HTTP Action like POST and GET and return responses.</li>
 </ul>
 <h4><a class="anchor" id="autotoc_md13"></a>
 New NWScript Functions</h4>
@@ -132,11 +138,15 @@ Changed</h2>
 <ul>
 <li>Player: added bChatWindow parameter to FloatingTextStringOnCreature()</li>
 <li>Damage: added iSpellId to the <a class="el" href="structNWNX__Damage__DamageEventData.html" title="Damage Event Data.">NWNX_Damage_DamageEventData</a> struct.</li>
+<li>Docker: Add dotnet-runtime-8.0, dotnet-apphost-pack-8.0 packages.</li>
+<li>Item: Added parameter <code>bUpdateCreatureAppearance</code> to SetItemAppearance() to update the appearance of the item's possessor.</li>
+<li>Events: Added PLAYER_NAME, CDKEY as event data to the client disconnect events <code>NWNX_ON_CLIENT_DISCONNECT_{BEFORE|AFTER}</code>.</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md15"></a>
 Deprecated</h2>
 <ul>
-<li>N/A</li>
+<li>DotNET: GetFunctionPointer()</li>
+<li>DotNET: GetNWNXExportedGlobals()</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md16"></a>
 Removed</h2>
@@ -146,7 +156,10 @@ Removed</h2>
 <h2><a class="anchor" id="autotoc_md17"></a>
 Fixed</h2>
 <ul>
-<li>N/A</li>
+<li>Race: Documentation updated as <code>NWNX_Utils</code> is no longer required with introduction of native <code>Get2DARowCount()</code>.</li>
+<li>Core README indicated wrong argument for logging. <code>NWNX_CORE_LOG_FILE_NAME</code> should have been <code>NWNX_CORE_LOG_FILE_PATH</code>.</li>
+<li>MaxLevel: Fixed levelling down not working correctly.</li>
+<li>Events: Fixed <code>NWNX_ON_DETECT_ENTER_*</code> events firing when it should have been <code>NWNX_ON_DETECT_EXIT_*</code>.</li>
 </ul>
 <h1><a class="anchor" id="autotoc_md18"></a>
 8193.36.10</h1>
@@ -710,7 +723,7 @@ Changed</h2>
 <li>ItemProperty: UnpackIP now can retrieve the item property's id. <em><b>ABI breaking:</b> You will need to update <a class="el" href="nwnx__itemprop_8nss.html">nwnx_itemprop.nss</a> if you are using these functions</em>.</li>
 <li><em><b>API BREAKING</b></em> Damage: The <a class="el" href="structNWNX__Damage__AttackEventData.html" title="Attack Event Data.">NWNX_Damage_AttackEventData</a> fields have changed their names: <code>iAttackType -&gt; iWeaponAttackType</code>, <code>iAttackType_REAL -&gt; iAttackType</code>.</li>
 <li><em><b>API BREAKING</b></em> Object: The <code>NWNX_Object_Export</code> function has had its arguments reordered.</li>
-<li><em><b>ABI BREAKING:</b></em> <code><a class="el" href="nwnx_8nss.html">nwnx.nss</a></code> has changed, please update all your <code>nwnx_*.nss</code> scripts including <code><a class="el" href="nwnx_8nss.html">nwnx.nss</a></code> and recompile. Existing compiled scripts will still work.</li>
+<li><em><b>ABI BREAKING:</b></em> <code>nwnx.nss</code> has changed, please update all your <code>nwnx_*.nss</code> scripts including <code>nwnx.nss</code> and recompile. Existing compiled scripts will still work.</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md95"></a>
 Removed</h2>
@@ -1357,7 +1370,7 @@ Removed</h2>
 <h1><a class="anchor" id="autotoc_md183"></a>
 8186 LTS</h1>
 <p><a href="https://github.com/nwnxee/unified/compare/build8186-2...build8186-lts">https://github.com/nwnxee/unified/compare/build8186-2...build8186-lts</a></p>
-<p>NOTICE: The ABI has changed, please make sure to update your <a class="el" href="nwnx_8nss.html">nwnx.nss</a> and recompile all your scripts.</p>
+<p>NOTICE: The ABI has changed, please make sure to update your nwnx.nss and recompile all your scripts.</p>
 <h2><a class="anchor" id="autotoc_md184"></a>
 Added</h2>
 <ul>
@@ -1621,7 +1634,7 @@ Fixed</h2>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Thu May 9 2024 21:48:52 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Sat Oct 12 2024 02:37:38 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="dark/">Dark version</a>
 				</li>

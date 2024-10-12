@@ -35,7 +35,7 @@
 						<td id="projectlogo"><img width="80" height="74" alt="Logo" src="logo-transparent.png"/></td>
 						<td id="projectalign" style="padding-left: 0.5em;">
 							<div id="projectname">NWNX:EE
-								&#160;<span id="projectnumber">8193.36.12</span>
+								&#160;<span id="projectnumber">8193.37.10</span>
 							</div>
 						</td>
 						<td>        <div id="MSearchBox" class="MSearchBoxInactive">
@@ -108,9 +108,9 @@ $(document).ready(function(){initNavTree('nwnx__openai_8nss_source.html',''); in
 <div class="line"><a name="l00006"></a><span class="lineno">    6</span>&#160; </div>
 <div class="line"><a name="l00007"></a><span class="lineno"><a class="line" href="nwnx__openai_8nss.html#ae3dce0047b4afa9a77662b951493edc7">    7</a></span>&#160;<span class="keywordtype">void</span> <a class="code" href="nwnx__openai_8nss.html#ae3dce0047b4afa9a77662b951493edc7">NWNX_OpenAI_ChatAsync</a>(json payload, <span class="keywordtype">string</span> <span class="keywordtype">id</span>)</div>
 <div class="line"><a name="l00008"></a><span class="lineno">    8</span>&#160;{</div>
-<div class="line"><a name="l00009"></a><span class="lineno">    9</span>&#160;    <a class="code" href="group__nwnx.html#gac4eedc41505f53a08f7aa03093a2daaf">NWNX_PushArgumentString</a>(<span class="keywordtype">id</span>);</div>
-<div class="line"><a name="l00010"></a><span class="lineno">   10</span>&#160;    <a class="code" href="group__nwnx.html#ga7bf260635d644b38abf4d0a6baabc4b2">NWNX_PushArgumentJson</a>(payload);</div>
-<div class="line"><a name="l00011"></a><span class="lineno">   11</span>&#160;    <a class="code" href="group__nwnx.html#gac59ae51d3e8c4f775ab7d1a18eab3fc4">NWNX_CallFunction</a>(<span class="stringliteral">&quot;NWNX_OpenAI&quot;</span>, <span class="stringliteral">&quot;ChatAsync&quot;</span>);</div>
+<div class="line"><a name="l00009"></a><span class="lineno">    9</span>&#160;    NWNX_PushArgumentString(<span class="keywordtype">id</span>);</div>
+<div class="line"><a name="l00010"></a><span class="lineno">   10</span>&#160;    NWNX_PushArgumentJson(payload);</div>
+<div class="line"><a name="l00011"></a><span class="lineno">   11</span>&#160;    NWNX_CallFunction(<span class="stringliteral">&quot;NWNX_OpenAI&quot;</span>, <span class="stringliteral">&quot;ChatAsync&quot;</span>);</div>
 <div class="line"><a name="l00012"></a><span class="lineno">   12</span>&#160;}</div>
 <div class="line"><a name="l00013"></a><span class="lineno">   13</span>&#160; </div>
 <div class="line"><a name="l00014"></a><span class="lineno"><a class="line" href="nwnx__openai_8nss.html#a209e009409e5db2eed645bdd50f2d97e">   14</a></span>&#160;json <a class="code" href="nwnx__openai_8nss.html#a209e009409e5db2eed645bdd50f2d97e">NWNX_OpenAI_Payload</a>(<span class="keywordtype">string</span> message, <span class="keywordtype">string</span> model, <span class="keywordtype">float</span> temperature, <span class="keywordtype">int</span> maxTokens)</div>
@@ -132,9 +132,6 @@ $(document).ready(function(){initNavTree('nwnx__openai_8nss_source.html',''); in
 <div class="line"><a name="l00030"></a><span class="lineno">   30</span>&#160;}</div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
-<div class="ttc" id="agroup__nwnx_html_gac59ae51d3e8c4f775ab7d1a18eab3fc4"><div class="ttname"><a href="group__nwnx.html#gac59ae51d3e8c4f775ab7d1a18eab3fc4">NWNX_CallFunction</a></div><div class="ttdeci">void NWNX_CallFunction(string pluginName, string functionName)</div><div class="ttdoc">Scripting interface to NWNX.</div><div class="ttdef"><b>Definition:</b> <a href="nwnx_8nss_source.html#l00054">nwnx.nss:54</a></div></div>
-<div class="ttc" id="agroup__nwnx_html_gac4eedc41505f53a08f7aa03093a2daaf"><div class="ttname"><a href="group__nwnx.html#gac4eedc41505f53a08f7aa03093a2daaf">NWNX_PushArgumentString</a></div><div class="ttdeci">void NWNX_PushArgumentString(string value)</div><div class="ttdoc">Pushes the specified type to the c++ side.</div><div class="ttdef"><b>Definition:</b> <a href="nwnx_8nss_source.html#l00074">nwnx.nss:74</a></div></div>
-<div class="ttc" id="agroup__nwnx_html_ga7bf260635d644b38abf4d0a6baabc4b2"><div class="ttname"><a href="group__nwnx.html#ga7bf260635d644b38abf4d0a6baabc4b2">NWNX_PushArgumentJson</a></div><div class="ttdeci">void NWNX_PushArgumentJson(json value)</div><div class="ttdoc">Pushes the specified type to the c++ side.</div><div class="ttdef"><b>Definition:</b> <a href="nwnx_8nss_source.html#l00089">nwnx.nss:89</a></div></div>
 <div class="ttc" id="anwnx__openai_8nss_html_ae3dce0047b4afa9a77662b951493edc7"><div class="ttname"><a href="nwnx__openai_8nss.html#ae3dce0047b4afa9a77662b951493edc7">NWNX_OpenAI_ChatAsync</a></div><div class="ttdeci">void NWNX_OpenAI_ChatAsync(json payload, string id=&quot;&quot;)</div><div class="ttdef"><b>Definition:</b> <a href="nwnx__openai_8nss_source.html#l00007">nwnx_openai.nss:7</a></div></div>
 <div class="ttc" id="anwnx__openai_8nss_html_a209e009409e5db2eed645bdd50f2d97e"><div class="ttname"><a href="nwnx__openai_8nss.html#a209e009409e5db2eed645bdd50f2d97e">NWNX_OpenAI_Payload</a></div><div class="ttdeci">json NWNX_OpenAI_Payload(string message, string model=&quot;gpt-3.5-turbo&quot;, float temperature=0.8, int maxTokens=300)</div><div class="ttdef"><b>Definition:</b> <a href="nwnx__openai_8nss_source.html#l00014">nwnx_openai.nss:14</a></div></div>
 <!-- start footer part -->
@@ -142,7 +139,7 @@ $(document).ready(function(){initNavTree('nwnx__openai_8nss_source.html',''); in
 			<ul>
 				<li class="navelem"><a class="el" href="dir_0b4eaef40a1fe20bedafe9e8e719ce66.html">Plugins</a></li><li class="navelem"><a class="el" href="dir_f0bb79a6510888fe921b0c2a07eaf4bb.html">OpenAI</a></li><li class="navelem"><a class="el" href="dir_69f21708f83e5ba369449a0c4829588f.html">NWScript</a></li><li class="navelem"><a class="el" href="nwnx__openai_8nss.html">nwnx_openai.nss</a></li>
 				<li class="footer">
-					Generated on Thu May 9 2024 21:48:53 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Sat Oct 12 2024 02:37:39 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.8.17.
 					<a href="../">Light version</a>
 				</li>
