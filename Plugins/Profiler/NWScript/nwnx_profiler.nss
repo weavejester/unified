@@ -38,12 +38,12 @@ void NWNX_Profiler_PopPerfScope();
 
 void NWNX_Profiler_PushPerfScope(string name, string tag0_tag = "", string tag0_value = "")
 {
-    NWNXPushString(name);
     if (tag0_value != "" && tag0_tag != "")
     {
         NWNXPushString(tag0_value);
         NWNXPushString(tag0_tag);
     }
+    NWNXPushString(name);
     NWNXCall(NWNX_Profiler, "PushPerfScope");
 }
 
@@ -51,3 +51,4 @@ void NWNX_Profiler_PopPerfScope()
 {
     NWNXCall(NWNX_Profiler, "PopPerfScope");
 }
+

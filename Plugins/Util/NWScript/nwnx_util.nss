@@ -221,9 +221,17 @@ int NWNX_Util_GetScriptParamIsSet(string sParamName);
 /// @param nDawnHour The new dawn hour
 void NWNX_Util_SetDawnHour(int nDawnHour);
 
+/// @brief Get the module dawn hour.
+/// @return The dawn hour
+int NWNX_Util_GetDawnHour();
+
 /// @brief Set the module dusk hour.
 /// @param nDuskHour The new dusk hour
 void NWNX_Util_SetDuskHour(int nDuskHour);
+
+/// @brief Get the module dusk hour.
+/// @return The dusk hour
+int NWNX_Util_GetDuskHour();
 
 /// @return Returns the number of microseconds since midnight on January 1, 1970.
 struct NWNX_Util_HighResTimestamp NWNX_Util_GetHighResTimeStamp();
@@ -255,6 +263,11 @@ int NWNX_Util_CleanResourceDirectory(string sAlias, int nResType = 0xFFFF);
 /// @brief Return the filename of the tlk file.
 /// @return The name
 string NWNX_Util_GetModuleTlkFile();
+
+/// @brief Update a resource directory by having ResMan reindex it.
+/// @param sAlias A resource directory alias, eg: TEMP
+/// @return TRUE if successful, FALSE on error.
+int NWNX_Util_UpdateResourceDirectory(string sAlias);
 
 /// @}
 
@@ -500,10 +513,22 @@ void NWNX_Util_SetDawnHour(int nDawnHour)
     NWNXCall(NWNX_Util, "SetDawnHour");
 }
 
+int NWNX_Util_GetDawnHour()
+{
+    NWNXCall(NWNX_Util, "GetDawnHour");
+    return NWNXPopInt();
+}
+
 void NWNX_Util_SetDuskHour(int nDuskHour)
 {
     NWNXPushInt(nDuskHour);
     NWNXCall(NWNX_Util, "SetDuskHour");
+}
+
+int NWNX_Util_GetDuskHour()
+{
+    NWNXCall(NWNX_Util, "GetDuskHour");
+    return NWNXPopInt();
 }
 
 struct NWNX_Util_HighResTimestamp NWNX_Util_GetHighResTimeStamp()
@@ -555,4 +580,11 @@ string NWNX_Util_GetModuleTlkFile()
     string sFunc = "GetModuleTlkFile";
     NWNXCall(NWNX_Util, sFunc);
     return NWNXPopString();
+}
+
+int NWNX_Util_UpdateResourceDirectory(string sAlias)
+{
+    NWNXPushString(sAlias);
+    NWNXCall(NWNX_Util, "UpdateResourceDirectory");
+    return NWNXPopInt();
 }

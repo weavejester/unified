@@ -21,10 +21,10 @@
 %pragma(csharp) imclassclassmodifiers="public unsafe class"
 %typemap(csclassmodifiers) SWIGTYPE "public unsafe class"
 
-// Use NativeStringMarshaler for marshalling of cp1252 strings.
+// Use NwStringPInvokeMarshaller for marshalling of cp1252 strings.
 namespace std {
-%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]") string "string"
-%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NativeStringMarshaler))]") const string & "string"
+%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NWNX.NET.Native.Interop.NwStringPInvokeMarshaller))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NWNX.NET.Native.Interop.NwStringPInvokeMarshaller))]") string "string"
+%typemap(imtype, inattributes="[global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NWNX.NET.Native.Interop.NwStringPInvokeMarshaller))]", outattributes="[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.CustomMarshaler, MarshalTypeRef = typeof(NWNX.NET.Native.Interop.NwStringPInvokeMarshaller))]") const string & "string"
 }
 
 // Marshal pointer types as void* for easier dereferencing
@@ -151,6 +151,10 @@ MarshalPtr(Task::CExoTaskManager*, void*)
 %ignore ToString;
 %ignore NWN_CLASS_EXTENSION_CGameObject;
 
+// Ignore complex types
+%ignore CNWSync;
+%ignore CNWTileSetManager;
+
 // Interfaces for multi-inheritance types.
 %interface_custom("CGameObject", "ICGameObject", CGameObject);
 %interface_custom("CNWItem", "ICNWItem", CNWItem);
@@ -259,6 +263,7 @@ MapArray(CNWClass_Skill, CNWClass_Skill, CNWClass_SkillArray);
 %template(CExoArrayListCFileInfo) CExoArrayList<CFileInfo>;
 %template(CExoArrayListCGameEffectPtr) CExoArrayList<CGameEffect *>;
 %template(CExoArrayListCGameObjectPtr) CExoArrayList<CGameObject *>;
+%template(CExoArrayListCLoopingVisualEffect) CExoArrayList<CLoopingVisualEffect>;
 %template(CExoArrayListCLoopingVisualEffectPtr) CExoArrayList<CLoopingVisualEffect *>;
 %template(CExoArrayListCNetLayerPlayerCDKeyInfo) CExoArrayList<CNetLayerPlayerCDKeyInfo>;
 %template(CExoArrayListCNWCCMessageDataPtr) CExoArrayList<CNWCCMessageData *>;
@@ -268,6 +273,7 @@ MapArray(CNWClass_Skill, CNWClass_Skill, CNWClass_SkillArray);
 %template(CExoArrayListCNWSFactionPtr) CExoArrayList<CNWSFaction *>;
 %template(CExoArrayListCNWSInvitationDetails) CExoArrayList<CNWSInvitationDetails>;
 %template(CExoArrayListCNWSPersonalReputation) CExoArrayList<CNWSPersonalReputation>;
+%template(CExoArrayListCNWSPlayerPtr) CExoArrayList<CNWSPlayer *>;
 %template(CExoArrayListCNWSPlayerJournalQuestUpdates) CExoArrayList<CNWSPlayerJournalQuestUpdates>;
 %template(CExoArrayListCNWSPVPEntry) CExoArrayList<CNWSPVPEntry>;
 %template(CExoArrayListCNWSSpellScriptDataPtr) CExoArrayList<CNWSSpellScriptData *>;

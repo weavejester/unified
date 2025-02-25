@@ -16,6 +16,7 @@ NWN_API_PROLOGUE(CVirtualMachine)
 struct CResGFF;
 struct CResStruct;
 struct CScriptCompiler;
+struct CScriptLog;
 struct CVirtualMachineCmdImplementer;
 struct CVirtualMachineDebuggingContext;
 struct CVirtualMachineDebuggerInstance;
@@ -102,4 +103,3 @@ struct CVirtualMachine
 #ifdef NWN_API_EPILOGUE
 NWN_API_EPILOGUE(CVirtualMachine)
 #endif
-

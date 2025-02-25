@@ -1006,6 +1006,23 @@ void NWNX_Creature_SetAbilityIncreaseByLevel(object oCreature, int nLevel, int n
 /// @return The maximum attack range for oCreature to oTarget
 float NWNX_Creature_GetMaxAttackRange(object oCreature, object oTarget);
 
+/// @brief Returns the creature's multiclass limit.
+/// @note Only works on player characters.
+/// @param oCreature The creature object. Has to be a player character.
+/// @return The PCs multiclass limit. Returns 0 if no limit is set.
+int NWNX_Creature_GetMulticlassLimit(object oCreature);
+
+/// @brief Sets the creature's multiclass limit.
+/// @note Only works on player characters and only for future level ups.
+/// Classes already taken will continue to be available on level up.
+/// The limit must be lower than the server limit set in ruleset.2da MULTICLASS_LIMIT.
+/// Setting a value of 0 will remove the limit.
+/// @param oCreature The creature object. Has to be a player character.
+/// @param nLimit The multiclass limit.
+/// @param bPersist Whether the limit should persist to the .bic file.
+/// @note Persistence is enabled after a server reset by the first use of this function.
+void NWNX_Creature_SetMulticlassLimit(object oCreature, int nLimit, int bPersist = FALSE);
+
 /// @}
 
 void NWNX_Creature_AddFeat(object creature, int feat)
@@ -2214,4 +2231,20 @@ float NWNX_Creature_GetMaxAttackRange(object oCreature, object oTarget)
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Creature, "GetMaxAttackRange");
     return NWNXPopFloat();
+}
+
+int NWNX_Creature_GetMulticlassLimit(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Creature, "GetMulticlassLimit");
+    return NWNXPopInt();
+}
+
+
+void NWNX_Creature_SetMulticlassLimit(object oCreature, int nLimit, int bPersist = FALSE)
+{
+    NWNXPushInt(bPersist);
+    NWNXPushInt(nLimit);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Creature, "SetMulticlassLimit");
 }

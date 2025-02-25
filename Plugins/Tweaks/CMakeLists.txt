@@ -37,4 +37,7 @@ add_plugin(Tweaks
     "CastAllOnHitCastSpellItemProperties.cpp"
     "SetAreaCallsSetPosition.cpp"
     "EquipUnequipEventTweaks.cpp"
-    "CutsceneModeNoTURD.cpp")
+    "CutsceneModeNoTURD.cpp"
+    "CanUseItemsWhilePolymorphed.cpp"
+    "ResistEnergyStacksWithEpicEnergyResistance.cpp"
+    "UnhardcodeSpecialAbilityTargetType.cpp")

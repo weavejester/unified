@@ -684,6 +684,11 @@ NWNX_EXPORT ArgumentStack SetDawnHour(ArgumentStack &&args)
     return {};
 }
 
+NWNX_EXPORT ArgumentStack GetDawnHour(ArgumentStack &&args)
+{
+    return Utils::GetModule()->m_nDawnHour;
+}
+
 NWNX_EXPORT ArgumentStack SetDuskHour(ArgumentStack &&args)
 {
     const auto duskHour = args.extract<int32_t>();
@@ -693,6 +698,11 @@ NWNX_EXPORT ArgumentStack SetDuskHour(ArgumentStack &&args)
     Utils::GetModule()->m_nDuskHour = duskHour;
 
     return {};
+}
+
+NWNX_EXPORT ArgumentStack GetDuskHour(ArgumentStack &&args)
+{
+    return Utils::GetModule()->m_nDuskHour;
 }
 
 NWNX_EXPORT ArgumentStack GetHighResTimeStamp(ArgumentStack&&)
@@ -790,4 +800,11 @@ NWNX_EXPORT ArgumentStack CleanResourceDirectory(ArgumentStack&& args)
 NWNX_EXPORT ArgumentStack GetModuleTlkFile(ArgumentStack&&)
 {
     return Utils::GetModule()->m_sModuleAltTLKFile;
+}
+
+NWNX_EXPORT ArgumentStack UpdateResourceDirectory(ArgumentStack&& args)
+{
+    const auto alias = args.extract<std::string>();
+      ASSERT_OR_THROW(!alias.empty());
+    return Globals::ExoResMan()->UpdateResourceDirectory(alias + ":");
 }

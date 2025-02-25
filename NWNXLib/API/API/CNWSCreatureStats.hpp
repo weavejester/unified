@@ -18,7 +18,6 @@ struct CFeatUseListEntry;
 struct CNWClass;
 struct CNWCreatureStatsUpdate;
 struct CNWLevelStats;
-struct CNWLevelStats;
 struct CNWSCreature;
 struct CNWSCreatureAppearanceInfo;
 struct CNWSItem;
@@ -392,4 +391,3 @@ struct CNWSCreatureStats
 #ifdef NWN_API_EPILOGUE
 NWN_API_EPILOGUE(CNWSCreatureStats)
 #endif
-
