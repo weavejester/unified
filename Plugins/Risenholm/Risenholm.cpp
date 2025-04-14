@@ -19,6 +19,7 @@
 #include "API/CTwoDimArrays.hpp"
 #include "API/CNWSAreaOfEffectObject.hpp"
 #include "External/subprocess.hpp"
+#include "API/CNWSPlayer.hpp"
 #include <cmath>
 
 
@@ -1056,3 +1057,43 @@ NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
 
     return {};
 } 
+
+NWNX_EXPORT ArgumentStack ForceExamineWindow(ArgumentStack&& args)
+{
+    if (auto* pPlayer = Utils::PopPlayer(args))
+    {
+        const auto oidObject = args.extract<ObjectID>();
+        if (auto* pGameObject = Utils::GetGameObject(oidObject))
+        {
+            auto* pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage();
+
+            switch (pGameObject->m_nObjectType)
+            {
+                case Constants::ObjectType::Creature:
+                    pMessage->SendServerToPlayerExamineGui_CreatureData(pPlayer, oidObject);
+                break;
+
+                case Constants::ObjectType::Item:
+                    if (auto* pCreature = Utils::AsNWSCreature(pPlayer->GetGameObject()))
+                        pCreature->UseLoreOnItem(oidObject);
+                    pMessage->SendServerToPlayerExamineGui_ItemData(pPlayer, oidObject);
+                break;
+
+                case Constants::ObjectType::Placeable:
+                    pMessage->SendServerToPlayerExamineGui_PlaceableData(pPlayer, oidObject);
+                break;
+
+                case Constants::ObjectType::Trigger:
+                    if (auto* pCreature = Utils::AsNWSCreature(pPlayer->GetGameObject()))
+                        pCreature->UseSkill(2, 102, oidObject, Vector(), pCreature->m_oidArea);
+                break;
+
+                case Constants::ObjectType::Door:
+                    pMessage->SendServerToPlayerExamineGui_DoorData(pPlayer, oidObject);
+                break;
+            }
+        }
+    }
+
+    return {};
+}
