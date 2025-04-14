@@ -13,6 +13,7 @@
 #include "API/CVirtualMachine.hpp"
 #include "API/CExoStringList.hpp"
 #include "API/CScriptCompiler.hpp"
+#include "API/CNWTileSetManager.hpp"
 
 #include <csignal>
 #include <regex>
@@ -631,6 +632,7 @@ void NWNXCore::DestroyServerHandler(CAppManager* app)
     MessageBus::Broadcast("NWNX_CORE_SIGNAL", { "ON_DESTROY_SERVER" });
 
     g_core->m_destroyServerHook.reset();
+	app->m_pNWTileSetManager->ClearTileSets("");
     app->DestroyServer();
 
     MessageBus::Broadcast("NWNX_CORE_SIGNAL", { "ON_DESTROY_SERVER_AFTER" });
