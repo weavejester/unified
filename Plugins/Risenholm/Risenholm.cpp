@@ -1097,3 +1097,34 @@ NWNX_EXPORT ArgumentStack ForceExamineWindow(ArgumentStack&& args)
 
     return {};
 }
+
+static Hooks::Hook s_GetSkillRankHook = Hooks::HookFunction(&CNWSCreatureStats::GetSkillRank,
+    +[](CNWSCreatureStats* pThis, uint8_t nSkill, CNWSObject* pVersus, BOOL bBaseOnly) -> char
+    {
+        if (nSkill == Constants::Skill::OpenLock ||
+            nSkill == Constants::Skill::SetTrap ||
+            nSkill == Constants::Skill::DisableTrap ||
+            nSkill == Constants::Skill::PickPocket)
+        {
+            nSkill = 22; // Tinkering
+        }
+        return s_GetSkillRankHook->CallOriginal<BOOL>(pThis, nSkill, pVersus, bBaseOnly);
+    }, Hooks::Order::VeryEarly);
+	
+
+
+static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats::GetCanUseSkill,
+    +[](CNWSCreatureStats* pThis, uint8_t nSkill) -> BOOL
+    {
+        uint8_t nTempSkill = nSkill;
+        if (nTempSkill == 100 || nTempSkill == 101 || nTempSkill == 102)
+            nTempSkill = Constants::Skill::DisableTrap;
+        if (nTempSkill == Constants::Skill::OpenLock ||
+            nTempSkill == Constants::Skill::SetTrap ||
+            nTempSkill == Constants::Skill::DisableTrap ||
+            nTempSkill == Constants::Skill::PickPocket)
+        {
+            return true;
+        }
+        return s_GetCanUseSkillHook->CallOriginal<BOOL>(pThis, nSkill);
+    }, Hooks::Order::VeryEarly);
