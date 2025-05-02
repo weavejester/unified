@@ -1098,6 +1098,29 @@ NWNX_EXPORT ArgumentStack ForceExamineWindow(ArgumentStack&& args)
     return {};
 }
 
+NWNX_EXPORT ArgumentStack ReloadRules(ArgumentStack&& args)
+{
+    if (auto* pPlayer = Utils::PopPlayer(args))
+    {
+        if (auto* pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
+        {
+            pMessage->CreateWriteMessage(4, pPlayer->m_nPlayerID, 1);
+            pMessage->WriteDWORD(0x1);
+            uint8_t* buffer;
+            uint32_t size;
+            if (pMessage->GetWriteMessage(&buffer, &size))
+            {
+                pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID,
+                    Constants::MessageMajor::Resman,
+                    0x4,
+                    buffer, size);
+            }
+        }
+    }
+
+    return {};
+}
+
 static Hooks::Hook s_GetSkillRankHook = Hooks::HookFunction(&CNWSCreatureStats::GetSkillRank,
     +[](CNWSCreatureStats* pThis, uint8_t nSkill, CNWSObject* pVersus, BOOL bBaseOnly) -> char
     {

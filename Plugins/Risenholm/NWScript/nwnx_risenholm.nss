@@ -2,7 +2,6 @@
 /// @brief Custom functions for the Scars of Risenholm PW server
 /// @{
 /// @file nwnx_risenholm.nss
-#include "nwnx"
 
 const string NWNX_Risenholm = "NWNX_Risenholm"; ///< @private
 
@@ -38,47 +37,89 @@ int NWNX_Risenholm_CheckForShutdownFile();
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
 
+/// @brief Perform a free attack on oTarget from oCreature
+/// @param oCreature The source of the attack
+/// @param oTarget The target of the attack
+void NWNX_Risenholm_AddAttackOfOpportunity(object oCreature, object oTarget);
+
+/// @brief Force the Examine window for oTarget on oPC
+/// @param oPC The PC to show the Examine window to
+/// @param oTarget The object for which to show the Examine window
+void NWNX_Risenholm_ForceExamineWindow(object oPC, object oTarget);
+
+/// @brief Reload 2DA resources for players. Intended to be used after NWNX_Player_SetResManOverride.
+/// @param oPlayer the player who needs their rules reloaded
+void NWNX_Risenholm_ReloadRules(object oPlayer);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
 {
-    NWNX_PushArgumentInt(bSetReciprocal);
-    NWNX_PushArgumentInt(bNewAttitude);
-    NWNX_PushArgumentObject(oTargetPC);
-    NWNX_PushArgumentObject(oSourcePC);
+    NWNXPushInt(bSetReciprocal);
+    NWNXPushInt(bNewAttitude);
+    NWNXPushObject(oTargetPC);
+    NWNXPushObject(oSourcePC);
 
-    NWNX_CallFunction(NWNX_Risenholm, "SetPCLikeStatus");
+    NWNXCall(NWNX_Risenholm, "SetPCLikeStatus");
 }
 
 void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature)
 {
-    NWNX_PushArgumentObject(oCreature);
-    NWNX_CallFunction(NWNX_Risenholm, "ForceUpdateMageArmorStats");
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "ForceUpdateMageArmorStats");
 }
 
 string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2="", string sArg3="", string sArg4="", string sArg5="", string sArg6="")
 {
-    NWNX_PushArgumentString(sArg6);
-    NWNX_PushArgumentString(sArg5);
-    NWNX_PushArgumentString(sArg4);
-    NWNX_PushArgumentString(sArg3);
-    NWNX_PushArgumentString(sArg2);
-    NWNX_PushArgumentString(sArg1);
-    NWNX_PushArgumentString(sCmd);
-    NWNX_CallFunction(NWNX_Risenholm, "ExecuteCommand");
-    return NWNX_GetReturnValueString();
+    NWNXPushString(sArg6);
+    NWNXPushString(sArg5);
+    NWNXPushString(sArg4);
+    NWNXPushString(sArg3);
+    NWNXPushString(sArg2);
+    NWNXPushString(sArg1);
+    NWNXPushString(sCmd);
+    NWNXCall(NWNX_Risenholm, "ExecuteCommand");
+    return NWNXPopString();
 }
 
 int NWNX_Risenholm_CheckForShutdownFile()
 {
-    NWNX_CallFunction(NWNX_Risenholm, "CheckForShutdownFile");
-    return NWNX_GetReturnValueInt();
+    NWNXCall(NWNX_Risenholm, "CheckForShutdownFile");
+    return NWNXPopInt();
 }
 
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem)
 {
     string sFunc = "FixItemDestroySkipUseableState";
 
-    NWNX_PushArgumentObject(oItem);
-    NWNX_CallFunction(NWNX_Item, sFunc);
+    NWNXPushObject(oItem);
+    NWNXCall(NWNX_Risenholm, sFunc);
+}
+
+void NWNX_Risenholm_AddAttackOfOpportunity(object oCreature, object oTarget)
+{
+    string sFunc = "AddAttackOfOpportunity";
+
+    NWNXPushObject(oTarget);
+    NWNXPushObject(oCreature);
+
+    NWNXCall(NWNX_Risenholm, sFunc);
+}
+
+void NWNX_Risenholm_ForceExamineWindow(object oPC, object oTarget)
+{
+    string sFunc = "ForceExamineWindow";
+
+    NWNXPushObject(oTarget);
+    NWNXPushObject(oPC);
+
+    NWNXCall(NWNX_Risenholm, sFunc);
+}
+
+void NWNX_Risenholm_ReloadRules(object oPlayer)
+{
+    string sFunc = "ReloadRules";
+
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, sFunc);    
 }
