@@ -1103,8 +1103,7 @@ static Hooks::Hook s_GetSkillRankHook = Hooks::HookFunction(&CNWSCreatureStats::
     {
         if (nSkill == Constants::Skill::OpenLock ||
             nSkill == Constants::Skill::SetTrap ||
-            nSkill == Constants::Skill::DisableTrap ||
-            nSkill == Constants::Skill::PickPocket)
+            nSkill == Constants::Skill::DisableTrap)
         {
             nSkill = 22; // Tinkering
         }
@@ -1121,8 +1120,7 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
             nTempSkill = Constants::Skill::DisableTrap;
         if (nTempSkill == Constants::Skill::OpenLock ||
             nTempSkill == Constants::Skill::SetTrap ||
-            nTempSkill == Constants::Skill::DisableTrap ||
-            nTempSkill == Constants::Skill::PickPocket)
+            nTempSkill == Constants::Skill::DisableTrap)
         {
             return true;
         }
