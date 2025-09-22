@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['lua_5345',['LUA',['../group__lua.html',1,'']]]
+  ['maxlevel_5339',['MaxLevel',['../group__maxlevel.html',1,'']]],
+  ['metrics_20influxdb_5340',['Metrics InfluxDB',['../group__metrics__influxdb.html',1,'']]]
 ];
