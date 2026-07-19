@@ -247,7 +247,7 @@ var NAVTREEINDEX2 =
 "group__creature.html#ga9d7a4887330c48425eee12a53129ca77":[0,8,110],
 "group__creature.html#ga9d801e1f46afa155f85ccf6600fe5343":[0,8,41],
 "group__creature.html#ga9d801e1f46afa155f85ccf6600fe5343":[4,0,3,5,0,0,38],
-"group__creature.html#ga9f675908b28f41658f1c1e5acfe78068":[4,0,3,5,0,0,16],
 "group__creature.html#ga9f675908b28f41658f1c1e5acfe78068":[0,8,19],
+"group__creature.html#ga9f675908b28f41658f1c1e5acfe78068":[4,0,3,5,0,0,16],
 "group__creature.html#gaa064e2886118310f391f0d6c4901f33d":[4,0,3,5,0,0,127]
 };

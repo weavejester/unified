@@ -5,5 +5,6 @@ var nwnx__risenholm_8nss =
     [ "NWNX_Risenholm_ExecuteCommand", "group__risenholm.html#gaeb71a92c45491d29bc5faeb5fe5e41d0", null ],
     [ "NWNX_Risenholm_CheckForShutdownFile", "group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87", null ],
     [ "NWNX_Risenholm_FixItemDestroySkipUseableState", "group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3", null ],
+    [ "NWNX_Risenholm_StartLevelUp", "group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5", null ],
     [ "NWNX_Risenholm", "group__risenholm.html#ga93b050e93569b48fe67767398cd24f78", null ]
 ];

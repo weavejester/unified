@@ -140,6 +140,9 @@ Functions</h2></td></tr>
 <tr class="memitem:gae59705d5cc960d1caaffc730d1822fc3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">NWNX_Risenholm_FixItemDestroySkipUseableState</a> (object oItem)</td></tr>
 <tr class="memdesc:gae59705d5cc960d1caaffc730d1822fc3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event.  <a href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">More...</a><br /></td></tr>
 <tr class="separator:gae59705d5cc960d1caaffc730d1822fc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5">NWNX_Risenholm_StartLevelUp</a> (object oPlayer)</td></tr>
+<tr class="memdesc:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Opens the level up GUI for oPlayer.  <a href="group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5">More...</a><br /></td></tr>
+<tr class="separator:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -191,7 +194,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00043">43</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00047">47</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -220,7 +223,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00053">53</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00057">57</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -295,7 +298,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00059">59</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00063">63</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -318,7 +321,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00072">72</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00076">76</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -346,7 +349,35 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00078">78</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00082">82</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga363ca5a80f54eb95362f5e03e259d1e5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga363ca5a80f54eb95362f5e03e259d1e5">&#9670;&nbsp;</a></span>NWNX_Risenholm_StartLevelUp()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_StartLevelUp </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oPlayer</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Opens the level up GUI for oPlayer. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oPlayer</td><td>The player. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00090">90</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -356,7 +387,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Sep 22 2025 15:45:22 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Sun Jul 19 2026 23:53:50 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>

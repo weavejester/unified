@@ -1,10 +1,12 @@
 var NAVTREEINDEX16 =
 {
+"group__weapon.html#gad8f1eb5b7d131d39144ff34de3990d3a":[0,47,6],
+"group__weapon.html#gae42853a0c8a7721686bb406b3965d7ff":[0,47,27],
 "group__weapon.html#gae42853a0c8a7721686bb406b3965d7ff":[4,0,3,47,0,0,25],
-"group__weapon.html#gae7c6f1ab3a37f621abeb432622071c0c":[4,0,3,47,0,0,18],
 "group__weapon.html#gae7c6f1ab3a37f621abeb432622071c0c":[0,47,21],
-"group__weapon.html#gae8574965a3aae542e79e051bfad60217":[4,0,3,47,0,0,1],
+"group__weapon.html#gae7c6f1ab3a37f621abeb432622071c0c":[4,0,3,47,0,0,18],
 "group__weapon.html#gae8574965a3aae542e79e051bfad60217":[0,47,4],
+"group__weapon.html#gae8574965a3aae542e79e051bfad60217":[4,0,3,47,0,0,1],
 "group__weapon.html#gafe32575ade4d17e4a9daa9017e439ad0":[0,47,26],
 "group__weapon.html#gafe32575ade4d17e4a9daa9017e439ad0":[4,0,3,47,0,0,24],
 "group__weapon.html#weapon":[0,47,0],
@@ -247,7 +249,5 @@ var NAVTREEINDEX16 =
 "nwnx__redis_8nss.html#a52caa07fdb3ddc25813c7090df60d255":[4,0,3,30,0,0,203],
 "nwnx__redis_8nss.html#a52e1d639d750bd902e534b327b67dc94":[4,0,3,30,0,0,208],
 "nwnx__redis_8nss.html#a541204c0a4a5253c633c196f42a8f765":[4,0,3,30,0,0,138],
-"nwnx__redis_8nss.html#a5808342c55ffb3f8e8ce850220f32302":[4,0,3,30,0,0,11],
-"nwnx__redis_8nss.html#a585913f6f4d3ba3a51fc457d6db5adce":[4,0,3,30,0,0,188],
-"nwnx__redis_8nss.html#a5c72181fb0af49b26364355e8d375256":[4,0,3,30,0,0,193]
+"nwnx__redis_8nss.html#a5808342c55ffb3f8e8ce850220f32302":[4,0,3,30,0,0,11]
 };
