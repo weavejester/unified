@@ -38,6 +38,10 @@ int NWNX_Risenholm_CheckForShutdownFile();
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
 
+/// @brief Opens the level up GUI for oPlayer.
+/// @param oPlayer The player.
+void NWNX_Risenholm_StartLevelUp(object oPlayer);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -80,5 +84,11 @@ void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem)
     string sFunc = "FixItemDestroySkipUseableState";
 
     NWNX_PushArgumentObject(oItem);
-    NWNX_CallFunction(NWNX_Item, sFunc);
+    NWNX_CallFunction(NWNX_Risenholm, sFunc);
+}
+
+void NWNX_Risenholm_StartLevelUp(object oPlayer)
+{
+    NWNX_PushArgumentObject(oPlayer);
+    NWNX_CallFunction(NWNX_Risenholm, "StartLevelUp");
 }

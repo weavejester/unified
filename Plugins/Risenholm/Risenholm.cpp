@@ -1016,6 +1016,16 @@ NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
     return input.str();
 }
 
+NWNX_EXPORT ArgumentStack StartLevelUp(ArgumentStack&& args)
+{
+    if (auto *pPlayer = Utils::PopPlayer(args))
+    {
+        auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage();
+        pMessage->SendServerToPlayerLevelUp_Begin(pPlayer->m_nPlayerID, Utils::AsNWSCreature(pPlayer->GetGameObject()));
+    }
+    return {};
+}
+
 NWNX_EXPORT ArgumentStack CheckForShutdownFile(ArgumentStack&& args)
 {
     std::string filePath = "/nwn/home/shutdown.txt";
