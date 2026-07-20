@@ -23,6 +23,7 @@
 #include "API/CResGFF.hpp"
 #include "API/CNWSArea.hpp"
 #include "API/CNWSModule.hpp"
+#include "API/NWMODULEENTRYINFO.hpp"
 
 #include <string>
 #include <cstdio>
@@ -339,7 +340,7 @@ NWNX_EXPORT ArgumentStack AddScript(ArgumentStack&& args)
     {
         s_scriptCompiler = std::make_unique<CScriptCompiler>(Constants::ResRefType::NSS, Constants::ResRefType::NCS, Constants::ResRefType::NDB);
         s_scriptCompiler->SetGenerateDebuggerOutput(0);
-        s_scriptCompiler->SetOptimizationFlags(CSCRIPTCOMPILER_OPTIMIZE_EVERYTHING);
+        s_scriptCompiler->SetOptimizationFlags(CSCRIPTCOMPILER_OPTIMIZE_AGGRESSIVE);
         s_scriptCompiler->SetCompileConditionalOrMain(true);
         s_scriptCompiler->SetIdentifierSpecification("nwscript");
     }
@@ -464,7 +465,7 @@ NWNX_EXPORT ArgumentStack RegisterServerConsoleCommand(ArgumentStack&& args)
         if (Globals::AppManager()->m_pServerExoApp->GetServerMode() != 2)
             return;
 
-        LOG_INFO("Executing NWScript Server Console Command: '%s' with args: %s", command, args);
+        LOG_DEBUG("Executing NWScript Server Console Command: '%s' with args: %s", command, args);
 
         std::string scriptChunk = s_serverConsoleCommandMap[command];
         bool wrapIntoMain = scriptChunk.find("void main()") == std::string::npos;
@@ -502,6 +503,13 @@ NWNX_EXPORT ArgumentStack UnregisterServerConsoleCommand(ArgumentStack&& args)
     }
 
     return {};
+}
+
+NWNX_EXPORT ArgumentStack RawPrint(ArgumentStack&& args)
+{
+  std::string sLogMessage = args.extract<std::string>();
+  std::cout << sLogMessage << std::endl;
+  return {};
 }
 
 NWNX_EXPORT ArgumentStack PluginExists(ArgumentStack&& args)
@@ -684,7 +692,7 @@ NWNX_EXPORT ArgumentStack SetDawnHour(ArgumentStack &&args)
     return {};
 }
 
-NWNX_EXPORT ArgumentStack GetDawnHour(ArgumentStack &&args)
+NWNX_EXPORT ArgumentStack GetDawnHour(ArgumentStack&&)
 {
     return Utils::GetModule()->m_nDawnHour;
 }
@@ -700,7 +708,7 @@ NWNX_EXPORT ArgumentStack SetDuskHour(ArgumentStack &&args)
     return {};
 }
 
-NWNX_EXPORT ArgumentStack GetDuskHour(ArgumentStack &&args)
+NWNX_EXPORT ArgumentStack GetDuskHour(ArgumentStack&&)
 {
     return Utils::GetModule()->m_nDuskHour;
 }
@@ -807,4 +815,28 @@ NWNX_EXPORT ArgumentStack UpdateResourceDirectory(ArgumentStack&& args)
     const auto alias = args.extract<std::string>();
       ASSERT_OR_THROW(!alias.empty());
     return Globals::ExoResMan()->UpdateResourceDirectory(alias + ":");
+}
+
+NWNX_EXPORT ArgumentStack SetStartingLocation(ArgumentStack&& args)
+{
+    const auto strResRef = args.extract<std::string>();
+      ASSERT_OR_THROW(!strResRef.empty());
+    const auto locSpawn = args.extract<CScriptLocation>();
+    const auto vDirection = args.extract<Vector>();
+
+    auto resRef = CResRef(strResRef);
+    if (!Globals::ExoResMan()->Exists(resRef, Constants::ResRefType::ARE, nullptr))
+    {
+        LOG_WARNING("SetStartingLocation: ResRef '%s' does not exist", resRef.GetResRefStr());
+        return false;
+    }
+
+    CNWSModule *pMod = Utils::GetModule();
+    pMod->m_pModuleEntryInfo->refArea = resRef;
+    pMod->m_pModuleEntryInfo->nX = locSpawn.m_vPosition.x;
+    pMod->m_pModuleEntryInfo->nY = locSpawn.m_vPosition.y;
+    pMod->m_pModuleEntryInfo->nZ = locSpawn.m_vPosition.z;
+    pMod->m_pModuleEntryInfo->fDirX = vDirection.x;
+    pMod->m_pModuleEntryInfo->fDirY = vDirection.y;
+    return true;
 }

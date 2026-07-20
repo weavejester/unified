@@ -14,6 +14,7 @@ https://github.com/nwnxee/unified/compare/build8193.37.13...HEAD
 - Events: Added `NWNX_EVENT_INIT_ON_FIRST_SUBSCRIBE` messagebus message as a wrapper for the `InitOnFirstSubscribe` function. Broadcasts `NWNX_EVENT_INIT_ON_FIRST_SUBSCRIBE_CALLBACK` message when a registered event gets subscribed to.
 - Tweaks: Added `NWNX_TWEAKS_CHARLIST_SORT_BY_LAST_PLAYED_DATE` to enable character list sorting by last played date
 - Events: Added events `NWNX_ON_DECREMENT_REMAINING_FEAT_USES_{BEFORE|AFTER}` which fire when the remaining uses of a feat are decremented
+- Experimental: added `NWNX_EXPERIMENTAL_UFM_HOTFIX` to attempt to fix a server hang in CNetLayerWindow::UnpacketizeFullMessages.
 
 ##### New Plugins
 - N/A
@@ -21,10 +22,16 @@ https://github.com/nwnxee/unified/compare/build8193.37.13...HEAD
 ##### New NWScript Functions
 - Player: GetOpenStore()
 - Creature: GetNumberOfBonusSpells(), ModifyNumberBonusSpells()
+- Store: GetBlackMarket(), SetBlackMarket()
+- Util: SetStartingLocation()
+- Object: GetLocalizedDescription(), SetLocalizedDescription()
+- Util: RawPrint()
 
 ### Changed
 - Damage: Added bRangedAttack to the NWNX_Damage_AttackEventData struct.
 - Events: Added ID to the NWNX_ON_ITEMPROPERTY_EFFECT_* events data.
+- Utils: Change LOG_INFO to LOG_DEBUG for console commands.
+- Admin: Player/DM password functions no longer print the passwords to the log.
 
 ### Deprecated
 - N/A
@@ -35,13 +42,16 @@ https://github.com/nwnxee/unified/compare/build8193.37.13...HEAD
 ### Fixed
 - Fixed `NWNX_TWEAKS_SETAREA_CALLS_SETPOSITION` not working with `NWNX_ON_MATERIALCHANGE_*`.
 - MaxLevel: Fixed returning an invalid number of known spells in some cases.
+- Fixed `NWNX_TWEAKS_RESIST_ENERGY_STACKS_WITH_EPIC_ENERGY_RESISTANCE` not working correctly when the character has more than one resist energy feat.
+- Fixed `NWNX_TWEAKS_SNEAK_ATTACK_IGNORE_CRIT_IMMUNITY` only considering 3 classes for determining the level difference of attacker and defender.
+- Fixed `NWNX_NWSQLiteExtensions` by escaping the columns names during CREATE TABLE.
 
 ## 8193.37.13
 https://github.com/nwnxee/unified/compare/build8193.36.10...build8193.37.13
 
 **Notice: NWNX API Update**
 
-The NWNX API has been updated, resulting in the removal of nwnx.nss. All nwnx_*.nss files have been modified to use the new API functions. 
+The NWNX API has been updated, resulting in the removal of nwnx.nss. All nwnx_*.nss files have been modified to use the new API functions.
 
 What You Need to Do:
 
