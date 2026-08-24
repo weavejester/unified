@@ -987,6 +987,54 @@ NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
     return {};
 }
 
+// A creature whose appearance id is swapped wholesale (Risenholm wildshape, dodgeroll,
+// DM appearance tools) renders naked to any player who entered the area DURING the swap.
+// The engine only ever sends an appearance *delta*: it diffs live state against that
+// player's CLastUpdateObject, and theirs cached the animal form -- empty armour part
+// slots. The equipped items never changed, so flipping the appearance id back matches on
+// equipment and only the appearance id is re-sent, leaving the humanoid model wearing the
+// animal's (empty) parts. Players present before the swap are unaffected because their
+// cache holds the correct humanoid part data from before.
+//
+// Wiping the cached appearance block makes ComputeAppearanceUpdateRequired flag every
+// field dirty, so the next WriteGameObjUpdate_UpdateAppearance re-sends the whole thing.
+// NWNX_Item_SetItemAppearance already relies on this exact trick, but only invalidates the
+// three armour item oids; a wholesale appearance swap needs the part variations, phenotype,
+// and colours too, hence the full Clear().
+NWNX_EXPORT ArgumentStack ForceAppearanceUpdate(ArgumentStack&& args)
+{
+    auto oidCreature      = args.extract<ObjectID>();
+    auto bFullObjectUpdate = args.extract<int32_t>();
+
+    if (oidCreature == Constants::OBJECT_INVALID)
+        return {};
+
+    auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage();
+
+    for (auto *pPlayer : Globals::AppManager()->m_pServerExoApp->GetPlayerList())
+    {
+        if (bFullObjectUpdate)
+        {
+            // Hammer: drop the cached record entirely, so the next tick takes the
+            // CreateNewLastUpdateObject path and re-sends the object exactly as a client
+            // walking into the area would receive it. Heavier -- it also re-sends position,
+            // hit points, action queue and effect icons -- so only for cases the appearance
+            // block alone does not cover.
+            pMessage->DeleteLastUpdateObjectsForObject(pPlayer, oidCreature);
+        }
+        else if (auto *pLUO = pPlayer->GetLastUpdateObject(oidCreature))
+        {
+            pLUO->m_cAppearance.Clear();
+            // Clear() parks m_nAppearanceType at 0, which is a real appearances.2da row --
+            // a creature actually using row 0 would compare equal and get no update. Force
+            // an impossible value so the appearance-type bit is always dirty.
+            pLUO->m_cAppearance.m_nAppearanceType = 0xFFFF;
+        }
+    }
+
+    return {};
+}
+
 NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
 {
     auto cmdPath = args.extract<std::string>();
