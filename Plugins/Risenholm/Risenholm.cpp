@@ -724,16 +724,58 @@ static Hooks::Hook s_AIActionCastSpellHook = Hooks::HookFunction(&CNWSCreature::
         return retVal;
     }, Hooks::Order::Early);
 
-static Hooks::Hook s_GetTotalAttacksHook = Hooks::HookFunction(&CNWSCombatRound::GetTotalAttacks,
-    +[](CNWSCombatRound* thisPtr) -> uint8_t
+// RISENHOLM MODIFICATION: Slow no longer reduces attacks per round.
+//
+// This replaces an older GetTotalAttacks hook (0d69b83662, "Risenholm: Slow
+// halves amount of attacks", 2021-02-19) that summed the four attack-count
+// members and halved the total when m_bSlowed. That hook NEVER DID ANYTHING,
+// for five years: the engine has already clamped the count by the time it runs,
+// so the sum was 1, and 1/2 == 0 floored straight back to 1 by the std::max(1)
+// guard directly beneath it. Deleted rather than left commented out -- vanilla
+// GetTotalAttacks (disassembled at 0x6500a0) is
+// max(1, onHand + offHand + additional + bonusEffect), i.e. exactly what that
+// hook did minus the dead halving, so removing it changes no behaviour.
+//
+// The real reduction is here, in InitializeNumberOfAttacks (disassembled at
+// 0x65010d). Slow does not halve or decrement -- it OVERWRITES the count:
+//
+//     if (creature->m_bSlowed)
+//         m_nOnHandAttacks = GetRulesetIntEntry("SLOWED_ATTACKS", 1);
+//
+// The ruleset label was recovered by hashing every ruleset.2da entry against
+// the FNV-1a constant in the disassembly; ruleset.2da ships SLOWED_ATTACKS = 1.
+// That is why the spell description ("lose a single attack per round") never
+// matched what players saw, and why patching GetTotalAttacks accomplished
+// nothing at all.
+//
+// Rather than reimplement a function whose body we cannot read, hide the flag
+// from the original -- the same trick the AIActionCastSpell hook above uses on
+// m_bHasted. This neutralises EVERY slow-based attack reduction inside the
+// function, including branches nobody has disassembled, and leaves the other
+// slow penalties (-2 AB/AC/reflex, halved movement) alone since those are
+// applied elsewhere. Verified in game against Loew, Father of Clay, whose 5 APR
+// collapsed to 1 while slowed under the old code.
+//
+// Editing SLOWED_ATTACKS in ruleset.2da is NOT an alternative: it assigns a
+// fixed count, so it can express "slow leaves you 2 attacks" but never "slow
+// changes nothing".
+static Hooks::Hook s_InitializeNumberOfAttacksHook = Hooks::HookFunction(&CNWSCombatRound::InitializeNumberOfAttacks,
+    +[](CNWSCombatRound* thisPtr) -> void
     {
-        int32_t nTotalAttacks = thisPtr->m_nOnHandAttacks + thisPtr->m_nOffHandAttacks + thisPtr->m_nAdditionalAttacks + thisPtr->m_nBonusEffectAttacks;
+        auto *pCreature = thisPtr->m_pBaseCreature;
 
-        if (thisPtr->m_pBaseCreature->m_bSlowed)
-            nTotalAttacks /= 2;
+        if (!pCreature)
+        {
+            s_InitializeNumberOfAttacksHook->CallOriginal<void>(thisPtr);
+            return;
+        }
 
-        return std::max(1, nTotalAttacks);
-    }, Hooks::Order::Final);
+        const BOOL bSlowed = pCreature->m_bSlowed;
+        pCreature->m_bSlowed = false;
+        s_InitializeNumberOfAttacksHook->CallOriginal<void>(thisPtr);
+        pCreature->m_bSlowed = bSlowed;
+    }, Hooks::Order::Early);
+// END RISENHOLM MODIFICATION
 
 
 static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(&CNWSCreatureStats::GetDEXMod,
