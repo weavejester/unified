@@ -6,6 +6,7 @@
 #include "API/CNWSPlayer.hpp"
 #include "API/CNWSCreature.hpp"
 #include "API/CNWSCreatureStats.hpp"
+#include "API/CNWSUUID.hpp"
 #include "API/CServerExoApp.hpp"
 #include "API/CServerExoAppInternal.hpp"
 #include "API/CExoBase.hpp"
@@ -115,13 +116,15 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
     std::string bicname     = player->m_resFileName.GetResRefStr();
     std::string servervault = CExoString(Globals::ExoBase()->m_pcExoAliasList->GetAliasPath("SERVERVAULT", 0)).CStr();
     std::string playerdir;
+    // FORK-LOCAL: cdkey is hoisted out of the branch below so the TURD lookup does not depend on the vault-naming option.
+    std::string cdkey = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_cCDKey.sPublic.CStr();
     if (exoApp->GetServerInfo()->m_PersistantWorldOptions.bServerVaultByPlayerName)
     {
         playerdir = player->GetPlayerName().CStr();
     }
     else
     {
-        playerdir = exoApp->GetNetLayer()->GetPlayerInfo(playerId)->m_cCDKey.sPublic.CStr();
+        playerdir = cdkey;
     }
 
     std::string filename = servervault + playerdir + "/" + bicname + ".bic";
@@ -137,14 +140,16 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
 
     CNWSCreature* creature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(objectId);
     std::string characterName, characterLastName;
+    std::string uuid;
     if (creature && creature->m_pStats)
     {
         characterName = Utils::ExtractLocString(creature->m_pStats->m_lsFirstName);
         characterLastName = Utils::ExtractLocString(creature->m_pStats->m_lsLastName);
+        uuid = creature->m_pUUID.GetOrAssignRandom().CStr();
     }
 
     Tasks::QueueOnMainThread(
-        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, playerdir]
+        [filename, playerId, bPreserveBackup, playerName, characterName, characterLastName, kickMessage, cdkey, uuid]
         {
             // Will show "Delete Character" message to PC. Best match from dialog.tlk
             Globals::AppManager()->m_pServerExoApp->GetNetLayer()->DisconnectPlayer(playerId, 10392, 1, kickMessage);
@@ -170,8 +175,9 @@ NWNX_EXPORT ArgumentStack DeletePlayerCharacter(ArgumentStack&& args)
             }
 
             CExoLinkedListNode *foundNode = FindTURD(playerName, chararacterFullName);
+            // FORK-LOCAL: matches the CDKey+UUID key that NWNX_TWEAKS_TURD_BY_CDKEY drops TURDs under -- do not revert to playerdir in a merge.
             if (!foundNode)
-                foundNode = FindTURD(playerdir, chararacterFullName);
+                foundNode = FindTURD(cdkey+uuid, chararacterFullName);
 
             if (foundNode)
             {

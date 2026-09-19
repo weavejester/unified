@@ -32,7 +32,14 @@ void TURDByCDKey()
             {
                 if (auto *pPlayerInfo = Globals::AppManager()->m_pServerExoApp->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID))
                 {
-                    return pPlayerInfo->m_cCDKey.sPublic;
+                    // FORK-LOCAL: the +UUID is a Risenholm patch -- character remaking depends on it. Do not take upstream's bare-CDKey version in a merge.
+                    CExoString sUUID;
+                    if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject)))
+                    {
+                        sUUID = pCreature->m_pUUID.GetOrAssignRandom();
+                    }
+
+                    return pPlayerInfo->m_cCDKey.sPublic + sUUID;
                 }
 
                 return CExoString("");
