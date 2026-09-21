@@ -211,6 +211,82 @@ static Hooks::Hook s_TrimApplyEffectHook = Hooks::HookFunction(&CNWSObject::Appl
     }, Hooks::Order::Earliest);
 
 
+
+// ---------------------------------------------------------------------------
+// Idle creature AI throttling
+// ---------------------------------------------------------------------------
+//
+// CNWSCreature::AIUpdate has no short path for a VERY_LOW creature. Every visit
+// runs the world-time bookkeeping, UpdateEffectList, RunActions, a walkmesh
+// ComputeHeight, ComputeAIState, UpdateTrapCheck, and the combat and
+// attack-of-opportunity timers (Ghidra decompilation of 8193.37, ~nwserver-re/
+// export/game/CNWSCreature.c). Only perception is spaced out for VERY_LOW, and
+// that is done inside SpawnInHeartbeatPerception, not by skipping the call.
+// With the placeables and items trimmed, the 1,142 creatures placed in this
+// module's areas, nearly all of them standing in areas with nobody in them, are
+// the largest remaining per-frame cost of the AI master.
+//
+// The function measures the world time elapsed since its previous visit
+// (m_nLastUpdateCalendarDay / TimeOfDay) and advances every timer by that
+// delta, so visiting an idle creature less often is safe for the timers: an
+// effect expires and a heartbeat fires on the next visit, late by at most the
+// frames skipped (about 0.3 s at a divisor of 20 and 70 fps). Nothing else is
+// lost: the creature is at VERY_LOW, has no queued actions, is not in combat,
+// and its area holds no player. The moment a player enters, the engine bumps
+// the area's m_nPlayersInArea and raises the creature to LOW
+// (CNWSArea::IncrementPlayersInArea), and both conditions stop the skip on
+// the very next frame.
+//
+// Switch: NWNX_RISENHOLM_IDLE_CREATURE_AI_DIVISOR (integer, default 0 = off).
+// A value of N visits each qualifying creature once every N frames, staggered
+// by object id so the work spreads evenly across frames.
+
+static int GetIdleCreatureAIDivisor()
+{
+    static const int s_nDivisor = []() -> int
+    {
+        int n = Config::Get<int>("IDLE_CREATURE_AI_DIVISOR", 0);
+        LOG_INFO("Idle creature AI throttling: %s (divisor %d)", n > 1 ? "on" : "off", n);
+        return n > 1 ? n : 0;
+    }();
+
+    return s_nDivisor;
+}
+
+static const bool s_bIdleCreatureAILogged = (GetIdleCreatureAIDivisor(), true);
+
+// Counted in the AI master so every creature in a frame sees the same value.
+static uint32_t s_nAIFrame = 0;
+
+static Hooks::Hook s_IdleCreatureFrameHook = Hooks::HookFunction(&CServerAIMaster::UpdateState,
+    +[](CServerAIMaster *pAIMaster) -> void
+    {
+        s_nAIFrame++;
+        s_IdleCreatureFrameHook->CallOriginal<void>(pAIMaster);
+    }, Hooks::Order::Earliest);
+
+static bool GetIsIdleCreatureForAI(CNWSCreature *pCreature)
+{
+    if (pCreature->m_bPlayerCharacter) return false;
+    if (pCreature->m_nAILevel != 0) return false;   // VERY_LOW only
+    if (pCreature->m_bCombatState) return false;
+    if (pCreature->m_lQueuedActions.m_pcExoLinkedListInternal->m_nCount != 0) return false;
+
+    auto *pArea = pCreature->GetArea();
+    return pArea && pArea->m_nPlayersInArea == 0;
+}
+
+static Hooks::Hook s_IdleCreatureAIUpdateHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature8AIUpdateEv,
+    (void*)+[](CNWSCreature *pCreature) -> void
+    {
+        int nDivisor = GetIdleCreatureAIDivisor();
+
+        if (nDivisor && GetIsIdleCreatureForAI(pCreature) && (s_nAIFrame + pCreature->m_idSelf) % nDivisor != 0)
+            return;
+
+        s_IdleCreatureAIUpdateHook->CallOriginal<void>(pCreature);
+    }, Hooks::Order::Earliest);
+
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
 // removed. Safe to call repeatedly; a no-op when every switch is off.
