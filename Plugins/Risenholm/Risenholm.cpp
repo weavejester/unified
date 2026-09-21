@@ -25,6 +25,13 @@
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
 #include <dlfcn.h>
+#include <unordered_map>
+#include "API/CExoLinkedListInternal.hpp"
+#include "API/CNWSScriptVar.hpp"
+#include "API/CNWSScriptVarTable.hpp"
+#include "API/CServerExoAppInternal.hpp"
+#include "API/CNWSFaction.hpp"
+#include "API/CFactionManager.hpp"
 #include <vector>
 
 
@@ -1730,3 +1737,107 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
         }
         return s_GetCanUseSkillHook->CallOriginal<BOOL>(pThis, nSkill);
     }, Hooks::Order::VeryEarly);
+
+
+// ---------------------------------------------------------------------------
+// Afterimage clones
+// ---------------------------------------------------------------------------
+//
+// Native replacement for the ObjectToJson -> GffReplace* -> JsonToObject path
+// that pw_inc_attack's CreateAfterimageClonesToAttackTarget used to run for
+// every Wave Crash and afterimage flurry (558 ms per run on production,
+// 2026-09-21). The clone MUST carry the source's object state -- effects,
+// action queue, combat state -- or it does not pick up the attack animation
+// fluidly, so this serialises exactly the way NWNX's own serialiser does
+// (SaveObjectState, then SaveCreature) and only takes three things out of
+// the picture for the duration of the save:
+//
+//  * the backpack: the repository's item list is swapped for an empty one.
+//    Player inventories here run to hundreds of items, and the JSON path
+//    serialised all of them only to JsonObjectDel the list a moment later,
+//    then paid for GFF->JSON->GFF on the rest. Equipped items live in the
+//    CNWSInventory equip slots, not the repository, so the image still
+//    looks like its owner;
+//  * the local variables: the script replaced the VarTable wholesale, and a
+//    PC's class-state locals have no business on a two-second image;
+//  * the PC flags, plot, and useable bits, which the script used to patch
+//    into the JSON.
+//
+// The GFF is then loaded straight back into a new creature (the same
+// DeserializeGameObject that NWNX_Object_Deserialize uses), given full hit
+// points, the requested faction, a zeroed UI discovery mask, and the two
+// marker locals, and added to the area facing the way the source faces. The
+// script keeps applying the visual effects and the attack action.
+//
+// Not verified here: that SaveCreature reads the backpack through
+// m_pcItemRepository->m_oidItems and nothing else. Ghidra truncates that
+// function, so the first in-game check after deploying this is that the
+// clone has no inventory and still wears its owner's gear.
+
+NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
+{
+    auto *pSource = Utils::PopCreature(args);
+    const auto oidArea   = args.extract<ObjectID>();
+    const auto x         = args.extract<float>();
+    const auto y         = args.extract<float>();
+    const auto z         = args.extract<float>();
+    const auto fFacing   = args.extract<float>();
+    const auto nFaction  = args.extract<int32_t>();
+
+    auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
+
+    if (!pSource || !pArea)
+        return Constants::OBJECT_INVALID;
+
+    // --- detach what the image must not carry, for the duration of the save
+    CExoLinkedList<OBJECT_ID> emptyItems;
+    if (pSource->m_pcItemRepository)
+        std::swap(pSource->m_pcItemRepository->m_oidItems.m_pcExoLinkedListInternal, emptyItems.m_pcExoLinkedListInternal);
+
+    std::unordered_map<CExoString, CNWSScriptVar> savedVars;
+    std::swap(pSource->m_ScriptVars.m_vars, savedVars);
+
+    const BOOL bPlot = pSource->m_bPlotObject;
+    const BOOL bUseable = pSource->m_bUseable;
+    pSource->m_bPlotObject = true;
+    pSource->m_bUseable = false;
+
+    // bStripPCFlags: SerializeGameObject zeroes m_bPlayerCharacter and
+    // m_pStats->m_bIsPC around the save, which is the JSON path's IsPC = 0.
+    std::vector<uint8_t> data = Utils::SerializeGameObject(pSource, true);
+
+    pSource->m_bPlotObject = bPlot;
+    pSource->m_bUseable = bUseable;
+    std::swap(pSource->m_ScriptVars.m_vars, savedVars);
+    if (pSource->m_pcItemRepository)
+        std::swap(pSource->m_pcItemRepository->m_oidItems.m_pcExoLinkedListInternal, emptyItems.m_pcExoLinkedListInternal);
+
+    // --- build the clone
+    auto *pClone = Utils::AsNWSCreature(Utils::DeserializeGameObject(data));
+
+    if (!pClone)
+    {
+        LOG_WARNING("CreateAfterimage: could not deserialize a clone of %x (%d bytes)", pSource->m_idSelf, (int)data.size());
+        return Constants::OBJECT_INVALID;
+    }
+
+    pClone->m_nCurrentHitPoints = pClone->GetMaxHitPoints();
+    pClone->m_nUiDiscoveryMask = 0;
+
+    CExoString sSetPiece("IS_SET_PIECE");
+    CExoString sVfx("IS_VFX");
+    pClone->m_ScriptVars.SetInt(sSetPiece, 1);
+    pClone->m_ScriptVars.SetInt(sVfx, 1);
+
+    if (auto *pFaction = Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal->m_pFactionManager->GetFaction(nFaction))
+        pFaction->AddMember(pClone->m_idSelf);
+    else
+        LOG_WARNING("CreateAfterimage: faction %d does not exist; clone keeps its source's faction", nFaction);
+
+    Utils::AddToArea(pClone, pArea, x, y, z);
+
+    const float fRadians = fFacing * (float)M_PI / 180.0f;
+    pClone->SetOrientation(Vector{std::cos(fRadians), std::sin(fRadians), 0.0f});
+
+    return pClone->m_idSelf;
+}

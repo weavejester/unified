@@ -83,6 +83,17 @@ void NWNX_Risenholm_ForceExamineWindow(object oPC, object oTarget);
 /// @param oPlayer The player.
 void NWNX_Risenholm_StartLevelUp(object oPlayer);
 
+/// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that
+/// carries oCreature's effects, action queue, and equipment but none of its backpack or local
+/// variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction.
+/// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller still
+/// applies visual effects, the attack action, and the DestroyObject.
+/// @param oCreature The creature to copy.
+/// @param lLocation Where the clone appears; its facing is used too.
+/// @param nFaction The ENGINE faction id (STANDARD_FACTION_* + 1).
+/// @return The clone, or OBJECT_INVALID.
+object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -190,4 +201,19 @@ void NWNX_Risenholm_StartLevelUp(object oPlayer)
 {
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "StartLevelUp");
+}
+
+object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction)
+{
+    vector vPosition = GetPositionFromLocation(lLocation);
+
+    NWNXPushInt(nFaction);
+    NWNXPushFloat(GetFacingFromLocation(lLocation));
+    NWNXPushFloat(vPosition.z);
+    NWNXPushFloat(vPosition.y);
+    NWNXPushFloat(vPosition.x);
+    NWNXPushObject(GetAreaFromLocation(lLocation));
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "CreateAfterimage");
+    return NWNXPopObject();
 }

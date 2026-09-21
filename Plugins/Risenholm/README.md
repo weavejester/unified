@@ -22,3 +22,7 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `FLAT_FOOTED_STATE` | int | Creature | 1 = Always FlatFooted, 2 = Never FlatFooted |
 | `SNEAK_ATTACK_IMMUNE` | int | Placeable | 1 = Immune to SneakAttacks |
 | `DISABLE_COMBAT_SHUFFLE` | int | Creature | 1 = Disable Combat Shuffle |
+
+### CreateAfterimage
+
+`NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction)` clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.
