@@ -801,7 +801,7 @@ var searchData=
   ['nwnx_5freveal_5fsetrevealtoparty_3765',['NWNX_Reveal_SetRevealToParty',['../group__reveal.html#ga88cfee3997f219dca4d75eb5c04e2df8',1,'nwnx_reveal.nss']]],
   ['nwnx_5frisenholm_5faddattackofopportunity_3766',['NWNX_Risenholm_AddAttackOfOpportunity',['../group__risenholm.html#ga2fa7425194fbc5d7c10d5f5dc22176c5',1,'nwnx_risenholm.nss']]],
   ['nwnx_5frisenholm_5fcheckforshutdownfile_3767',['NWNX_Risenholm_CheckForShutdownFile',['../group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87',1,'nwnx_risenholm.nss']]],
-  ['nwnx_5frisenholm_5fcreateafterimage_3768',['NWNX_Risenholm_CreateAfterimage',['../group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0',1,'nwnx_risenholm.nss']]],
+  ['nwnx_5frisenholm_5fcreateafterimage_3768',['NWNX_Risenholm_CreateAfterimage',['../group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd',1,'nwnx_risenholm.nss']]],
   ['nwnx_5frisenholm_5fexecutecommand_3769',['NWNX_Risenholm_ExecuteCommand',['../group__risenholm.html#gaeb71a92c45491d29bc5faeb5fe5e41d0',1,'nwnx_risenholm.nss']]],
   ['nwnx_5frisenholm_5ffixitemdestroyskipuseablestate_3770',['NWNX_Risenholm_FixItemDestroySkipUseableState',['../group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3',1,'nwnx_risenholm.nss']]],
   ['nwnx_5frisenholm_5fforceappearanceupdate_3771',['NWNX_Risenholm_ForceAppearanceUpdate',['../group__risenholm.html#gae22214de7af717eada9d74df16a85c5b',1,'nwnx_risenholm.nss']]],

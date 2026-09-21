@@ -152,9 +152,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7">NWNX_Risenholm_ReleaseAfterimage</a> ()</td></tr>
 <tr class="memdesc:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="mdescLeft">&#160;</td><td class="mdescRight">Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.  <a href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7">More...</a><br /></td></tr>
 <tr class="separator:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="memItemLeft" align="right" valign="top">object&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0">NWNX_Risenholm_CreateAfterimage</a> (object oCreature, location lLocation, int nFaction)</td></tr>
-<tr class="memdesc:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot otherwise.  <a href="group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0">More...</a><br /></td></tr>
-<tr class="separator:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="memItemLeft" align="right" valign="top">object&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd">NWNX_Risenholm_CreateAfterimage</a> (object oCreature, location lLocation, int nFaction, float fAnimationSpeed=1.0)</td></tr>
+<tr class="memdesc:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed fAnimationSpeed. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot otherwise.  <a href="group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd">More...</a><br /></td></tr>
+<tr class="separator:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 </div><!-- contents -->
 </div><!-- doc-content -->
@@ -163,7 +163,7 @@ Functions</h2></td></tr>
 			<ul>
 				<li class="navelem"><a class="el" href="dir_0b4eaef40a1fe20bedafe9e8e719ce66.html">Plugins</a></li><li class="navelem"><a class="el" href="dir_cabe557d07a176a1f3db26c2ca2b29cd.html">Risenholm</a></li><li class="navelem"><a class="el" href="dir_b2c27e55261193c1e7cc0db0bffb82d6.html">NWScript</a></li><li class="navelem"><a class="el" href="nwnx__risenholm_8nss.html">nwnx_risenholm.nss</a></li>
 				<li class="footer">
-					Generated on Mon Sep 21 2026 16:14:03 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Sep 21 2026 17:43:16 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="../">Light version</a>
 				</li>
