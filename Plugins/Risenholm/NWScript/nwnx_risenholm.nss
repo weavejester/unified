@@ -53,6 +53,18 @@ int NWNX_Risenholm_CheckForShutdownFile();
 /// @return The number of objects removed.
 int NWNX_Risenholm_TrimAILists();
 
+/// @brief TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag.
+/// Native replacement for the NWScript effect-list walk in pw_inc_effect.
+int NWNX_Risenholm_GetHasEffectByTag(object oObject, string sTag);
+
+/// @brief TRUE if oObject carries an effect whose string parameter nIndex (0-5) is
+/// exactly sValue, e.g. the RunScript script name of a primed effect.
+int NWNX_Risenholm_GetHasEffectWithStringParam(object oObject, int nIndex, string sValue);
+
+/// @brief Remove every effect on oObject whose tag is exactly sTag.
+/// @return The number of effects removed.
+int NWNX_Risenholm_RemoveEffectsByTag(object oObject, string sTag);
+
 /// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
@@ -92,6 +104,31 @@ void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature)
 int NWNX_Risenholm_TrimAILists()
 {
     NWNXCall(NWNX_Risenholm, "TrimAILists");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetHasEffectByTag(object oObject, string sTag)
+{
+    NWNXPushString(sTag);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "GetHasEffectByTag");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetHasEffectWithStringParam(object oObject, int nIndex, string sValue)
+{
+    NWNXPushString(sValue);
+    NWNXPushInt(nIndex);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "GetHasEffectWithStringParam");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_RemoveEffectsByTag(object oObject, string sTag)
+{
+    NWNXPushString(sTag);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "RemoveEffectsByTag");
     return NWNXPopInt();
 }
 

@@ -19,6 +19,7 @@
 #include "API/CTwoDimArrays.hpp"
 #include "API/CNWSAreaOfEffectObject.hpp"
 #include "API/CNWSDoor.hpp"
+#include "API/CGameEffect.hpp"
 #include "API/CNWSTrigger.hpp"
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
@@ -392,6 +393,94 @@ static Hooks::Hook s_ItemAIUpdateHook = Hooks::HookFunction(Functions::_ZN8CNWSI
 
         s_ItemAIUpdateHook->CallOriginal<void>(pItem);
     }, Hooks::Order::Earliest);
+
+
+// ---------------------------------------------------------------------------
+// Native effect-list queries
+// ---------------------------------------------------------------------------
+//
+// pw_inc_effect walks an object's effect list from NWScript for questions the
+// base game has no command for: "is there an effect with this tag", "is there
+// one whose string parameter N is X", "remove every effect with this tag".
+// Each step of such a walk is two VM calls (GetNextEffect plus the accessor),
+// a few microseconds a piece, and a buffed character carries dozens of
+// effects, so a single question costs on the order of 100 us and the attack
+// and damage handlers ask several per hit. The same loop in C++ over
+// m_appliedEffects is a microsecond. Semantics match the script versions:
+// tags compare exactly, and removal goes through CNWSObject::RemoveEffectById
+// with the ids collected first, which is what the RemoveEffect command does.
+
+static CNWSObject *ExtractNWSObject(ArgumentStack &args)
+{
+    return Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));
+}
+
+NWNX_EXPORT ArgumentStack GetHasEffectByTag(ArgumentStack&& args)
+{
+    auto *pObject = ExtractNWSObject(args);
+    const auto sTag = args.extract<std::string>();
+
+    if (!pObject) return 0;
+
+    const CExoString cTag(sTag.c_str());
+    auto &effects = pObject->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (effects.element[i] && effects.element[i]->m_sCustomTag == cTag)
+            return 1;
+    }
+
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack GetHasEffectWithStringParam(ArgumentStack&& args)
+{
+    auto *pObject = ExtractNWSObject(args);
+    const auto nIndex = args.extract<int32_t>();
+    const auto sValue = args.extract<std::string>();
+
+    if (!pObject || nIndex < 0 || nIndex > 5) return 0;
+
+    const CExoString cValue(sValue.c_str());
+    auto &effects = pObject->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (effects.element[i] && effects.element[i]->m_sParamString[nIndex] == cValue)
+            return 1;
+    }
+
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack RemoveEffectsByTag(ArgumentStack&& args)
+{
+    auto *pObject = ExtractNWSObject(args);
+    const auto sTag = args.extract<std::string>();
+
+    if (!pObject) return 0;
+
+    const CExoString cTag(sTag.c_str());
+    std::vector<uint64_t> aIds;
+    auto &effects = pObject->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (effects.element[i] && effects.element[i]->m_sCustomTag == cTag)
+            aIds.push_back(effects.element[i]->m_nID);
+    }
+
+    int32_t nRemoved = 0;
+
+    for (uint64_t nId : aIds)
+    {
+        if (pObject->RemoveEffectById(nId))
+            nRemoved++;
+    }
+
+    return nRemoved;
+}
 
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
