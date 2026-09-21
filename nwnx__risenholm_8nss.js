@@ -13,6 +13,8 @@ var nwnx__risenholm_8nss =
     [ "NWNX_Risenholm_AddAttackOfOpportunity", "group__risenholm.html#ga2fa7425194fbc5d7c10d5f5dc22176c5", null ],
     [ "NWNX_Risenholm_ForceExamineWindow", "group__risenholm.html#ga3c9f30d1e4e1dc6b7a70d87c6051fb14", null ],
     [ "NWNX_Risenholm_StartLevelUp", "group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5", null ],
+    [ "NWNX_Risenholm_PrepareAfterimage", "group__risenholm.html#ga1ac3d331ebc03576c31145eabe00f1d5", null ],
+    [ "NWNX_Risenholm_ReleaseAfterimage", "group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7", null ],
     [ "NWNX_Risenholm_CreateAfterimage", "group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0", null ],
     [ "NWNX_Risenholm", "group__risenholm.html#ga93b050e93569b48fe67767398cd24f78", null ]
 ];

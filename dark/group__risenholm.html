@@ -140,7 +140,7 @@ Local Variables</h2>
 </table>
 <h3><a class="anchor" id="autotoc_md622"></a>
 CreateAfterimage</h3>
-<p><code>NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction)</code> clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, non-PC, at full hit points, in engine faction <code>nFaction</code>, tagged with the <code>IS_SET_PIECE</code> and <code>IS_VFX</code> locals. Replaces the <code>ObjectToJson</code>/<code>JsonToObject</code> path, which serialised the whole inventory only to discard it. </p>
+<p><code>NWNX_Risenholm_PrepareAfterimage(oCreature)</code> serialises a creature once for a batch of clones and <code><a class="el" href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7" title="Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.">NWNX_Risenholm_ReleaseAfterimage()</a></code> drops that snapshot; <code>NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction)</code> clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, non-PC, at full hit points, in engine faction <code>nFaction</code>, tagged with the <code>IS_SET_PIECE</code> and <code>IS_VFX</code> locals. Replaces the <code>ObjectToJson</code>/<code>JsonToObject</code> path, which serialised the whole inventory only to discard it. </p>
 </div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="files"></a>
 Files</h2></td></tr>
@@ -188,8 +188,14 @@ Functions</h2></td></tr>
 <tr class="memitem:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5">NWNX_Risenholm_StartLevelUp</a> (object oPlayer)</td></tr>
 <tr class="memdesc:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Opens the level up GUI for oPlayer.  <a href="group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5">More...</a><br /></td></tr>
 <tr class="separator:ga363ca5a80f54eb95362f5e03e259d1e5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga1ac3d331ebc03576c31145eabe00f1d5"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga1ac3d331ebc03576c31145eabe00f1d5">NWNX_Risenholm_PrepareAfterimage</a> (object oCreature)</td></tr>
+<tr class="memdesc:ga1ac3d331ebc03576c31145eabe00f1d5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Serialise oCreature once for a batch of afterimage clones. Call before a run of NWNX_Risenholm_CreateAfterimage calls for the same creature, and NWNX_Risenholm_ReleaseAfterimage after. One snapshot is held at a time; it is not kept across attacks, because the image must reflect the creature's state at the moment of the attack.  <a href="group__risenholm.html#ga1ac3d331ebc03576c31145eabe00f1d5">More...</a><br /></td></tr>
+<tr class="separator:ga1ac3d331ebc03576c31145eabe00f1d5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7">NWNX_Risenholm_ReleaseAfterimage</a> ()</td></tr>
+<tr class="memdesc:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="mdescLeft">&#160;</td><td class="mdescRight">Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.  <a href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7">More...</a><br /></td></tr>
+<tr class="separator:ga87a86ef936f2c9cd6a724f83fd6098a7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="memItemLeft" align="right" valign="top">object&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0">NWNX_Risenholm_CreateAfterimage</a> (object oCreature, location lLocation, int nFaction)</td></tr>
-<tr class="memdesc:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction.  <a href="group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0">More...</a><br /></td></tr>
+<tr class="memdesc:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot otherwise.  <a href="group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0">More...</a><br /></td></tr>
 <tr class="separator:ga38d48b2cd975f1c2c2215c2260c930b0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
@@ -242,7 +248,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00099">99</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00112">112</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -271,7 +277,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00109">109</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00122">122</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -311,7 +317,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00146">146</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00159">159</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -386,7 +392,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00153">153</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00166">166</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -409,7 +415,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00166">166</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00179">179</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -432,7 +438,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>No-op unless at least one NWNX_RISENHOLM_TRIM_AI_* switch is set in the plugin environment; each sweeps only what its switch covers (see the plugin README). </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>The number of objects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00115">115</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00128">128</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -464,7 +470,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00121">121</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00134">134</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -502,7 +508,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00129">129</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00142">142</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -535,7 +541,7 @@ Functions</h2></td></tr>
 <p>Remove every effect on oObject whose tag is exactly sTag. </p>
 <dl class="section return"><dt>Returns</dt><dd>The number of effects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00138">138</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00151">151</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -563,7 +569,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00172">172</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00185">185</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -602,7 +608,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00180">180</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00193">193</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -641,7 +647,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00190">190</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00203">203</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -669,7 +675,57 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00200">200</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00213">213</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga1ac3d331ebc03576c31145eabe00f1d5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga1ac3d331ebc03576c31145eabe00f1d5">&#9670;&nbsp;</a></span>NWNX_Risenholm_PrepareAfterimage()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_PrepareAfterimage </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oCreature</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Serialise oCreature once for a batch of afterimage clones. Call before a run of NWNX_Risenholm_CreateAfterimage calls for the same creature, and NWNX_Risenholm_ReleaseAfterimage after. One snapshot is held at a time; it is not kept across attacks, because the image must reflect the creature's state at the moment of the attack. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oCreature</td><td>The creature to snapshot. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The snapshot size in bytes, or 0 on failure. </dd></dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00219">219</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga87a86ef936f2c9cd6a724f83fd6098a7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga87a86ef936f2c9cd6a724f83fd6098a7">&#9670;&nbsp;</a></span>NWNX_Risenholm_ReleaseAfterimage()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_ReleaseAfterimage </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage. </p>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00226">226</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -705,7 +761,7 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction. </p>
+<p>Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot otherwise. </p>
 <dl class="section note"><dt>Note</dt><dd>Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller still applies visual effects, the attack action, and the DestroyObject. </dd></dl>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
@@ -717,7 +773,7 @@ Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The clone, or OBJECT_INVALID. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00206">206</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00231">231</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -727,7 +783,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Sep 21 2026 15:56:00 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Sep 21 2026 16:14:04 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="../">Light version</a>
 				</li>
