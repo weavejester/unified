@@ -25,6 +25,9 @@
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
 #include <dlfcn.h>
+#include <unordered_map>
+#include "API/CGameObjectArray.hpp"
+#include "API/CNWSMessage.hpp"
 #include <vector>
 
 
@@ -394,6 +397,96 @@ static Hooks::Hook s_ItemAIUpdateHook = Hooks::HookFunction(Functions::_ZN8CNWSI
         s_ItemAIUpdateHook->CallOriginal<void>(pItem);
     }, Hooks::Order::Earliest);
 
+
+
+// ---------------------------------------------------------------------------
+// Static placeables in the per-player object update
+// ---------------------------------------------------------------------------
+//
+// Every game-object-update interval (200 ms by default) the server runs, per
+// connected player, CNWSMessage::SendServerToPlayerGameObjUpdate: it sorts every
+// object in the player's area by distance (SortObjectsForGameObjectUpdate) and
+// then, category by category, calls ComputeGameObjectUpdateForObject on each
+// one until the message is full. That per-object call is TestObjectVisible,
+// then TestObjectUpdateDifferences (ComputeUpdateRequired, a 5.8 KB compare of
+// the object against what the client last saw) and the write. The cost is
+// players x objects in their areas x 5 per second, and this module's Scar
+// areas carry 1,000+ placeables each, most of them static: scenery that never
+// moves, animates, or changes state on its own.
+//
+// NWNX's own answer (Optimizations ALTERNATE_GAME_OBJECT_UPDATE) replaces the
+// whole loop with a distance-filtered one and calls the inner helpers directly.
+// That is why it breaks NWNX_Visibility's always-visible (the distance filter
+// runs before TestObjectVisible, where the override lives) and every
+// NWNX_Player per-player override (those are hooks on
+// ComputeGameObjectUpdateForObject, which it no longer calls). This module
+// depends on both, so that route is closed.
+//
+// This does something narrower. Everything still goes through the real
+// ComputeGameObjectUpdateForObject, with every plugin hook intact; a static
+// placeable simply gets that call on only one in N of the player's sends,
+// staggered by object id. The change detection, visibility decision, and
+// per-player overrides for it therefore all still happen, at most N sends
+// late: a static placeable coming into or leaving view, or being changed by a
+// script (lighting toggles, name, usable flag), reaches the client up to
+// N x 200 ms later than before. Creatures, doors, items, and non-static
+// placeables are untouched.
+//
+// Switch: NWNX_RISENHOLM_STATIC_PLACEABLE_UPDATE_DIVISOR (integer, default 0
+// = off). 4 is a reasonable value. Verify with the profiler's
+// ExoAppUpdateClientGameObjects zone with players in a placeable-heavy area.
+
+static int GetStaticPlaceableUpdateDivisor()
+{
+    static const int s_nDivisor = []() -> int
+    {
+        int n = Config::Get<int>("STATIC_PLACEABLE_UPDATE_DIVISOR", 0);
+        LOG_INFO("Static placeable object-update throttling: %s (divisor %d)", n > 1 ? "on" : "off", n);
+        return n > 1 ? n : 0;
+    }();
+
+    return s_nDivisor;
+}
+
+static const bool s_bStaticPlaceableUpdateLogged = (GetStaticPlaceableUpdateDivisor(), true);
+
+// Per-player send counter, so the modulo advances once per send of THAT player
+// (a global counter would alias with the player count). Set for the duration
+// of one send so the per-object hook does not do a map lookup per object.
+static std::unordered_map<uint32_t, uint32_t> s_PlayerSendCount;
+static uint32_t s_nCurrentSendTick = 0;
+
+static Hooks::Hook s_ObjUpdateSendHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerGameObjUpdate,
+    +[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, ObjectID oidObjectToUpdate, int32_t nMessageLimit) -> BOOL
+    {
+        if (pPlayer)
+            s_nCurrentSendTick = ++s_PlayerSendCount[pPlayer->m_nPlayerID];
+
+        return s_ObjUpdateSendHook->CallOriginal<BOOL>(pMessage, pPlayer, oidObjectToUpdate, nMessageLimit);
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_ObjUpdatePerObjectHook = Hooks::HookFunction(&CNWSMessage::ComputeGameObjectUpdateForObject,
+    +[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, CNWSObject *pPlayerGameObject, CGameObjectArray *pGameObjectArray, ObjectID oidObjectToUpdate) -> void
+    {
+        int nDivisor = GetStaticPlaceableUpdateDivisor();
+
+        if (nDivisor)
+        {
+            auto *pPlaceable = Utils::AsNWSPlaceable(Utils::GetGameObject(oidObjectToUpdate));
+
+            if (pPlaceable && pPlaceable->m_bStaticObject && (s_nCurrentSendTick + oidObjectToUpdate) % nDivisor != 0)
+                return;
+        }
+
+        s_ObjUpdatePerObjectHook->CallOriginal<void>(pMessage, pPlayer, pPlayerGameObject, pGameObjectArray, oidObjectToUpdate);
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_ObjUpdatePlayerDtorHook = Hooks::HookFunction(Functions::_ZN10CNWSPlayerD1Ev,
+    (void*)+[](CNWSPlayer *pPlayer) -> void
+    {
+        s_PlayerSendCount.erase(pPlayer->m_nPlayerID);
+        s_ObjUpdatePlayerDtorHook->CallOriginal<void>(pPlayer);
+    }, Hooks::Order::Earliest);
 
 // ---------------------------------------------------------------------------
 // Native effect-list queries
