@@ -1766,8 +1766,10 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // The GFF is then loaded straight back into a new creature (the same
 // DeserializeGameObject that NWNX_Object_Deserialize uses), given full hit
 // points, the requested faction, a zeroed UI discovery mask, and the two
-// marker locals, and added to the area facing the way the source faces. The
-// script keeps applying the visual effects and the attack action.
+// marker locals, and added to the area facing the way the source faces. It
+// is then dressed as an afterimage: not lootable, VFX_DUR_INVISIBILITY, a
+// permanent 100% miss chance, and animation speed x2, so the script has
+// nothing left to do per clone but order the attack and the destroy.
 //
 // The serialisation is the expensive half and a flurry wants three clones of
 // the same instant, so it is split: PrepareAfterimage serialises once into a
@@ -1876,6 +1878,41 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
 
     const float fRadians = fFacing * (float)M_PI / 180.0f;
     pClone->SetOrientation(Vector{std::cos(fRadians), std::sin(fRadians), 0.0f});
+
+    // --- dress it as an afterimage
+    pClone->m_bLootable = false;
+
+    // EffectVisualEffect(VFX_DUR_INVISIBILITY): ints are id, miss flag, and
+    // a third the handler reads (OnApplyVisualEffect reads ints 0-2 and
+    // float 0, the scale); subtype magical like a script-made effect.
+    auto *pVfx = new CGameEffect(true);
+    pVfx->m_nType = Constants::EffectTrueType::VisualEffect;
+    pVfx->m_nSubType = Constants::EffectSubType::Magical | Constants::EffectDurationType::Permanent;
+    pVfx->m_oidCreator = pSource->m_idSelf;
+    pVfx->SetNumIntegers(3);
+    pVfx->SetInteger(0, 6);   // VFX_DUR_INVISIBILITY
+    pVfx->SetInteger(1, 0);
+    pVfx->SetInteger(2, 0);
+    pVfx->SetFloat(0, 1.0f);
+    pClone->ApplyEffect(pVfx, false, true);
+
+    // ExtraordinaryEffect(EffectMissChance(100)): int 0 is the percentage
+    // (OnApplyMissChance reads only that), int 1 the MISS_CHANCE_TYPE.
+    auto *pMiss = new CGameEffect(true);
+    pMiss->m_nType = Constants::EffectTrueType::MissChance;
+    pMiss->m_nSubType = Constants::EffectSubType::Extraordinary | Constants::EffectDurationType::Permanent;
+    pMiss->m_oidCreator = pSource->m_idSelf;
+    pMiss->SetNumIntegers(2);
+    pMiss->SetInteger(0, 100);
+    pMiss->SetInteger(1, 0);  // MISS_CHANCE_TYPE_NORMAL
+    pClone->ApplyEffect(pMiss, false, true);
+
+    // SetObjectVisualTransform(OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED, 2.0)
+    // on the base scope: the clone is brand new, so its first object update
+    // carries whatever transform data it holds when the clients meet it.
+    if (!pClone->m_pVisualTransformData)
+        pClone->m_pVisualTransformData = new ObjectVisualTransformData();
+    pClone->m_pVisualTransformData->m_scopes[0].m_animationSpeed = LerpFloat(2.0f);
 
     return pClone->m_idSelf;
 }

@@ -94,13 +94,14 @@ int NWNX_Risenholm_PrepareAfterimage(object oCreature);
 /// @brief Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.
 void NWNX_Risenholm_ReleaseAfterimage();
 
-/// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that
-/// carries oCreature's effects, action queue, and equipment but none of its backpack or local
-/// variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction.
+/// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable
+/// copy that carries oCreature's effects, action queue, and equipment but none of its backpack or
+/// local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction
+/// nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, and animation speed x2.
 /// Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and
 /// serialises on the spot otherwise.
-/// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller still
-/// applies visual effects, the attack action, and the DestroyObject.
+/// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller only
+/// orders the attack and the DestroyObject.
 /// @param oCreature The creature to copy.
 /// @param lLocation Where the clone appears; its facing is used too.
 /// @param nFaction The ENGINE faction id (STANDARD_FACTION_* + 1).
