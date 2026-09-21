@@ -123,8 +123,6 @@ Environment Variables</h2>
 <tr class="markdownTableRowEven">
 <td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_ITEM_AI_DIVISOR</code>   </td><td class="markdownTableBodyCenter">integer   </td><td class="markdownTableBodyNone">0 (default) leaves item updates alone. N runs <code>CNWSItem::AIUpdate</code> (an effect-list walk for items carrying effects) every Nth frame, staggered by object id; an expiring effect on an item runs late by at most N frames. 10 is a reasonable value.    </td></tr>
 <tr class="markdownTableRowOdd">
-<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_STATIC_PLACEABLE_UPDATE_DIVISOR</code>   </td><td class="markdownTableBodyCenter">integer   </td><td class="markdownTableBodyNone">0 (default) leaves the per-player object update alone. N runs the per-object update check for static placeables on only one in N of each player's sends, staggered by object id. Unlike NWNX Optimizations' <code>ALTERNATE_GAME_OBJECT_UPDATE</code>, every object still goes through <code>ComputeGameObjectUpdateForObject</code>, so NWNX_Visibility always-visible and all NWNX_Player per-player overrides keep working; a static placeable's changes just reach the client up to N sends (N x 200 ms) late. 4 is a reasonable value.    </td></tr>
-<tr class="markdownTableRowEven">
 <td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_IDLE_CREATURE_AI_DIVISOR</code>   </td><td class="markdownTableBodyCenter">integer   </td><td class="markdownTableBodyNone">0 (default) leaves creature AI alone. N runs <code>CNWSCreature::AIUpdate</code> only every Nth frame, staggered by object id, for creatures that are at VERY_LOW, not in combat, with no queued actions, in an area with no players. Timers catch up on the next visit; effects and heartbeats in empty areas run late by at most N frames. 20 is a reasonable value.   </td></tr>
 </table>
 <p>Each switch is logged at plugin load. Measured together on the dev module (2026-09-21, idle): objects visited per frame 53,835 -&gt; 7,579, <code>AIMasterUpdateState</code> 367 -&gt; 240 ms per second. Call <code><a class="el" href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873" title="Remove idle static placeables, idle non-static placeables, idle doors and triggers,...">NWNX_Risenholm_TrimAILists()</a></code> once from OnModuleLoad to sweep objects created by routes the hooks do not see.</p>
@@ -675,7 +673,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Sep 21 2026 07:25:20 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Sep 21 2026 14:17:59 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>
