@@ -42,14 +42,14 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
 /// @return True if the shutdown file was found, false otherwise
 int NWNX_Risenholm_CheckForShutdownFile();
 
-/// @brief Remove idle static placeables and effect-free items from the engine's
+/// @brief Remove idle static placeables, idle non-static placeables, idle doors and
+/// triggers, and effect-free items from the engine's
 /// AI update lists, so CServerAIMaster::UpdateState stops visiting them every
 /// frame. The plugin already does this for objects as they are created; this
 /// sweeps anything that arrived by another route (CopyArea instances, objects
 /// created before the plugin's hooks). Call once from OnModuleLoad.
-/// @note No-op unless at least one of NWNX_RISENHOLM_TRIM_AI_STATIC_PLACEABLES,
-/// NWNX_RISENHOLM_TRIM_AI_IDLE_PLACEABLES, or NWNX_RISENHOLM_TRIM_AI_ITEMS is set in
-/// the plugin environment; each sweeps only what its switch covers.
+/// @note No-op unless at least one NWNX_RISENHOLM_TRIM_AI_* switch is set in the
+/// plugin environment; each sweeps only what its switch covers (see the plugin README).
 /// @return The number of objects removed.
 int NWNX_Risenholm_TrimAILists();
 

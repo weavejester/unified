@@ -18,6 +18,8 @@
 #include "API/CServerAIMaster.hpp"
 #include "API/CTwoDimArrays.hpp"
 #include "API/CNWSAreaOfEffectObject.hpp"
+#include "API/CNWSDoor.hpp"
+#include "API/CNWSTrigger.hpp"
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
@@ -72,15 +74,26 @@ static bool s_AddItemCastSpellGrenadeAction;
 //   NWNX_RISENHOLM_TRIM_AI_STATIC_PLACEABLES   static placeables
 //   NWNX_RISENHOLM_TRIM_AI_IDLE_PLACEABLES     idle non-static placeables
 //   NWNX_RISENHOLM_TRIM_AI_ITEMS               items without effects
+//   NWNX_RISENHOLM_TRIM_AI_IDLE_DOORS          doors with no heartbeat script, actions, or effects
+//   NWNX_RISENHOLM_TRIM_AI_IDLE_TRIGGERS       triggers with no heartbeat script or actions
 // The state of each is logged once when the plugin loads.
+//
+// Doors share the placeable's idle test exactly (CNWSDoor::AIUpdate returns at
+// once when m_sScripts[5], the heartbeat slot, is empty and there are no
+// actions and no effects). Triggers have no early-out at all: every one of
+// them does the world-time arithmetic and a heartbeat check every frame, though
+// enter and exit detection is done by the moving creature, not here. Both from
+// the 8193.37 decompilation.
 
 struct TrimAISwitches
 {
     bool bStaticPlaceables;
     bool bIdlePlaceables;
     bool bItems;
+    bool bIdleDoors;
+    bool bIdleTriggers;
 
-    bool Any() const { return bStaticPlaceables || bIdlePlaceables || bItems; }
+    bool Any() const { return bStaticPlaceables || bIdlePlaceables || bItems || bIdleDoors || bIdleTriggers; }
 };
 
 static const TrimAISwitches& GetTrimAISwitches()
@@ -91,9 +104,12 @@ static const TrimAISwitches& GetTrimAISwitches()
         c.bStaticPlaceables = Config::Get<bool>("TRIM_AI_STATIC_PLACEABLES", false);
         c.bIdlePlaceables   = Config::Get<bool>("TRIM_AI_IDLE_PLACEABLES", false);
         c.bItems            = Config::Get<bool>("TRIM_AI_ITEMS", false);
+        c.bIdleDoors        = Config::Get<bool>("TRIM_AI_IDLE_DOORS", false);
+        c.bIdleTriggers     = Config::Get<bool>("TRIM_AI_IDLE_TRIGGERS", false);
 
-        LOG_INFO("AI update list trimming: static placeables %s, idle placeables %s, items %s",
-                 c.bStaticPlaceables ? "on" : "off", c.bIdlePlaceables ? "on" : "off", c.bItems ? "on" : "off");
+        LOG_INFO("AI update list trimming: static placeables %s, idle placeables %s, items %s, idle doors %s, idle triggers %s",
+                 c.bStaticPlaceables ? "on" : "off", c.bIdlePlaceables ? "on" : "off", c.bItems ? "on" : "off",
+                 c.bIdleDoors ? "on" : "off", c.bIdleTriggers ? "on" : "off");
 
         return c;
     }();
@@ -149,12 +165,47 @@ static bool GetIsTrimmableItem(CNWSObject *pObject)
            pObject->m_appliedEffects.num == 0;
 }
 
+// Door heartbeat slot: EVENT_SCRIPT_DOOR_ON_HEARTBEAT is 10005, slot 5.
+static constexpr int DOOR_SCRIPT_HEARTBEAT = 5;
+// Trigger heartbeat slot: EVENT_SCRIPT_TRIGGER_ON_HEARTBEAT is 7000, slot 0.
+static constexpr int TRIGGER_SCRIPT_HEARTBEAT = 0;
+
+static bool GetIsTrimmableDoor(CNWSObject *pObject)
+{
+    auto *pDoor = Utils::AsNWSDoor(pObject);
+
+    return pDoor && GetTrimAISwitches().bIdleDoors && GetIsIdleForAIList(pObject) &&
+           pDoor->m_sScripts[DOOR_SCRIPT_HEARTBEAT].IsEmpty();
+}
+
+static bool GetIsTrimmableTrigger(CNWSObject *pObject)
+{
+    auto *pTrigger = Utils::AsNWSTrigger(pObject);
+
+    return pTrigger && GetTrimAISwitches().bIdleTriggers && GetIsIdleForAIList(pObject) &&
+           pTrigger->m_sScripts[TRIGGER_SCRIPT_HEARTBEAT].IsEmpty();
+}
+
+static bool GetIsTrimmable(CNWSObject *pObject)
+{
+    return GetIsTrimmablePlaceable(pObject) || GetIsTrimmableItem(pObject) ||
+           GetIsTrimmableDoor(pObject) || GetIsTrimmableTrigger(pObject);
+}
+
 static void RestoreToAIList(CNWSObject *pObject)
 {
     if (pObject->m_nAILevel != -1) return;
 
-    if (pObject->m_nObjectType != Constants::ObjectType::Item &&
-        pObject->m_nObjectType != Constants::ObjectType::Placeable) return;
+    switch (pObject->m_nObjectType)
+    {
+        case Constants::ObjectType::Item:
+        case Constants::ObjectType::Placeable:
+        case Constants::ObjectType::Door:
+        case Constants::ObjectType::Trigger:
+            break;
+        default:
+            return;
+    }
 
     Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->AddObject(pObject, 0);
 }
@@ -198,6 +249,24 @@ static Hooks::Hook s_TrimPlaceableAddToAreaHook = Hooks::HookFunction(&CNWSPlace
 
         if (TrimAIListsEnabled() && pPlaceable->m_nAILevel != -1 && GetIsTrimmablePlaceable(pPlaceable))
             Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pPlaceable);
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_TrimDoorAddToAreaHook = Hooks::HookFunction(&CNWSDoor::AddToArea,
+    +[](CNWSDoor *pDoor, CNWSArea *pArea, float fX, float fY, float fZ, BOOL bRunScripts) -> void
+    {
+        s_TrimDoorAddToAreaHook->CallOriginal<void>(pDoor, pArea, fX, fY, fZ, bRunScripts);
+
+        if (pDoor->m_nAILevel != -1 && GetIsTrimmableDoor(pDoor))
+            Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pDoor);
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_TrimTriggerAddToAreaHook = Hooks::HookFunction(&CNWSTrigger::AddToArea,
+    +[](CNWSTrigger *pTrigger, CNWSArea *pArea, float fX, float fY, float fZ, BOOL bRunScripts) -> void
+    {
+        s_TrimTriggerAddToAreaHook->CallOriginal<void>(pTrigger, pArea, fX, fY, fZ, bRunScripts);
+
+        if (pTrigger->m_nAILevel != -1 && GetIsTrimmableTrigger(pTrigger))
+            Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pTrigger);
     }, Hooks::Order::Earliest);
 
 // Back in before anything AIUpdate would have to service.
@@ -287,6 +356,43 @@ static Hooks::Hook s_IdleCreatureAIUpdateHook = Hooks::HookFunction(Functions::_
         s_IdleCreatureAIUpdateHook->CallOriginal<void>(pCreature);
     }, Hooks::Order::Earliest);
 
+// ---------------------------------------------------------------------------
+// Item AI throttling
+// ---------------------------------------------------------------------------
+//
+// CNWSItem::AIUpdate is nothing but UpdateEffectList for an item that has
+// applied effects (decompilation: it returns at once otherwise). Items with no
+// effects are already kept out of the lists by TRIM_AI_ITEMS; the ~3,900 in
+// this module that do carry effects were still walking their effect lists
+// every frame, the largest remaining per-object cost after the creature
+// throttle. Visiting them every Nth frame only makes an expiring effect on an
+// item late by at most N frames. Switch: NWNX_RISENHOLM_ITEM_AI_DIVISOR
+// (integer, default 0 = off).
+static int GetItemAIDivisor()
+{
+    static const int s_nDivisor = []() -> int
+    {
+        int n = Config::Get<int>("ITEM_AI_DIVISOR", 0);
+        LOG_INFO("Item AI throttling: %s (divisor %d)", n > 1 ? "on" : "off", n);
+        return n > 1 ? n : 0;
+    }();
+
+    return s_nDivisor;
+}
+
+static const bool s_bItemAILogged = (GetItemAIDivisor(), true);
+
+static Hooks::Hook s_ItemAIUpdateHook = Hooks::HookFunction(Functions::_ZN8CNWSItem8AIUpdateEv,
+    (void*)+[](CNWSItem *pItem) -> void
+    {
+        int nDivisor = GetItemAIDivisor();
+
+        if (nDivisor && (s_nAIFrame + pItem->m_idSelf) % nDivisor != 0)
+            return;
+
+        s_ItemAIUpdateHook->CallOriginal<void>(pItem);
+    }, Hooks::Order::Earliest);
+
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
 // removed. Safe to call repeatedly; a no-op when every switch is off.
@@ -312,7 +418,7 @@ NWNX_EXPORT ArgumentStack TrimAILists(ArgumentStack&&)
             auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(oid));
             if (!pObject) continue;
 
-            if (GetIsTrimmablePlaceable(pObject) || GetIsTrimmableItem(pObject))
+            if (GetIsTrimmable(pObject))
             {
                 if (pAIMaster->RemoveObject(pObject))
                     nRemoved++;
