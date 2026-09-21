@@ -14,5 +14,6 @@ var group__risenholm =
     [ "NWNX_Risenholm_FixItemDestroySkipUseableState", "group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3", null ],
     [ "NWNX_Risenholm_AddAttackOfOpportunity", "group__risenholm.html#ga2fa7425194fbc5d7c10d5f5dc22176c5", null ],
     [ "NWNX_Risenholm_ForceExamineWindow", "group__risenholm.html#ga3c9f30d1e4e1dc6b7a70d87c6051fb14", null ],
-    [ "NWNX_Risenholm_StartLevelUp", "group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5", null ]
+    [ "NWNX_Risenholm_StartLevelUp", "group__risenholm.html#ga363ca5a80f54eb95362f5e03e259d1e5", null ],
+    [ "NWNX_Risenholm_CreateAfterimage", "group__risenholm.html#ga38d48b2cd975f1c2c2215c2260c930b0", null ]
 ];
