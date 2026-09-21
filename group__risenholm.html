@@ -106,6 +106,27 @@ $(document).ready(function(){initNavTree('group__risenholm.html',''); initResiza
 
 
 <h3><a id="risenholm"></a>Readme</h3><div class="textblock"><h2><a class="anchor" id="autotoc_md620"></a>
+Environment Variables</h2>
+<table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Variable Name   </th><th class="markdownTableHeadCenter">Value   </th><th class="markdownTableHeadNone">Notes    </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_TRIM_AI_STATIC_PLACEABLES</code>   </td><td class="markdownTableBodyCenter">true/false   </td><td class="markdownTableBodyNone">Keeps static placeables out of the engine's per-frame AI update lists. They can never queue an action or run a script; they are put back if an effect is applied to one.    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_TRIM_AI_IDLE_PLACEABLES</code>   </td><td class="markdownTableBodyCenter">true/false   </td><td class="markdownTableBodyNone">Same for non-static placeables with no heartbeat script that are not die-when-empty and have no inventory (the test <code>CNWSPlaceable::AIUpdate</code> itself uses to do nothing). Put back when an effect or action lands. A heartbeat assigned later with <code>SetEventScript</code> will not run until then.    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_TRIM_AI_ITEMS</code>   </td><td class="markdownTableBodyCenter">true/false   </td><td class="markdownTableBodyNone">Keeps items with no applied effects out of the AI update lists from creation; put back when an effect is applied.    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_TRIM_AI_IDLE_DOORS</code>   </td><td class="markdownTableBodyCenter">true/false   </td><td class="markdownTableBodyNone">Same idle test for doors (heartbeat slot empty, no actions, no effects). Opening, closing, locking and bashing all put a door back.    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_TRIM_AI_IDLE_TRIGGERS</code>   </td><td class="markdownTableBodyCenter">true/false   </td><td class="markdownTableBodyNone">Triggers with no heartbeat script and no actions leave the lists. Enter and exit detection is unaffected; it is done by the moving creature.    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_ITEM_AI_DIVISOR</code>   </td><td class="markdownTableBodyCenter">integer   </td><td class="markdownTableBodyNone">0 (default) leaves item updates alone. N runs <code>CNWSItem::AIUpdate</code> (an effect-list walk for items carrying effects) every Nth frame, staggered by object id; an expiring effect on an item runs late by at most N frames. 10 is a reasonable value.    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_RISENHOLM_IDLE_CREATURE_AI_DIVISOR</code>   </td><td class="markdownTableBodyCenter">integer   </td><td class="markdownTableBodyNone">0 (default) leaves creature AI alone. N runs <code>CNWSCreature::AIUpdate</code> only every Nth frame, staggered by object id, for creatures that are at VERY_LOW, not in combat, with no queued actions, in an area with no players. Timers catch up on the next visit; effects and heartbeats in empty areas run late by at most N frames. 20 is a reasonable value.   </td></tr>
+</table>
+<p>Each switch is logged at plugin load. Measured together on the dev module (2026-09-21, idle): objects visited per frame 53,835 -&gt; 7,579, <code>AIMasterUpdateState</code> 367 -&gt; 240 ms per second. Call <code><a class="el" href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873" title="Remove idle static placeables, idle non-static placeables, idle doors and triggers,...">NWNX_Risenholm_TrimAILists()</a></code> once from OnModuleLoad to sweep objects created by routes the hooks do not see.</p>
+<h2><a class="anchor" id="autotoc_md621"></a>
 Local Variables</h2>
 <table class="markdownTable">
 <tr class="markdownTableHead">
@@ -140,6 +161,18 @@ Functions</h2></td></tr>
 <tr class="memitem:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">NWNX_Risenholm_CheckForShutdownFile</a> ()</td></tr>
 <tr class="memdesc:gaa490256e4506eb5370c3c7391dbd8f87"><td class="mdescLeft">&#160;</td><td class="mdescRight">Checks for a file that indicates a shutdown should take place.  <a href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">More...</a><br /></td></tr>
 <tr class="separator:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873">NWNX_Risenholm_TrimAILists</a> ()</td></tr>
+<tr class="memdesc:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="mdescLeft">&#160;</td><td class="mdescRight">Remove idle static placeables, idle non-static placeables, idle doors and triggers, and effect-free items from the engine's AI update lists, so CServerAIMaster::UpdateState stops visiting them every frame. The plugin already does this for objects as they are created; this sweeps anything that arrived by another route (CopyArea instances, objects created before the plugin's hooks). Call once from OnModuleLoad.  <a href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873">More...</a><br /></td></tr>
+<tr class="separator:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga3c22ace76e47d1a94f6a4eaf7b1e0bc5">NWNX_Risenholm_GetHasEffectByTag</a> (object oObject, string sTag)</td></tr>
+<tr class="memdesc:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="mdescLeft">&#160;</td><td class="mdescRight">TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect.  <a href="group__risenholm.html#ga3c22ace76e47d1a94f6a4eaf7b1e0bc5">More...</a><br /></td></tr>
+<tr class="separator:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5972031b3f2063428dcc74901219a7af"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga5972031b3f2063428dcc74901219a7af">NWNX_Risenholm_GetHasEffectWithStringParam</a> (object oObject, int nIndex, string sValue)</td></tr>
+<tr class="memdesc:ga5972031b3f2063428dcc74901219a7af"><td class="mdescLeft">&#160;</td><td class="mdescRight">TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect.  <a href="group__risenholm.html#ga5972031b3f2063428dcc74901219a7af">More...</a><br /></td></tr>
+<tr class="separator:ga5972031b3f2063428dcc74901219a7af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">NWNX_Risenholm_RemoveEffectsByTag</a> (object oObject, string sTag)</td></tr>
+<tr class="memdesc:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="mdescLeft">&#160;</td><td class="mdescRight">Remove every effect on oObject whose tag is exactly sTag.  <a href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">More...</a><br /></td></tr>
+<tr class="separator:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gae59705d5cc960d1caaffc730d1822fc3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">NWNX_Risenholm_FixItemDestroySkipUseableState</a> (object oItem)</td></tr>
 <tr class="memdesc:gae59705d5cc960d1caaffc730d1822fc3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event.  <a href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">More...</a><br /></td></tr>
 <tr class="separator:gae59705d5cc960d1caaffc730d1822fc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -203,7 +236,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00065">65</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00088">88</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -232,7 +265,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00075">75</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00098">98</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -272,7 +305,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00081">81</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00135">135</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -347,7 +380,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00088">88</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00142">142</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -370,7 +403,133 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00101">101</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00155">155</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga62e7a2bd1fc938f9004643fb0dc83873"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga62e7a2bd1fc938f9004643fb0dc83873">&#9670;&nbsp;</a></span>NWNX_Risenholm_TrimAILists()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_TrimAILists </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Remove idle static placeables, idle non-static placeables, idle doors and triggers, and effect-free items from the engine's AI update lists, so CServerAIMaster::UpdateState stops visiting them every frame. The plugin already does this for objects as they are created; this sweeps anything that arrived by another route (CopyArea instances, objects created before the plugin's hooks). Call once from OnModuleLoad. </p>
+<dl class="section note"><dt>Note</dt><dd>No-op unless at least one NWNX_RISENHOLM_TRIM_AI_* switch is set in the plugin environment; each sweeps only what its switch covers (see the plugin README). </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>The number of objects removed. </dd></dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00104">104</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga3c22ace76e47d1a94f6a4eaf7b1e0bc5">&#9670;&nbsp;</a></span>NWNX_Risenholm_GetHasEffectByTag()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_GetHasEffectByTag </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oObject</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sTag</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect. </p>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00110">110</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga5972031b3f2063428dcc74901219a7af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5972031b3f2063428dcc74901219a7af">&#9670;&nbsp;</a></span>NWNX_Risenholm_GetHasEffectWithStringParam()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_GetHasEffectWithStringParam </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oObject</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>nIndex</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sValue</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect. </p>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00118">118</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga74d2731fb2daca30b89e6f0ce0443cab"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga74d2731fb2daca30b89e6f0ce0443cab">&#9670;&nbsp;</a></span>NWNX_Risenholm_RemoveEffectsByTag()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_RemoveEffectsByTag </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oObject</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">string&#160;</td>
+          <td class="paramname"><em>sTag</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Remove every effect on oObject whose tag is exactly sTag. </p>
+<dl class="section return"><dt>Returns</dt><dd>The number of effects removed. </dd></dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00127">127</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -398,7 +557,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00107">107</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00161">161</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -437,7 +596,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00115">115</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00169">169</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -476,7 +635,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00125">125</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00179">179</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -504,7 +663,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00135">135</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00189">189</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -514,7 +673,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Aug 24 2026 11:13:03 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Sep 21 2026 07:11:20 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>

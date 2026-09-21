@@ -1,5 +1,14 @@
 var NAVTREEINDEX18 =
 {
+"nwnx__redis__short_8nss.html#a57b7af86b501d3fb1bb921ac824cd95e":[4,0,3,30,0,3,124],
+"nwnx__redis__short_8nss.html#a598092b0e6f3cebb07d749e4615e3da1":[4,0,3,30,0,3,126],
+"nwnx__redis__short_8nss.html#a5b7b5f1a4e6640f085bb558c1a25fc30":[4,0,3,30,0,3,18],
+"nwnx__redis__short_8nss.html#a5d5afb65f60efc1b15654cb99253c6e2":[4,0,3,30,0,3,152],
+"nwnx__redis__short_8nss.html#a5d8c39bc18a9734bb9386e72a9fdabb2":[4,0,3,30,0,3,158],
+"nwnx__redis__short_8nss.html#a5e7099a25885fc3bb806dc18a1c1753f":[4,0,3,30,0,3,191],
+"nwnx__redis__short_8nss.html#a5f502f954f83f6e4f7bd53bbcfee84ee":[4,0,3,30,0,3,90],
+"nwnx__redis__short_8nss.html#a60065aeba843d532447032c139de09c1":[4,0,3,30,0,3,219],
+"nwnx__redis__short_8nss.html#a626ce15798c10cf57daa349c5b7837b2":[4,0,3,30,0,3,197],
 "nwnx__redis__short_8nss.html#a635fbabfc448fceb0740eb69aa3ae70d":[4,0,3,30,0,3,42],
 "nwnx__redis__short_8nss.html#a6863ff7c9ba028686444c6f3f5b79f8f":[4,0,3,30,0,3,177],
 "nwnx__redis__short_8nss.html#a6e75b89da73816241d1b4ebb721b094f":[4,0,3,30,0,3,12],
@@ -240,14 +249,5 @@ var NAVTREEINDEX18 =
 "structNWNX__Damage__AttackEventData.html#afb304220f389dd1e0aeac3fd1f6cf1e0":[0,9,3,30],
 "structNWNX__Damage__AttackEventData.html#afc184d97f1079b5dfeb7d2ff807ad18a":[0,9,3,0],
 "structNWNX__Damage__AttackEventData.html#afc5f25c2e9d25dfe026a45eb479f0ece":[0,9,3,41],
-"structNWNX__Damage__DamageData.html":[0,9,4],
-"structNWNX__Damage__DamageData.html#a053b5e861523333bb9eec9cee6f0c2ff":[0,9,4,5],
-"structNWNX__Damage__DamageData.html#a0d597fef9abfd82cc3e07fdc8d52a342":[0,9,4,18],
-"structNWNX__Damage__DamageData.html#a109fcd91eb18b4089214f8cb29268fd7":[0,9,4,31],
-"structNWNX__Damage__DamageData.html#a11be8175bd172cd9637da5520aa72282":[0,9,4,26],
-"structNWNX__Damage__DamageData.html#a1326f1ace343df63fa43b95a57c2c367":[0,9,4,3],
-"structNWNX__Damage__DamageData.html#a1ab683741721c32d9acc43a26d97021a":[0,9,4,12],
-"structNWNX__Damage__DamageData.html#a1efde1b99a0495f2307056f39274b47c":[0,9,4,15],
-"structNWNX__Damage__DamageData.html#a24075a53b96931cbeb10756adee62e2a":[0,9,4,23],
-"structNWNX__Damage__DamageData.html#a2bafcf37cec79e490fd77391a8c376f0":[0,9,4,6]
+"structNWNX__Damage__DamageData.html":[0,9,4]
 };

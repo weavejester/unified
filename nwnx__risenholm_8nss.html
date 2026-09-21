@@ -122,6 +122,18 @@ Functions</h2></td></tr>
 <tr class="memitem:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">NWNX_Risenholm_CheckForShutdownFile</a> ()</td></tr>
 <tr class="memdesc:gaa490256e4506eb5370c3c7391dbd8f87"><td class="mdescLeft">&#160;</td><td class="mdescRight">Checks for a file that indicates a shutdown should take place.  <a href="group__risenholm.html#gaa490256e4506eb5370c3c7391dbd8f87">More...</a><br /></td></tr>
 <tr class="separator:gaa490256e4506eb5370c3c7391dbd8f87"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873">NWNX_Risenholm_TrimAILists</a> ()</td></tr>
+<tr class="memdesc:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="mdescLeft">&#160;</td><td class="mdescRight">Remove idle static placeables, idle non-static placeables, idle doors and triggers, and effect-free items from the engine's AI update lists, so CServerAIMaster::UpdateState stops visiting them every frame. The plugin already does this for objects as they are created; this sweeps anything that arrived by another route (CopyArea instances, objects created before the plugin's hooks). Call once from OnModuleLoad.  <a href="group__risenholm.html#ga62e7a2bd1fc938f9004643fb0dc83873">More...</a><br /></td></tr>
+<tr class="separator:ga62e7a2bd1fc938f9004643fb0dc83873"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga3c22ace76e47d1a94f6a4eaf7b1e0bc5">NWNX_Risenholm_GetHasEffectByTag</a> (object oObject, string sTag)</td></tr>
+<tr class="memdesc:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="mdescLeft">&#160;</td><td class="mdescRight">TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect.  <a href="group__risenholm.html#ga3c22ace76e47d1a94f6a4eaf7b1e0bc5">More...</a><br /></td></tr>
+<tr class="separator:ga3c22ace76e47d1a94f6a4eaf7b1e0bc5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5972031b3f2063428dcc74901219a7af"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga5972031b3f2063428dcc74901219a7af">NWNX_Risenholm_GetHasEffectWithStringParam</a> (object oObject, int nIndex, string sValue)</td></tr>
+<tr class="memdesc:ga5972031b3f2063428dcc74901219a7af"><td class="mdescLeft">&#160;</td><td class="mdescRight">TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect.  <a href="group__risenholm.html#ga5972031b3f2063428dcc74901219a7af">More...</a><br /></td></tr>
+<tr class="separator:ga5972031b3f2063428dcc74901219a7af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">NWNX_Risenholm_RemoveEffectsByTag</a> (object oObject, string sTag)</td></tr>
+<tr class="memdesc:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="mdescLeft">&#160;</td><td class="mdescRight">Remove every effect on oObject whose tag is exactly sTag.  <a href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">More...</a><br /></td></tr>
+<tr class="separator:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gae59705d5cc960d1caaffc730d1822fc3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">NWNX_Risenholm_FixItemDestroySkipUseableState</a> (object oItem)</td></tr>
 <tr class="memdesc:gae59705d5cc960d1caaffc730d1822fc3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event.  <a href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">More...</a><br /></td></tr>
 <tr class="separator:gae59705d5cc960d1caaffc730d1822fc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -142,7 +154,7 @@ Functions</h2></td></tr>
 			<ul>
 				<li class="navelem"><a class="el" href="dir_0b4eaef40a1fe20bedafe9e8e719ce66.html">Plugins</a></li><li class="navelem"><a class="el" href="dir_cabe557d07a176a1f3db26c2ca2b29cd.html">Risenholm</a></li><li class="navelem"><a class="el" href="dir_b2c27e55261193c1e7cc0db0bffb82d6.html">NWScript</a></li><li class="navelem"><a class="el" href="nwnx__risenholm_8nss.html">nwnx_risenholm.nss</a></li>
 				<li class="footer">
-					Generated on Mon Aug 24 2026 11:13:03 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Mon Sep 21 2026 07:11:20 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>
