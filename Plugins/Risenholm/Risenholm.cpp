@@ -244,7 +244,15 @@ NWNX_EXPORT ArgumentStack TrimAILists(ArgumentStack&&)
         }
     }
 
-    LOG_INFO("TrimAILists removed %d objects from the AI update lists", nRemoved);
+    // The size left behind is the number the engine will visit every frame
+    // from here on. Logged so a restart where trimming silently did not take
+    // (seen once on 2026-09-21 and not reproduced since) shows up in the log
+    // as an unexpectedly large figure instead of only as lag.
+    int32_t nRemaining = 0;
+    for (int32_t nLevel = 0; nLevel <= 4; nLevel++)
+        nRemaining += pAIMaster->m_apGameAIList[nLevel].m_aoGameObjects.num;
+
+    LOG_INFO("TrimAILists removed %d objects from the AI update lists; %d remain", nRemoved, nRemaining);
 
     return nRemoved;
 }
