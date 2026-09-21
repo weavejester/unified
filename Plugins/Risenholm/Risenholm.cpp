@@ -1769,26 +1769,24 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // marker locals, and added to the area facing the way the source faces. The
 // script keeps applying the visual effects and the attack action.
 //
+// The serialisation is the expensive half and a flurry wants three clones of
+// the same instant, so it is split: PrepareAfterimage serialises once into a
+// one-slot cache keyed by the source, CreateAfterimage builds a clone from
+// that snapshot (serialising on the spot only if the cache holds a different
+// source), and ReleaseAfterimage drops it. The cache is deliberately not kept
+// across calls: the image has to reflect the source's state at the moment of
+// the attack, so a snapshot from an earlier Wave Crash is not good enough.
+//
 // Not verified here: that SaveCreature reads the backpack through
 // m_pcItemRepository->m_oidItems and nothing else. Ghidra truncates that
 // function, so the first in-game check after deploying this is that the
 // clone has no inventory and still wears its owner's gear.
 
-NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
+static ObjectID s_AfterimageSource = Constants::OBJECT_INVALID;
+static std::vector<uint8_t> s_AfterimageData;
+
+static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 {
-    auto *pSource = Utils::PopCreature(args);
-    const auto oidArea   = args.extract<ObjectID>();
-    const auto x         = args.extract<float>();
-    const auto y         = args.extract<float>();
-    const auto z         = args.extract<float>();
-    const auto fFacing   = args.extract<float>();
-    const auto nFaction  = args.extract<int32_t>();
-
-    auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
-
-    if (!pSource || !pArea)
-        return Constants::OBJECT_INVALID;
-
     // --- detach what the image must not carry, for the duration of the save
     CExoLinkedList<OBJECT_ID> emptyItems;
     if (pSource->m_pcItemRepository)
@@ -1812,12 +1810,52 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     if (pSource->m_pcItemRepository)
         std::swap(pSource->m_pcItemRepository->m_oidItems.m_pcExoLinkedListInternal, emptyItems.m_pcExoLinkedListInternal);
 
+    return data;
+}
+
+NWNX_EXPORT ArgumentStack PrepareAfterimage(ArgumentStack&& args)
+{
+    if (auto *pSource = Utils::PopCreature(args))
+    {
+        s_AfterimageData = SerializeAfterimage(pSource);
+        s_AfterimageSource = s_AfterimageData.empty() ? Constants::OBJECT_INVALID : pSource->m_idSelf;
+        return (int32_t)s_AfterimageData.size();
+    }
+
+    return 0;
+}
+
+NWNX_EXPORT ArgumentStack ReleaseAfterimage(ArgumentStack&&)
+{
+    s_AfterimageSource = Constants::OBJECT_INVALID;
+    std::vector<uint8_t>().swap(s_AfterimageData);
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
+{
+    auto *pSource = Utils::PopCreature(args);
+    const auto oidArea   = args.extract<ObjectID>();
+    const auto x         = args.extract<float>();
+    const auto y         = args.extract<float>();
+    const auto z         = args.extract<float>();
+    const auto fFacing   = args.extract<float>();
+    const auto nFaction  = args.extract<int32_t>();
+
+    auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
+
+    if (!pSource || !pArea)
+        return Constants::OBJECT_INVALID;
+
+    const bool bCached = (s_AfterimageSource == pSource->m_idSelf && !s_AfterimageData.empty());
+    const std::vector<uint8_t> data = bCached ? s_AfterimageData : SerializeAfterimage(pSource);
+
     // --- build the clone
     auto *pClone = Utils::AsNWSCreature(Utils::DeserializeGameObject(data));
 
     if (!pClone)
     {
-        LOG_WARNING("CreateAfterimage: could not deserialize a clone of %x (%d bytes)", pSource->m_idSelf, (int)data.size());
+        LOG_WARNING("CreateAfterimage: could not deserialize a clone of %x (%d bytes, %s)", pSource->m_idSelf, (int)data.size(), bCached ? "cached" : "fresh");
         return Constants::OBJECT_INVALID;
     }
 

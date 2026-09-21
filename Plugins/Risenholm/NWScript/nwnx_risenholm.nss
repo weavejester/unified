@@ -83,9 +83,22 @@ void NWNX_Risenholm_ForceExamineWindow(object oPC, object oTarget);
 /// @param oPlayer The player.
 void NWNX_Risenholm_StartLevelUp(object oPlayer);
 
+/// @brief Serialise oCreature once for a batch of afterimage clones. Call before a run of
+/// NWNX_Risenholm_CreateAfterimage calls for the same creature, and NWNX_Risenholm_ReleaseAfterimage
+/// after. One snapshot is held at a time; it is not kept across attacks, because the image must
+/// reflect the creature's state at the moment of the attack.
+/// @param oCreature The creature to snapshot.
+/// @return The snapshot size in bytes, or 0 on failure.
+int NWNX_Risenholm_PrepareAfterimage(object oCreature);
+
+/// @brief Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.
+void NWNX_Risenholm_ReleaseAfterimage();
+
 /// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC copy that
 /// carries oCreature's effects, action queue, and equipment but none of its backpack or local
 /// variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, and faction nFaction.
+/// Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and
+/// serialises on the spot otherwise.
 /// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller still
 /// applies visual effects, the attack action, and the DestroyObject.
 /// @param oCreature The creature to copy.
@@ -201,6 +214,18 @@ void NWNX_Risenholm_StartLevelUp(object oPlayer)
 {
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "StartLevelUp");
+}
+
+int NWNX_Risenholm_PrepareAfterimage(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "PrepareAfterimage");
+    return NWNXPopInt();
+}
+
+void NWNX_Risenholm_ReleaseAfterimage()
+{
+    NWNXCall(NWNX_Risenholm, "ReleaseAfterimage");
 }
 
 object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction)
