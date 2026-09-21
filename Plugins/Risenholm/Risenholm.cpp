@@ -53,7 +53,9 @@ static bool s_AddItemCastSpellGrenadeAction;
 //
 // So: objects that cannot need the visit are kept out of the lists. Static
 // placeables (34,785 of the 45,039 placed in this module) can never queue an
-// action or run a script, so they are removed as they are added to an area.
+// action or run a script, and a non-static one with no heartbeat script that
+// is not die-when-empty passes the same idle test AIUpdate itself uses, so
+// both are removed as they are added to an area.
 // Items are taken out as they are constructed. Both are put back the moment something
 // arrives that AIUpdate would have to process: an applied effect
 // (CNWSObject::ApplyEffect), or for a placeable a queued action (handled
@@ -79,10 +81,30 @@ static bool GetIsIdleForAIList(CNWSObject *pObject)
            pObject->m_lQueuedActions.m_pcExoLinkedListInternal->m_nCount == 0;
 }
 
+// m_sScripts slot of the placeable OnHeartbeat script (EVENT_SCRIPT_PLACEABLE_ON_HEARTBEAT is 9004).
+static constexpr int PLACEABLE_SCRIPT_HEARTBEAT = 4;
+
 static bool GetIsTrimmablePlaceable(CNWSObject *pObject)
 {
     auto *pPlaceable = Utils::AsNWSPlaceable(pObject);
-    return pPlaceable && pPlaceable->m_bStaticObject && GetIsIdleForAIList(pObject);
+
+    if (!pPlaceable || !GetIsIdleForAIList(pObject)) return false;
+    if (pPlaceable->m_bStaticObject) return true;
+
+    // Non-static: the same test CNWSPlaceable::AIUpdate itself applies before
+    // deciding it has nothing to do -- it returns at once when the heartbeat
+    // script slot is empty, the action queue is empty, no effect is applied,
+    // and m_bDieWhenEmpty is off (8193.37 disassembly, offsets 0x418, 0x100,
+    // 0x150, 0x4fc). Containers are left in as well: there are 29 of them and
+    // their open/close bookkeeping is not worth reasoning about for the gain.
+    //
+    // Known limit: a script that later assigns a heartbeat to one of these
+    // with SetEventScript would not get its beats until something else puts
+    // the object back (an effect or an action). Nothing in the module does
+    // that today; pw_oh_* scripts only ever CLEAR placeable heartbeats.
+    return pPlaceable->m_sScripts[PLACEABLE_SCRIPT_HEARTBEAT].IsEmpty() &&
+           !pPlaceable->m_bDieWhenEmpty &&
+           !pPlaceable->m_bHasInventory;
 }
 
 static bool GetIsTrimmableItem(CNWSObject *pObject)
