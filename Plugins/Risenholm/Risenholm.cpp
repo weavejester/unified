@@ -67,12 +67,46 @@ static bool s_AddItemCastSpellGrenadeAction;
 // them by another route -- CopyArea instances, objects created before the
 // hooks saw them -- and is meant to be called from OnModuleLoad.
 //
-// Toggle: NWNX_RISENHOLM_TRIM_AI_LISTS (default off).
+// Switches, each default off, in the NWNX Optimizations style so the start-up
+// script can turn them on and off one at a time:
+//   NWNX_RISENHOLM_TRIM_AI_STATIC_PLACEABLES   static placeables
+//   NWNX_RISENHOLM_TRIM_AI_IDLE_PLACEABLES     idle non-static placeables
+//   NWNX_RISENHOLM_TRIM_AI_ITEMS               items without effects
+// The state of each is logged once when the plugin loads.
+
+struct TrimAISwitches
+{
+    bool bStaticPlaceables;
+    bool bIdlePlaceables;
+    bool bItems;
+
+    bool Any() const { return bStaticPlaceables || bIdlePlaceables || bItems; }
+};
+
+static const TrimAISwitches& GetTrimAISwitches()
+{
+    static const TrimAISwitches s_switches = []() -> TrimAISwitches
+    {
+        TrimAISwitches c;
+        c.bStaticPlaceables = Config::Get<bool>("TRIM_AI_STATIC_PLACEABLES", false);
+        c.bIdlePlaceables   = Config::Get<bool>("TRIM_AI_IDLE_PLACEABLES", false);
+        c.bItems            = Config::Get<bool>("TRIM_AI_ITEMS", false);
+
+        LOG_INFO("AI update list trimming: static placeables %s, idle placeables %s, items %s",
+                 c.bStaticPlaceables ? "on" : "off", c.bIdlePlaceables ? "on" : "off", c.bItems ? "on" : "off");
+
+        return c;
+    }();
+
+    return s_switches;
+}
+
+// Read (and so logged) at plugin load rather than on the first object.
+static const bool s_bTrimAISwitchesLogged = (GetTrimAISwitches(), true);
 
 static bool TrimAIListsEnabled()
 {
-    static const bool s_bEnabled = Config::Get<bool>("TRIM_AI_LISTS", false);
-    return s_bEnabled;
+    return GetTrimAISwitches().Any();
 }
 
 static bool GetIsIdleForAIList(CNWSObject *pObject)
@@ -89,7 +123,8 @@ static bool GetIsTrimmablePlaceable(CNWSObject *pObject)
     auto *pPlaceable = Utils::AsNWSPlaceable(pObject);
 
     if (!pPlaceable || !GetIsIdleForAIList(pObject)) return false;
-    if (pPlaceable->m_bStaticObject) return true;
+    if (pPlaceable->m_bStaticObject) return GetTrimAISwitches().bStaticPlaceables;
+    if (!GetTrimAISwitches().bIdlePlaceables) return false;
 
     // Non-static: the same test CNWSPlaceable::AIUpdate itself applies before
     // deciding it has nothing to do -- it returns at once when the heartbeat
@@ -109,7 +144,9 @@ static bool GetIsTrimmablePlaceable(CNWSObject *pObject)
 
 static bool GetIsTrimmableItem(CNWSObject *pObject)
 {
-    return pObject->m_nObjectType == Constants::ObjectType::Item && pObject->m_appliedEffects.num == 0;
+    return GetTrimAISwitches().bItems &&
+           pObject->m_nObjectType == Constants::ObjectType::Item &&
+           pObject->m_appliedEffects.num == 0;
 }
 
 static void RestoreToAIList(CNWSObject *pObject)
@@ -176,7 +213,7 @@ static Hooks::Hook s_TrimApplyEffectHook = Hooks::HookFunction(&CNWSObject::Appl
 
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
-// removed. Safe to call repeatedly; a no-op when the toggle is off.
+// removed. Safe to call repeatedly; a no-op when every switch is off.
 NWNX_EXPORT ArgumentStack TrimAILists(ArgumentStack&&)
 {
     int32_t nRemoved = 0;

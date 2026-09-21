@@ -47,7 +47,9 @@ int NWNX_Risenholm_CheckForShutdownFile();
 /// frame. The plugin already does this for objects as they are created; this
 /// sweeps anything that arrived by another route (CopyArea instances, objects
 /// created before the plugin's hooks). Call once from OnModuleLoad.
-/// @note No-op unless NWNX_RISENHOLM_TRIM_AI_LISTS=y in the plugin environment.
+/// @note No-op unless at least one of NWNX_RISENHOLM_TRIM_AI_STATIC_PLACEABLES,
+/// NWNX_RISENHOLM_TRIM_AI_IDLE_PLACEABLES, or NWNX_RISENHOLM_TRIM_AI_ITEMS is set in
+/// the plugin environment; each sweeps only what its switch covers.
 /// @return The number of objects removed.
 int NWNX_Risenholm_TrimAILists();
 
