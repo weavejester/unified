@@ -1768,8 +1768,10 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // points, the requested faction, a zeroed UI discovery mask, and the two
 // marker locals, and added to the area facing the way the source faces. It
 // is then dressed as an afterimage: not lootable, VFX_DUR_INVISIBILITY, a
-// permanent 100% miss chance, and animation speed x2, so the script has
-// nothing left to do per clone but order the attack and the destroy.
+// permanent 100% miss chance, a permanent cutscene ghost (the source may or
+// may not be carrying one at snapshot time, and an image must never block
+// anyone), and the caller's animation speed, so the script has nothing left
+// to do per clone but order the attack and the destroy.
 //
 // The serialisation is the expensive half and a flurry wants three clones of
 // the same instant, so it is split: PrepareAfterimage serialises once into a
@@ -1843,6 +1845,7 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     const auto z         = args.extract<float>();
     const auto fFacing   = args.extract<float>();
     const auto nFaction  = args.extract<int32_t>();
+    const auto fAnimationSpeed = args.extract<float>();
 
     auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
 
@@ -1907,12 +1910,41 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     pMiss->SetInteger(1, 0);  // MISS_CHANCE_TYPE_NORMAL
     pClone->ApplyEffect(pMiss, false, true);
 
-    // SetObjectVisualTransform(OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED, 2.0)
-    // on the base scope: the clone is brand new, so its first object update
+    // ExtraordinaryEffect(EffectCutsceneGhost()), permanent: the handler
+    // reads no parameters. If the source was carrying its own temporary
+    // ghost at snapshot time the clone already has a copy, and the engine
+    // then drops ours as a duplicate (verified on dev 2026-09-21: the clone
+    // kept only the 0.7 s copy), so any inherited ghost is removed first.
+    {
+        std::vector<uint64_t> aGhostIds;
+        auto &effects = pClone->m_appliedEffects;
+
+        for (int32_t i = 0; i < effects.num; i++)
+        {
+            if (effects.element[i] && effects.element[i]->m_nType == Constants::EffectTrueType::CutsceneGhost)
+                aGhostIds.push_back(effects.element[i]->m_nID);
+        }
+
+        for (uint64_t nId : aGhostIds)
+            pClone->RemoveEffectById(nId);
+    }
+
+    auto *pGhost = new CGameEffect(true);
+    pGhost->m_nType = Constants::EffectTrueType::CutsceneGhost;
+    pGhost->m_nSubType = Constants::EffectSubType::Extraordinary | Constants::EffectDurationType::Permanent;
+    pGhost->m_oidCreator = pSource->m_idSelf;
+    pClone->ApplyEffect(pGhost, false, true);
+
+    // SetObjectVisualTransform(OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED, f) on
+    // the base scope: the clone is brand new, so its first object update
     // carries whatever transform data it holds when the clients meet it.
-    if (!pClone->m_pVisualTransformData)
-        pClone->m_pVisualTransformData = new ObjectVisualTransformData();
-    pClone->m_pVisualTransformData->m_scopes[0].m_animationSpeed = LerpFloat(2.0f);
+    // 1.0 (or anything non-positive) leaves the transform untouched.
+    if (fAnimationSpeed > 0.0f && fAnimationSpeed != 1.0f)
+    {
+        if (!pClone->m_pVisualTransformData)
+            pClone->m_pVisualTransformData = new ObjectVisualTransformData();
+        pClone->m_pVisualTransformData->m_scopes[0].m_animationSpeed = LerpFloat(fAnimationSpeed);
+    }
 
     return pClone->m_idSelf;
 }

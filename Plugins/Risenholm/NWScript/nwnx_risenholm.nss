@@ -97,16 +97,17 @@ void NWNX_Risenholm_ReleaseAfterimage();
 /// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable
 /// copy that carries oCreature's effects, action queue, and equipment but none of its backpack or
 /// local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction
-/// nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, and animation speed x2.
-/// Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and
-/// serialises on the spot otherwise.
+/// nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a permanent cutscene ghost, and
+/// animation speed fAnimationSpeed. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it
+/// is for this creature, and serialises on the spot otherwise.
 /// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller only
 /// orders the attack and the DestroyObject.
 /// @param oCreature The creature to copy.
 /// @param lLocation Where the clone appears; its facing is used too.
 /// @param nFaction The ENGINE faction id (STANDARD_FACTION_* + 1).
+/// @param fAnimationSpeed OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED for the clone; 1.0 leaves it alone.
 /// @return The clone, or OBJECT_INVALID.
-object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction);
+object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction, float fAnimationSpeed = 1.0);
 
 /// @}
 
@@ -229,10 +230,11 @@ void NWNX_Risenholm_ReleaseAfterimage()
     NWNXCall(NWNX_Risenholm, "ReleaseAfterimage");
 }
 
-object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction)
+object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction, float fAnimationSpeed = 1.0)
 {
     vector vPosition = GetPositionFromLocation(lLocation);
 
+    NWNXPushFloat(fAnimationSpeed);
     NWNXPushInt(nFaction);
     NWNXPushFloat(GetFacingFromLocation(lLocation));
     NWNXPushFloat(vPosition.z);
