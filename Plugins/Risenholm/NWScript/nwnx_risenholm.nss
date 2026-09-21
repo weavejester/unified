@@ -42,6 +42,15 @@ string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2=
 /// @return True if the shutdown file was found, false otherwise
 int NWNX_Risenholm_CheckForShutdownFile();
 
+/// @brief Remove idle static placeables and effect-free items from the engine's
+/// AI update lists, so CServerAIMaster::UpdateState stops visiting them every
+/// frame. The plugin already does this for objects as they are created; this
+/// sweeps anything that arrived by another route (CopyArea instances, objects
+/// created before the plugin's hooks). Call once from OnModuleLoad.
+/// @note No-op unless NWNX_RISENHOLM_TRIM_AI_LISTS=y in the plugin environment.
+/// @return The number of objects removed.
+int NWNX_Risenholm_TrimAILists();
+
 /// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
@@ -76,6 +85,12 @@ void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "ForceUpdateMageArmorStats");
+}
+
+int NWNX_Risenholm_TrimAILists()
+{
+    NWNXCall(NWNX_Risenholm, "TrimAILists");
+    return NWNXPopInt();
 }
 
 void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdate = FALSE)

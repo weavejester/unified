@@ -21,6 +21,8 @@
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
+#include <dlfcn.h>
+#include <vector>
 
 
 using namespace NWNXLib;
@@ -31,6 +33,163 @@ namespace Risenholm
 {
 
 static bool s_AddItemCastSpellGrenadeAction;
+
+// ---------------------------------------------------------------------------
+// AI update list trimming
+// ---------------------------------------------------------------------------
+//
+// CServerAIMaster::UpdateState walks every object in every one of its five AI
+// lists once per server frame and calls the object's AIUpdate. For an idle
+// placeable -- no queued actions, no applied effects -- CNWSPlaceable::AIUpdate
+// returns after a handful of field checks, and CNWSItem::AIUpdate does nothing
+// at all unless the item carries an applied effect (both read straight from
+// the 8193.37 disassembly: the placeable checks m_lQueuedActions then
+// m_appliedEffects.num, the item checks only m_appliedEffects.num). The cost
+// is the visit itself. With the ~45,000 placeables and the tens of thousands of
+// items this module keeps in those lists, the 2026-09 dev profile put
+// AIUpdatePlaceable at 68 ms per wall second with nobody online and 120 ms
+// with one player, and AIUpdateItem at 21 ms -- roughly 28 ns a visit, every
+// frame, forever.
+//
+// So: objects that cannot need the visit are kept out of the lists. Static
+// placeables (34,785 of the 45,039 placed in this module) can never queue an
+// action or run a script, so they are removed as they are added to an area.
+// Items are taken out as they are constructed. Both are put back the moment something
+// arrives that AIUpdate would have to process: an applied effect
+// (CNWSObject::ApplyEffect), or for a placeable a queued action (handled
+// inside this file's existing CNWSObject::AddAction hook further down). Membership is tracked by the engine's own
+// m_nAILevel: RemoveObject sets it to -1, AddObject treats anything other than
+// -1 as "already listed", so -1 is exactly "in no list".
+//
+// TrimAILists (exported below) sweeps the lists once for anything that reached
+// them by another route -- CopyArea instances, objects created before the
+// hooks saw them -- and is meant to be called from OnModuleLoad.
+//
+// Toggle: NWNX_RISENHOLM_TRIM_AI_LISTS (default off).
+
+static bool TrimAIListsEnabled()
+{
+    static const bool s_bEnabled = Config::Get<bool>("TRIM_AI_LISTS", false);
+    return s_bEnabled;
+}
+
+static bool GetIsIdleForAIList(CNWSObject *pObject)
+{
+    return pObject->m_appliedEffects.num == 0 &&
+           pObject->m_lQueuedActions.m_pcExoLinkedListInternal->m_nCount == 0;
+}
+
+static bool GetIsTrimmablePlaceable(CNWSObject *pObject)
+{
+    auto *pPlaceable = Utils::AsNWSPlaceable(pObject);
+    return pPlaceable && pPlaceable->m_bStaticObject && GetIsIdleForAIList(pObject);
+}
+
+static bool GetIsTrimmableItem(CNWSObject *pObject)
+{
+    return pObject->m_nObjectType == Constants::ObjectType::Item && pObject->m_appliedEffects.num == 0;
+}
+
+static void RestoreToAIList(CNWSObject *pObject)
+{
+    if (pObject->m_nAILevel != -1) return;
+
+    if (pObject->m_nObjectType != Constants::ObjectType::Item &&
+        pObject->m_nObjectType != Constants::ObjectType::Placeable) return;
+
+    Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->AddObject(pObject, 0);
+}
+
+// Items: taken out right after construction, which is where the engine adds
+// them (the CNWSItem constructor ends with an AddObject at level 0). Hooking
+// CServerAIMaster::AddObject itself is not an option: its five-byte prologue is
+// a compare and a short conditional jump, which the hook engine refuses to
+// relocate -- funchook_prepare asserts at plugin load. The constructor has an
+// ordinary prologue. NWNX does not list constructors in Functions.hpp, so the
+// address comes from the exported symbol.
+static Hooks::Hook s_TrimItemCtorHook = []() -> Hooks::Hook
+{
+    void *pCtor = dlsym(RTLD_DEFAULT, "_ZN8CNWSItemC1Ej");
+
+    if (!pCtor)
+    {
+        LOG_ERROR("CNWSItem constructor symbol not found; item AI list trimming is off");
+        return nullptr;
+    }
+
+    return Hooks::HookFunction(pCtor,
+        (void*)+[](CNWSItem *pItem, uint32_t nObjectId) -> void
+        {
+            s_TrimItemCtorHook->CallOriginal<void>(pItem, nObjectId);
+
+            CNWSObject *pObject = pItem;
+
+            if (TrimAIListsEnabled() && pObject->m_nAILevel != -1 && GetIsTrimmableItem(pObject))
+                Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pObject);
+        }, Hooks::Order::Earliest);
+}();
+
+// Static placeables: out as soon as they are placed. The static flag is read
+// from the GIT in LoadPlaceable, which CNWSArea::LoadPlaceables calls before
+// AddToArea, so it is set by the time this runs.
+static Hooks::Hook s_TrimPlaceableAddToAreaHook = Hooks::HookFunction(&CNWSPlaceable::AddToArea,
+    +[](CNWSPlaceable *pPlaceable, CNWSArea *pArea, float fX, float fY, float fZ, BOOL bRunScripts) -> void
+    {
+        s_TrimPlaceableAddToAreaHook->CallOriginal<void>(pPlaceable, pArea, fX, fY, fZ, bRunScripts);
+
+        if (TrimAIListsEnabled() && pPlaceable->m_nAILevel != -1 && GetIsTrimmablePlaceable(pPlaceable))
+            Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pPlaceable);
+    }, Hooks::Order::Earliest);
+
+// Back in before anything AIUpdate would have to service.
+static Hooks::Hook s_TrimApplyEffectHook = Hooks::HookFunction(&CNWSObject::ApplyEffect,
+    +[](CNWSObject *pObject, CGameEffect *pEffect, BOOL bLoadingGame, BOOL bInitialApplication) -> void
+    {
+        if (TrimAIListsEnabled())
+            RestoreToAIList(pObject);
+
+        s_TrimApplyEffectHook->CallOriginal<void>(pObject, pEffect, bLoadingGame, bInitialApplication);
+    }, Hooks::Order::Earliest);
+
+
+// One pass over every AI list, removing idle static placeables and effect-free
+// items that got in by a route the hooks do not cover. Returns the number
+// removed. Safe to call repeatedly; a no-op when the toggle is off.
+NWNX_EXPORT ArgumentStack TrimAILists(ArgumentStack&&)
+{
+    int32_t nRemoved = 0;
+
+    if (!TrimAIListsEnabled())
+        return nRemoved;
+
+    auto *pAIMaster = Globals::AppManager()->m_pServerExoApp->GetServerAIMaster();
+
+    for (int32_t nLevel = 0; nLevel <= 4; nLevel++)
+    {
+        // Copy first: RemoveObject edits the array being walked.
+        std::vector<ObjectID> aObjects;
+        auto &list = pAIMaster->m_apGameAIList[nLevel].m_aoGameObjects;
+        for (int32_t i = 0; i < list.num; i++)
+            aObjects.push_back(list.element[i]);
+
+        for (ObjectID oid : aObjects)
+        {
+            auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(oid));
+            if (!pObject) continue;
+
+            if (GetIsTrimmablePlaceable(pObject) || GetIsTrimmableItem(pObject))
+            {
+                if (pAIMaster->RemoveObject(pObject))
+                    nRemoved++;
+            }
+        }
+    }
+
+    LOG_INFO("TrimAILists removed %d objects from the AI update lists", nRemoved);
+
+    return nRemoved;
+}
+
 
 
 static Hooks::Hook s_GetFlatFootedHook = Hooks::HookFunction(&CNWSCreature::GetFlatFooted,
@@ -984,6 +1143,12 @@ static Hooks::Hook s_AddActionHook = Hooks::HookFunction(&CNWSObject::AddAction,
                uint32_t nParamType7, void *pParameter7, uint32_t nParamType8, void *pParameter8, uint32_t nParamType9, void *pParameter9, uint32_t nParamType10, void *pParameter10,
                uint32_t nParamType11, void *pParameter11, uint32_t nParamType12, void *pParameter12) -> void
     {
+        // AI update list trimming (see the block near the top of this file):
+        // a trimmed placeable that is handed an action has to be back in the
+        // list for the action to ever run.
+        if (TrimAIListsEnabled())
+            RestoreToAIList(thisPtr);
+
         if (s_AddItemCastSpellGrenadeAction && nActionId == 16)
         {
             float fDuration = 0.25f;
