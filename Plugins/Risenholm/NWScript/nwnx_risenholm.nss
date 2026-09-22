@@ -120,6 +120,17 @@ void NWNX_Risenholm_ReleaseAfterimage();
 /// @return The clone, or OBJECT_INVALID.
 object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction, float fAnimationSpeed = 1.0);
 
+/// @brief Stop or allow oCreature running, as NWNX_Player_SetAlwaysWalk does.
+/// @note Use this and NOT NWNX_Player_SetAlwaysWalk. Both drive the same engine flag, but the
+/// Player version clears it without noticing the movement-limit effect that stealth mode, Slow
+/// and encumbrance all hold it with, so turning it off while sneaking let the character run
+/// while hidden. See the Forced walk section of Risenholm.cpp for the whole story.
+/// @note Per-session, like the engine flag it sets: a character who logs out and back in is no
+/// longer walking. pw_mod_enter re-pushes it from the PC local IS_FORCE_WALK_ON.
+/// @param oCreature The creature.
+/// @param bWalk TRUE to force walking, FALSE to hand the flag back to whatever else wants it.
+void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -262,4 +273,11 @@ object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "CreateAfterimage");
     return NWNXPopObject();
+}
+
+void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE)
+{
+    NWNXPushInt(bWalk);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SetAlwaysWalk");
 }

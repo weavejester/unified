@@ -21,6 +21,7 @@
 #include "API/CNWSDoor.hpp"
 #include "API/CGameEffect.hpp"
 #include "API/CNWSTrigger.hpp"
+#include "API/CNWSEffectListHandler.hpp"
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
@@ -33,6 +34,7 @@
 #include "API/CNWSFaction.hpp"
 #include "API/CFactionManager.hpp"
 #include <vector>
+#include <unordered_set>
 
 
 using namespace NWNXLib;
@@ -2050,4 +2052,130 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     }
 
     return pClone->m_idSelf;
+}
+
+
+// ---------------------------------------------------------------------------
+// Forced walk
+// ---------------------------------------------------------------------------
+//
+// Stands in for NWNX_Player_SetAlwaysWalk, which is broken in a way that
+// matters here. Both write the same engine flag, CNWSCreature::m_bForcedWalk,
+// which is what stops a creature running. The engine only ever sets that flag
+// from CNWSEffectListHandler::OnApplyLimitMovementSpeed and clears it from
+// OnRemoveLimitMovementSpeed, keyed on effect true-type 59,
+// EFFECT_MOVEMENT_SPEED_DECREASE -- the engine's own numbering, not the
+// EFFECT_TYPE_* constant of that name in nwscript.nss.
+//
+// That single effect is also how the engine expresses stealth, Slow and
+// encumbrance. CNWSCreature::SetStealthMode calls ComputeModifiedMovementRate,
+// which sums the detect-mode, stealth and encumbrance ruleset penalties and
+// applies one type-59 effect for the total. So an override that clears
+// m_bForcedWalk has to first ask whether one of those is holding it.
+//
+// Upstream tries to, with a std::bsearch over m_appliedEffects whose comparator
+// casts its arguments straight to CGameEffect*. The list holds CGameEffect*, so
+// what the comparator is handed is CGameEffect**, and reading ->m_nType off
+// that reads two bytes out of the pointer slot rather than out of the effect --
+// for the search key and for every element. It has never matched anything. The
+// symptom players saw was that toggling Force Walk off while sneaking cleared
+// the stealth walk lock along with their own, letting them run while hidden.
+//
+// Deliberately kept here rather than fixed in Plugins/Player: that is upstream's
+// file and the fix would be lost at the next canon merge. pw_sp_forcewalk.nss
+// and pw_mod_enter.nss call this instead, and nothing in the module calls the
+// Player version any more, so only one of the two OnRemoveLimitMovementSpeed
+// hooks is ever installed.
+//
+// Engine behaviour above was read from the 8193.37 disassembly, 2026-09-22, not
+// inferred: m_bForcedWalk (offset 0x764) is written in exactly two places, both
+// in CNWSEffectListHandler, and ComputeModifiedMovementRate's tail applies
+// EFFECT_MOVEMENT_SPEED_DECREASE with SetInteger(0, 1).
+
+constexpr uint16_t RH_EFFECT_MOVEMENT_SPEED_DECREASE = 59;
+
+// Creatures whose walk we are forcing. Deliberately not the persistent nwnx
+// object variable upstream marks them with: m_bForcedWalk is per-session state,
+// and a marker that outlives the session can only ever disagree with it. The
+// player's *preference* is module state -- the PC local IS_FORCE_WALK_ON, which
+// pw_mod_enter re-pushes on login. A set lookup is also far cheaper than
+// POS::Get, which allocates object storage on a miss and copies the object's
+// entire int map on a hit; that matters in a hook which fires for every
+// creature in the world, not just players.
+static std::unordered_set<ObjectID> s_ForcedWalk;
+
+static bool RH_HasMovementLimitEffect(CNWSObject *pObject)
+{
+    auto &effects = pObject->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (!effects.element[i]) continue;
+
+        const uint16_t nType = effects.element[i]->m_nType;
+
+        // The list is kept sorted ascending by type, which is what lets the
+        // engine's own loop in OnRemoveLimitMovementSpeed stop early as well.
+        if (nType > RH_EFFECT_MOVEMENT_SPEED_DECREASE) break;
+        if (nType == RH_EFFECT_MOVEMENT_SPEED_DECREASE) return true;
+    }
+
+    return false;
+}
+
+// Without this, any other movement limit expiring takes our override with it:
+// the engine recomputes the flag from the effects that remain and knows nothing
+// about us. Sneaking and then unsneaking with Force Walk on was enough to do it.
+static Hooks::Hook s_OnRemoveLimitMovementSpeedHook =
+    Hooks::HookFunction(&CNWSEffectListHandler::OnRemoveLimitMovementSpeed,
+    +[](CNWSEffectListHandler *pThis, CNWSObject *pObject, CGameEffect *pEffect) -> int32_t
+    {
+        auto it = s_ForcedWalk.find(pObject->m_idSelf);
+
+        if (it != s_ForcedWalk.end())
+        {
+            auto *pCreature = Utils::AsNWSCreature(pObject);
+
+            // Still the player we set it on, so hold the flag.
+            if (pCreature && pCreature->m_bPlayerCharacter)
+                return 1;
+
+            // The object id has been recycled onto something else since that
+            // player left. Drop the stale entry and let the engine have its way.
+            s_ForcedWalk.erase(it);
+        }
+
+        return s_OnRemoveLimitMovementSpeedHook->CallOriginal<int32_t>(pThis, pObject, pEffect);
+    }, Hooks::Order::Late);
+
+NWNX_EXPORT ArgumentStack SetAlwaysWalk(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto bWalk = args.extract<int32_t>();
+
+    if (!pCreature) return {};
+
+    if (bWalk)
+    {
+        s_ForcedWalk.insert(pCreature->m_idSelf);
+        pCreature->m_bForcedWalk = true;
+        return {};
+    }
+
+    s_ForcedWalk.erase(pCreature->m_idSelf);
+
+    // Hand the flag back to whatever else is holding it, if anything is.
+    pCreature->m_bForcedWalk = RH_HasMovementLimitEffect(pCreature);
+
+    // Encumbrance reaches m_bForcedWalk through a type-59 effect like everything
+    // else, so the scan above has normally already caught it. Kept because it is
+    // the one source with a state field of its own to consult, and re-deriving
+    // it costs nothing on a path that runs once per button press.
+    if (!pCreature->m_bForcedWalk)
+    {
+        pCreature->UpdateEncumbranceState(false);
+        pCreature->m_bForcedWalk = (pCreature->m_nEncumbranceState != 0);
+    }
+
+    return {};
 }

@@ -26,3 +26,19 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 ### CreateAfterimage
 
 `NWNX_Risenholm_PrepareAfterimage(oCreature)` serialises a creature once for a batch of clones and `NWNX_Risenholm_ReleaseAfterimage()` drops that snapshot; `NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)` clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals, with `VFX_DUR_INVISIBILITY`, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed `fAnimationSpeed` already applied. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.
+### SetAlwaysWalk
+
+`NWNX_Risenholm_SetAlwaysWalk(oCreature, bWalk)` replaces `NWNX_Player_SetAlwaysWalk`, which is
+broken. Both write `CNWSCreature::m_bForcedWalk`, and so does the engine, from
+`CNWSEffectListHandler::OnApplyLimitMovementSpeed` / `OnRemoveLimitMovementSpeed` on effect
+true-type 59 -- the one effect it uses to express stealth mode, Slow and encumbrance alike. Turning
+the override off therefore has to check whether one of those still holds the flag, and upstream's
+check is a `std::bsearch` whose comparator dereferences the list's `CGameEffect*` slots as if they
+were effects, so it has never matched. The symptom was a player toggling Force Walk off while
+sneaking and being able to run while hidden.
+
+Use this, not the Player version, and do not "fix" `Plugins/Player` instead -- that is upstream's
+file and the next `canon` merge would take the fix with it.
+
+State is per-session, matching the engine flag; the module keeps the player's preference in the PC
+local `IS_FORCE_WALK_ON` and re-pushes it from `pw_mod_enter.nss` on login.
