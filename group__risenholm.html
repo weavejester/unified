@@ -141,6 +141,11 @@ Local Variables</h2>
 <h3><a class="anchor" id="autotoc_md622"></a>
 CreateAfterimage</h3>
 <p><code>NWNX_Risenholm_PrepareAfterimage(oCreature)</code> serialises a creature once for a batch of clones and <code><a class="el" href="group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7" title="Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage.">NWNX_Risenholm_ReleaseAfterimage()</a></code> drops that snapshot; <code>NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)</code> clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction <code>nFaction</code>, tagged with the <code>IS_SET_PIECE</code> and <code>IS_VFX</code> locals, with <code>VFX_DUR_INVISIBILITY</code>, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed <code>fAnimationSpeed</code> already applied. Replaces the <code>ObjectToJson</code>/<code>JsonToObject</code> path, which serialised the whole inventory only to discard it. </p>
+<h3><a class="anchor" id="autotoc_md623"></a>
+SetAlwaysWalk</h3>
+<p><code>NWNX_Risenholm_SetAlwaysWalk(oCreature, bWalk)</code> replaces <code>NWNX_Player_SetAlwaysWalk</code>, which is broken. Both write <code>CNWSCreature::m_bForcedWalk</code>, and so does the engine, from <code>CNWSEffectListHandler::OnApplyLimitMovementSpeed</code> / <code>OnRemoveLimitMovementSpeed</code> on effect true-type 59 &ndash; the one effect it uses to express stealth mode, Slow and encumbrance alike. Turning the override off therefore has to check whether one of those still holds the flag, and upstream's check is a <code>std::bsearch</code> whose comparator dereferences the list's <code>CGameEffect*</code> slots as if they were effects, so it has never matched. The symptom was a player toggling Force Walk off while sneaking and being able to run while hidden.</p>
+<p>Use this, not the Player version, and do not "fix" <code>Plugins/Player</code> instead &ndash; that is upstream's file and the next <code>canon</code> merge would take the fix with it.</p>
+<p>State is per-session, matching the engine flag; the module keeps the player's preference in the PC local <code>IS_FORCE_WALK_ON</code> and re-pushes it from <code>pw_mod_enter.nss</code> on login. </p>
 </div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="files"></a>
 Files</h2></td></tr>
@@ -176,6 +181,9 @@ Functions</h2></td></tr>
 <tr class="memitem:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">NWNX_Risenholm_RemoveEffectsByTag</a> (object oObject, string sTag)</td></tr>
 <tr class="memdesc:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="mdescLeft">&#160;</td><td class="mdescRight">Remove every effect on oObject whose tag is exactly sTag.  <a href="group__risenholm.html#ga74d2731fb2daca30b89e6f0ce0443cab">More...</a><br /></td></tr>
 <tr class="separator:ga74d2731fb2daca30b89e6f0ce0443cab"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga08243155848864276ebc5c72a1812afe"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga08243155848864276ebc5c72a1812afe">NWNX_Risenholm_GetIsDMManifested</a> (object oCreature)</td></tr>
+<tr class="memdesc:ga08243155848864276ebc5c72a1812afe"><td class="mdescLeft">&#160;</td><td class="mdescRight">TRUE if oCreature is a DM avatar the players can see, ie. one who has pressed Appear on the DM client. A DM logs in unmanifested and Disappear puts him back that way; while he is, the engine leaves him out of other creatures' perception and out of the pathing line-of-sight test, so nothing in the world reacts to where he is standing.  <a href="group__risenholm.html#ga08243155848864276ebc5c72a1812afe">More...</a><br /></td></tr>
+<tr class="separator:ga08243155848864276ebc5c72a1812afe"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gae59705d5cc960d1caaffc730d1822fc3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">NWNX_Risenholm_FixItemDestroySkipUseableState</a> (object oItem)</td></tr>
 <tr class="memdesc:gae59705d5cc960d1caaffc730d1822fc3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event.  <a href="group__risenholm.html#gae59705d5cc960d1caaffc730d1822fc3">More...</a><br /></td></tr>
 <tr class="separator:gae59705d5cc960d1caaffc730d1822fc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -197,6 +205,9 @@ Functions</h2></td></tr>
 <tr class="memitem:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="memItemLeft" align="right" valign="top">object&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd">NWNX_Risenholm_CreateAfterimage</a> (object oCreature, location lLocation, int nFaction, float fAnimationSpeed=1.0)</td></tr>
 <tr class="memdesc:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable copy that carries oCreature's effects, action queue, and equipment but none of its backpack or local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed fAnimationSpeed. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot otherwise.  <a href="group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd">More...</a><br /></td></tr>
 <tr class="separator:gac8017629e9f3d0ee8a6deecdcacd0dbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gaf72de5ba4975fce1654d27c6ffa65241"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gaf72de5ba4975fce1654d27c6ffa65241">NWNX_Risenholm_SetAlwaysWalk</a> (object oCreature, int bWalk=TRUE)</td></tr>
+<tr class="memdesc:gaf72de5ba4975fce1654d27c6ffa65241"><td class="mdescLeft">&#160;</td><td class="mdescRight">Stop or allow oCreature running, as NWNX_Player_SetAlwaysWalk does.  <a href="group__risenholm.html#gaf72de5ba4975fce1654d27c6ffa65241">More...</a><br /></td></tr>
+<tr class="separator:gaf72de5ba4975fce1654d27c6ffa65241"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -248,7 +259,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00114">114</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00136">136</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -277,7 +288,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00124">124</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00146">146</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -317,7 +328,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00161">161</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00190">190</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -392,7 +403,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00168">168</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00197">197</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -415,7 +426,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00181">181</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00210">210</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -438,7 +449,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>No-op unless at least one NWNX_RISENHOLM_TRIM_AI_* switch is set in the plugin environment; each sweeps only what its switch covers (see the plugin README). </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>The number of objects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00130">130</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00152">152</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -470,7 +481,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00136">136</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00158">158</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -508,7 +519,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00144">144</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00166">166</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -541,7 +552,36 @@ Functions</h2></td></tr>
 <p>Remove every effect on oObject whose tag is exactly sTag. </p>
 <dl class="section return"><dt>Returns</dt><dd>The number of effects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00153">153</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00175">175</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga08243155848864276ebc5c72a1812afe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga08243155848864276ebc5c72a1812afe">&#9670;&nbsp;</a></span>NWNX_Risenholm_GetIsDMManifested()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_GetIsDMManifested </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oCreature</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>TRUE if oCreature is a DM avatar the players can see, ie. one who has pressed Appear on the DM client. A DM logs in unmanifested and Disappear puts him back that way; while he is, the engine leaves him out of other creatures' perception and out of the pathing line-of-sight test, so nothing in the world reacts to where he is standing. </p>
+<dl class="section note"><dt>Note</dt><dd>This is CNWSCreatureStats::m_bDMManifested read raw, so it means nothing on anything but a DM avatar &ndash; NWNX_Player_ToggleDM leaves it set on a player it has toggled back out of DM. Gate on GetIsDM() first. </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oCreature</td><td>The DM avatar. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00183">183</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -569,7 +609,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00187">187</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00216">216</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -608,7 +648,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00195">195</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00224">224</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -647,7 +687,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00205">205</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00234">234</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -675,7 +715,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00215">215</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00244">244</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -704,7 +744,7 @@ Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The snapshot size in bytes, or 0 on failure. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00221">221</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00250">250</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -725,7 +765,7 @@ Functions</h2></td></tr>
 
 <p>Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00228">228</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00257">257</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -780,7 +820,49 @@ Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The clone, or OBJECT_INVALID. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00233">233</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00262">262</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="gaf72de5ba4975fce1654d27c6ffa65241"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gaf72de5ba4975fce1654d27c6ffa65241">&#9670;&nbsp;</a></span>NWNX_Risenholm_SetAlwaysWalk()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_SetAlwaysWalk </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oCreature</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>bWalk</em> = <code>TRUE</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Stop or allow oCreature running, as NWNX_Player_SetAlwaysWalk does. </p>
+<dl class="section note"><dt>Note</dt><dd>Use this and NOT NWNX_Player_SetAlwaysWalk. Both drive the same engine flag, but the Player version clears it without noticing the movement-limit effect that stealth mode, Slow and encumbrance all hold it with, so turning it off while sneaking let the character run while hidden. See the Forced walk section of Risenholm.cpp for the whole story. </dd>
+<dd>
+Per-session, like the engine flag it sets: a character who logs out and back in is no longer walking. pw_mod_enter re-pushes it from the PC local IS_FORCE_WALK_ON. </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oCreature</td><td>The creature. </td></tr>
+    <tr><td class="paramname">bWalk</td><td>TRUE to force walking, FALSE to hand the flag back to whatever else wants it. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00278">278</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -790,7 +872,7 @@ Functions</h2></td></tr>
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Mon Sep 21 2026 17:43:15 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Tue Sep 22 2026 20:46:01 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>
