@@ -1538,6 +1538,53 @@ static Hooks::Hook s_AddActionHook = Hooks::HookFunction(&CNWSObject::AddAction,
         }
     }, Hooks::Order::Late);
 
+// CNWSCreature::SetPVPPlayerLikesMe only MUTATES an entry it already finds in
+// m_pPVPList -- it never inserts one -- and GetPVPPlayerLikesMe returns TRUE
+// ("likes me") on a miss. The only caller of AddToPVPList in the whole binary is
+// CNWSMessage::HandlePlayerToServerPVPListOperations subtype 1, which looks up
+// the OTHER player named in the message, validates them, and then adds the
+// SENDER's own oid to the SENDER's own list (verified in the 8193.37
+// disassembly at 0x669f2f-0x669f74: every operand of the add comes from
+// param_1). A creature's PvP list can therefore only ever contain itself, so
+// every cross-player lookup misses and every script-driven attitude change --
+// stock SetPCDislike included -- is a silent no-op.
+//
+// Insert the entry ourselves and the attitude sticks where GetPVPReputation
+// reads it, which is what makes GetIsEnemy true and lets AI and the other
+// player's associates acquire the target at all.
+static void EnsurePVPListEntry(CNWSCreature *pCreature, ObjectID oidOther)
+{
+    if (!pCreature || !pCreature->m_pPVPList || oidOther == Constants::OBJECT_INVALID)
+        return;
+
+    for (int32_t i = 0; i < pCreature->m_pPVPList->num; i++)
+    {
+        if (pCreature->m_pPVPList->element[i].m_oidPC == oidOther)
+            return;
+    }
+
+    pCreature->AddToPVPList(oidOther);
+}
+
+// GetClientObjectByObjectId matches only m_oidNWSObject -- the object the player
+// is CONTROLLING -- so it returns null for a PC's own body while that player is
+// possessing something else. That is exactly the state the invasion code calls
+// SetPCLikeStatus in (pw_inc_invader.nss hands us the sleeping body), so match
+// either the controlled object or the PC object.
+static CNWSPlayer *FindPlayerForCreature(ObjectID oid)
+{
+    if (oid == Constants::OBJECT_INVALID)
+        return nullptr;
+
+    for (auto *pPlayer : Globals::AppManager()->m_pServerExoApp->GetPlayerList())
+    {
+        if (pPlayer && (pPlayer->m_oidNWSObject == oid || pPlayer->m_oidPCObject == oid))
+            return pPlayer;
+    }
+
+    return nullptr;
+}
+
 NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
 {
     auto sourceOID      = args.extract<ObjectID>();
@@ -1545,9 +1592,39 @@ NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
     auto bNewAttitude   = args.extract<int32_t>();
     auto bSetReciprocal = args.extract<int32_t>();
 
-    if (auto *pSource = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(sourceOID))
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pSource = pServer->GetCreatureByGameObjectID(sourceOID);
+
+    if (!pSource)
+        return {};
+
+    EnsurePVPListEntry(pSource, targetOID);
+
+    if (bSetReciprocal)
+        EnsurePVPListEntry(pServer->GetCreatureByGameObjectID(targetOID), sourceOID);
+
+    pSource->SetPVPPlayerLikesMe(targetOID, bNewAttitude, bSetReciprocal);
+
+    // The server half above is only what the AI reads. PC-vs-PC hostility as the
+    // players SEE it -- ring colour, and being able to attack without the game
+    // arguing -- is client state, fed by this message; stock SetPCDislike sends
+    // it in both directions and this export used not to send it at all, which is
+    // why Scar Intruders rendered neutral however hostile the server thought
+    // they were. The recipient is the side whose view just changed.
+    auto *pMessage      = pServer->GetNWSMessage();
+    auto *pSourcePlayer = FindPlayerForCreature(sourceOID);
+    auto *pTargetPlayer = FindPlayerForCreature(targetOID);
+
+    if (pMessage && pSourcePlayer && pTargetPlayer)
     {
-        pSource->SetPVPPlayerLikesMe(targetOID, bNewAttitude, bSetReciprocal);
+        pMessage->SendServerToPlayerPVP_Attitude_Change(
+            pSourcePlayer->m_nPlayerID, pTargetPlayer->m_nPlayerID, bNewAttitude);
+
+        if (bSetReciprocal)
+        {
+            pMessage->SendServerToPlayerPVP_Attitude_Change(
+                pTargetPlayer->m_nPlayerID, pSourcePlayer->m_nPlayerID, bNewAttitude);
+        }
     }
 
     return {};
