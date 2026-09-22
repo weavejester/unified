@@ -65,6 +65,17 @@ int NWNX_Risenholm_GetHasEffectWithStringParam(object oObject, int nIndex, strin
 /// @return The number of effects removed.
 int NWNX_Risenholm_RemoveEffectsByTag(object oObject, string sTag);
 
+/// @brief TRUE if oCreature is a DM avatar the players can see, ie. one who has
+/// pressed Appear on the DM client. A DM logs in unmanifested and Disappear puts
+/// him back that way; while he is, the engine leaves him out of other creatures'
+/// perception and out of the pathing line-of-sight test, so nothing in the world
+/// reacts to where he is standing.
+/// @note This is CNWSCreatureStats::m_bDMManifested read raw, so it means nothing
+/// on anything but a DM avatar -- NWNX_Player_ToggleDM leaves it set on a player it
+/// has toggled back out of DM. Gate on GetIsDM() first.
+/// @param oCreature The DM avatar.
+int NWNX_Risenholm_GetIsDMManifested(object oCreature);
+
 /// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
@@ -155,6 +166,13 @@ int NWNX_Risenholm_RemoveEffectsByTag(object oObject, string sTag)
     NWNXPushString(sTag);
     NWNXPushObject(oObject);
     NWNXCall(NWNX_Risenholm, "RemoveEffectsByTag");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetIsDMManifested(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "GetIsDMManifested");
     return NWNXPopInt();
 }
 

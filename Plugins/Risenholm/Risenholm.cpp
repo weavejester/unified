@@ -490,6 +490,32 @@ NWNX_EXPORT ArgumentStack RemoveEffectsByTag(ArgumentStack&& args)
     return nRemoved;
 }
 
+// ---------------------------------------------------------------------------
+// DM visibility
+// ---------------------------------------------------------------------------
+//
+// A DM avatar is "manifested" when the DM client's Appear button has been
+// pressed and the players can see him; Disappear unmanifests him again, and a
+// DM logs in unmanifested. The engine keeps that in
+// CNWSCreatureStats::m_bDMManifested and consults it wherever an unmanifested
+// DM should not count as being present -- another creature's perception update
+// skips him, and so does the pathing line-of-sight test in CNWSArea -- but no
+// NWScript command reads it. Scripts that react to a creature being somewhere
+// want the same rule: pw_aoe_ballen, for one, stopped the rolling ball dead
+// when a DM nobody could see happened to be standing in its path.
+//
+// The raw flag, so it is only meaningful on a DM avatar. It is left set on a
+// player who was toggled in and out of DM with NWNX_Player_ToggleDM (that path
+// sets it true both ways), so callers gate on GetIsDM() first.
+NWNX_EXPORT ArgumentStack GetIsDMManifested(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+
+    if (!pCreature || !pCreature->m_pStats) return 0;
+
+    return pCreature->m_pStats->m_bDMManifested ? 1 : 0;
+}
+
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
 // removed. Safe to call repeatedly; a no-op when every switch is off.
