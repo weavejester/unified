@@ -64,6 +64,17 @@ possessing a creature whose master no longer exists takes the whole server down 
 2026-09-22). The hook clears such a dangling `m_oidMaster` first, which is the fallback the engine
 itself takes a few instructions later, and logs a warning naming the player and the creature.
 
+### Character save guard
+
+Not an export: a hook on `CNWSPlayer::SaveServerCharacter`. The engine (8193.37) saves whichever
+creature the client is driving, swapping in the master only for a possessed familiar or a DM
+possession, and never checks that the result is a player character. A player left driving a
+creature that has stopped being their familiar therefore gets that NPC written over their `.bic`
+(production, 2026-09-23: a dead Intruder replaced tyrese's character, and its missing
+`LvlStatList` then crashed the server on every later save of it). The hook resolves the save target
+the same way and refuses, with a warning naming the player and the creature, to write anything
+that is not a player character. The player keeps their last good file.
+
 ### Read-only inventories of other creatures
 
 Not a switch: hooks on `CNWSMessage::HandlePlayerToServerInventoryMessage`, `...InputMessage`,

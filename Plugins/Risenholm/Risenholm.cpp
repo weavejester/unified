@@ -1877,6 +1877,65 @@ static Hooks::Hook s_RemovePCFromWorldHook = Hooks::HookFunction(&CServerExoAppI
         s_RemovePCFromWorldHook->CallOriginal<void>(pThis, pPlayer);
     });
 
+// CNWSPlayer::SaveServerCharacter (8193.37) writes whichever creature the
+// client is driving (m_oidNWSObject) into the player's vault file. Only for a
+// possessed familiar, or a DM possession (associate types 7 and 8), does it
+// write the master instead, and it skips the save when that master does not
+// resolve. Nothing checks that the creature it ends up with is a player
+// character at all.
+//
+// So a player left driving a creature that has stopped being their possessed
+// familiar gets that creature saved over their character. That happened on
+// production on 2026-09-23: an Intruder really died, the module skipped the
+// engine's forced unpossess (fixed in pw_mod_unpossesb since), OnApplyDeath
+// removed it from its master's associates anyway, and the next save wrote the
+// dead NPC into tyrese's ghost.bic. An NPC has class levels but no
+// LvlStatList, so the next save of THAT -- CopyObject in the intro cutscene,
+// its XP being 0 -- segfaulted in CNWSCreatureStats::SaveClassInfo, twice.
+//
+// Resolve the save target exactly the way the engine does and refuse to write
+// anything that is not a player character. The player keeps their last good
+// file; losing the progress since then is far better than losing the
+// character, and a crash on every later login. FALSE is what the engine's
+// callers already handle, since NWNX_Events' skip returns it too. Earliest, so
+// a refused save does not raise the save events either.
+//
+// The engine saves only character types 3 and 4 (the byte at CNWSPlayer+0xb4)
+// and returns before touching the creature otherwise; the same gate here keeps
+// every other export (a DM's, for one) out of the check and out of the log.
+static_assert(offsetof(CNWSPlayer, m_nCharacterType) == 0xb4);
+static Hooks::Hook s_SaveServerCharacterHook = Hooks::HookFunction(&CNWSPlayer::SaveServerCharacter,
+    +[](CNWSPlayer *pPlayer, int32_t bBackupPlayer) -> int32_t
+    {
+        auto *pServer   = Globals::AppManager()->m_pServerExoApp;
+        auto *pCreature = pPlayer && (uint8_t)(pPlayer->m_nCharacterType - 3) < 2
+            ? Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject))
+            : nullptr;
+        auto *pTarget   = pCreature;
+
+        if (pCreature && (pCreature->GetIsPossessedFamiliar() ||
+                          pCreature->m_nAssociateType == Constants::AssociateType::DMPossess ||
+                          pCreature->m_nAssociateType == Constants::AssociateType::DMImpersonate))
+        {
+            pTarget = pServer->GetCreatureByGameObjectID(pCreature->m_oidMaster);
+        }
+
+        // A null target is a save the engine skips by itself.
+        if (pTarget && !pTarget->m_bPlayerCharacter)
+        {
+            auto *pInfo = pServer->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID);
+
+            LOG_WARNING("SaveServerCharacter: refusing to save %x (tag '%s', associate type %d, master %x) "
+                        "for player '%s': it is not a player character",
+                        pTarget->m_idSelf, pTarget->m_sTag.CStr(), pTarget->m_nAssociateType,
+                        pTarget->m_oidMaster, pInfo ? pInfo->m_sPlayerName.CStr() : "?");
+
+            return false;
+        }
+
+        return s_SaveServerCharacterHook->CallOriginal<int32_t>(pPlayer, bBackupPlayer);
+    }, Hooks::Order::Earliest);
+
 NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 {
     auto oidCreature = args.extract<ObjectID>();
