@@ -2297,21 +2297,43 @@ NWNX_EXPORT ArgumentStack SetAlwaysWalk(ArgumentStack&& args)
 // inventory to let a player LOOK, which is what /search does, also let them
 // take everything that is not cursed.
 //
-// The fix: while one of those four handlers runs for a non-DM whose panel
-// shows someone other than their own body or one of their associates, the
-// panel reads as closed -- not open, owner OBJECT_INVALID, exactly the state
-// HandlePlayerToServerGuiInventoryMessage leaves on close. Every trust check
-// above then fails the way it does for a player with no panel open, which is
-// the case the engine already has to defend against forged object ids. The
-// panel is restored the moment the handler returns, so viewing is untouched:
-// the inventory stream (WriteGameObjUpdate_MajorGUIPanels_Inventory) and
-// opening a bag inside it (CNWSItem::OpenInventory, reached from the
-// UseObject ACTION, which runs later and outside every handler) both still
-// see the real owner.
+// The fix: while a non-DM's panel shows anyone other than their own body, the
+// creature they drive, or an associate of either, any message on those four
+// handlers that names that owner -- or an item the owner carries, bags
+// included -- is refused before the engine reads it: the message is consumed
+// and, for the inventory minors, the matching cancel is sent so the client
+// drops the item back where it was. Store messages are refused outright while
+// such a panel is open, since selling is the one path whose layout was not
+// worth guessing at and nobody needs a merchant mid-search.
 //
-// Hooked at Latest so the blanking wraps the engine function alone.
-// NWNX_Events hooks the Input and Inventory handlers at Early to run module
-// scripts, and those scripts should never see the panel faked closed.
+// DISPROVED, 2026-09-23: the first version faked the panel closed for the
+// length of each handler instead (open 0, owner OBJECT_INVALID), on the theory
+// that every trust check would then fail the way it does with no panel open.
+// Tested in game, the searcher could still rearrange the target's pack and drag
+// items out of it into their own. With the owner blanked, Unequip (minor 7)
+// does not refuse a stranger's item; it takes its OTHER branch and queues the
+// move on the searcher's own creature, with the target's item, and nothing on
+// that path checks whose the item is. Blanking rerouted the theft rather than
+// stopping it, so do not go back to it.
+//
+// Input and group input only refuse the owner's ITEMS, never the owner
+// themselves: those messages also carry the creature being attacked, cast on,
+// or healed, and a search must not stop anyone doing any of that to the person
+// being searched. UseObject on a container is let through too -- it is how the
+// client opens a bag inside the other panel, through AIActionUseObject and
+// CNWSItem::OpenInventory, and a bag's contents are part of what is on show.
+// Inventory messages refuse the owner as well, since there it can only be a
+// destination repository, i.e. an item being planted on them.
+//
+// Peeked fields: the first three DWORDs of the message, as object ids -- the
+// item, then the destination or target, in every item message these handlers
+// take (Equip: item, creature, slot; Unequip and RepositoryMove: item,
+// repository, x, y; split: item, count). A field that is not an object id is
+// vanishingly unlikely to equal one of the owner's items, and even then the
+// only cost is one refused input while a search is open.
+//
+// Hooked at Latest so NWNX_Events' Early hooks, and the module scripts they
+// run, still see every message as sent.
 
 static bool GetIsTrustedOtherInventoryOwner(CNWSPlayer *pPlayer, ObjectID oidOwner)
 {
@@ -2333,72 +2355,147 @@ static bool GetIsTrustedOtherInventoryOwner(CNWSPlayer *pPlayer, ObjectID oidOwn
            (pOwner->m_oidMaster == pPlayer->m_oidNWSObject || pOwner->m_oidMaster == pPlayer->m_oidPCObject);
 }
 
-class OtherInventoryReadOnlyScope
+// The owner of oPlayer's other-inventory panel when it is open on someone
+// they have no business handling, or OBJECT_INVALID.
+static ObjectID GetUntrustedOtherInventoryOwner(CNWSPlayer *pPlayer)
 {
-public:
-    explicit OtherInventoryReadOnlyScope(CNWSPlayer *pPlayer)
+    if (!pPlayer || !pPlayer->m_pOtherInventoryGUI || !pPlayer->m_pOtherInventoryGUI->m_bGuiInventoryOpen)
+        return Constants::OBJECT_INVALID;
+
+    const ObjectID oidOwner = pPlayer->m_pOtherInventoryGUI->m_oidInventoryOwner;
+
+    return GetIsTrustedOtherInventoryOwner(pPlayer, oidOwner) ? Constants::OBJECT_INVALID : oidOwner;
+}
+
+// Utils::PeekMessage without the bounds check it does not do. Masked the way
+// NWNX_Events masks the ids it peeks.
+static bool PeekMessageObjectID(CNWSMessage *pMessage, int32_t offset, ObjectID &oid)
+{
+    if (!pMessage || !pMessage->m_pnReadBuffer ||
+        pMessage->m_nReadBufferPtr + offset + sizeof(ObjectID) > pMessage->m_nReadBufferSize)
+        return false;
+
+    oid = Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF;
+    return true;
+}
+
+static bool GetIsOwnerOrOwnersItem(ObjectID oid, ObjectID oidOwner, bool bOwnerItself)
+{
+    if (oid == oidOwner)
+        return bOwnerItself;
+
+    auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oid));
+    if (!pItem)
+        return false;
+
+    ObjectID oidHolder = pItem->m_oidPossessor;
+    if (auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(oidHolder)))
+        oidHolder = pBag->m_oidPossessor;
+
+    return oidHolder == oidOwner;
+}
+
+static bool GetMessageTouchesOwner(CNWSMessage *pMessage, ObjectID oidOwner, bool bOwnerItself)
+{
+    for (int32_t offset = 0; offset <= 8; offset += 4)
     {
-        if (!pPlayer || !pPlayer->m_pOtherInventoryGUI)
-            return;
-
-        auto *pGUI = pPlayer->m_pOtherInventoryGUI;
-
-        if (!pGUI->m_bGuiInventoryOpen || GetIsTrustedOtherInventoryOwner(pPlayer, pGUI->m_oidInventoryOwner))
-            return;
-
-        m_pGUI     = pGUI;
-        m_bOpen    = pGUI->m_bGuiInventoryOpen;
-        m_oidOwner = pGUI->m_oidInventoryOwner;
-
-        pGUI->m_bGuiInventoryOpen = false;
-        pGUI->m_oidInventoryOwner = Constants::OBJECT_INVALID;
+        ObjectID oid;
+        if (PeekMessageObjectID(pMessage, offset, oid) && GetIsOwnerOrOwnersItem(oid, oidOwner, bOwnerItself))
+            return true;
     }
 
-    ~OtherInventoryReadOnlyScope()
-    {
-        // Put it back only if the handler left it as we did. None of the four
-        // touches this panel, but if one ever does, what it set wins.
-        if (m_pGUI && !m_pGUI->m_bGuiInventoryOpen && m_pGUI->m_oidInventoryOwner == Constants::OBJECT_INVALID)
-        {
-            m_pGUI->m_bGuiInventoryOpen = m_bOpen;
-            m_pGUI->m_oidInventoryOwner = m_oidOwner;
-        }
-    }
+    return false;
+}
 
-    OtherInventoryReadOnlyScope(const OtherInventoryReadOnlyScope&) = delete;
-    OtherInventoryReadOnlyScope& operator=(const OtherInventoryReadOnlyScope&) = delete;
+static bool GetIsContainerItem(ObjectID oid)
+{
+    auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oid));
+    return pItem && pItem->m_pItemRepository;
+}
 
-private:
-    CNWSPlayerInventoryGUI *m_pGUI = nullptr;
-    BOOL m_bOpen = false;
-    ObjectID m_oidOwner = Constants::OBJECT_INVALID;
-};
+static void RefuseOtherInventoryMessage(CNWSPlayer *pPlayer)
+{
+    Utils::ClearReadMessage();
+
+    if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject)))
+        pCreature->SendFeedbackString("You can look, but not handle anything.");
+}
 
 static Hooks::Hook s_ReadOnlyInventoryMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInventoryMessage,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
-        OtherInventoryReadOnlyScope scope(pPlayer);
-        return s_ReadOnlyInventoryMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+        const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
+
+        if (oidOwner == Constants::OBJECT_INVALID || !GetMessageTouchesOwner(pThis, oidOwner, true))
+            return s_ReadOnlyInventoryMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+
+        ObjectID oidItem = Constants::OBJECT_INVALID;
+        PeekMessageObjectID(pThis, 0, oidItem);
+
+        uint32_t nSlot = 0;
+        if (pThis->m_nReadBufferPtr + 12 <= pThis->m_nReadBufferSize)
+            nSlot = Utils::PeekMessage<uint32_t>(pThis, 8);
+
+        RefuseOtherInventoryMessage(pPlayer);
+
+        using namespace Constants::MessageInventoryMinor;
+        switch (nMinor)
+        {
+            case Equip:          pThis->SendServerToPlayerInventory_EquipCancel(pPlayer->m_nPlayerID, oidItem, nSlot); break;
+            case Drop:           pThis->SendServerToPlayerInventory_DropCancel(pPlayer->m_nPlayerID, oidItem);         break;
+            case Pickup:         pThis->SendServerToPlayerInventory_PickupCancel(pPlayer->m_nPlayerID, oidItem);       break;
+            case Unequip:        pThis->SendServerToPlayerInventory_UnequipCancel(pPlayer->m_nPlayerID, oidItem);      break;
+            case RepositoryMove: pThis->SendServerToPlayerInventory_RepositoryMoveCancel(pPlayer->m_nPlayerID, oidItem); break;
+            default: break;
+        }
+
+        return true;
     }, Hooks::Order::Latest);
 
 static Hooks::Hook s_ReadOnlyInputMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInputMessage,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
-        OtherInventoryReadOnlyScope scope(pPlayer);
+        const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
+
+        if (oidOwner != Constants::OBJECT_INVALID && GetMessageTouchesOwner(pThis, oidOwner, false))
+        {
+            ObjectID oidObject;
+            const bool bOpeningBag = nMinor == Constants::MessageInputMinor::UseObject &&
+                                     PeekMessageObjectID(pThis, 0, oidObject) && GetIsContainerItem(oidObject);
+
+            if (!bOpeningBag)
+            {
+                RefuseOtherInventoryMessage(pPlayer);
+                return true;
+            }
+        }
+
         return s_ReadOnlyInputMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
     }, Hooks::Order::Latest);
 
 static Hooks::Hook s_ReadOnlyGroupInputMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerGroupInputMessage,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
-        OtherInventoryReadOnlyScope scope(pPlayer);
+        const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
+
+        if (oidOwner != Constants::OBJECT_INVALID && GetMessageTouchesOwner(pThis, oidOwner, false))
+        {
+            RefuseOtherInventoryMessage(pPlayer);
+            return true;
+        }
+
         return s_ReadOnlyGroupInputMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
     }, Hooks::Order::Latest);
 
 static Hooks::Hook s_ReadOnlyStoreMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerStoreMessage,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
-        OtherInventoryReadOnlyScope scope(pPlayer);
+        if (GetUntrustedOtherInventoryOwner(pPlayer) != Constants::OBJECT_INVALID)
+        {
+            RefuseOtherInventoryMessage(pPlayer);
+            return true;
+        }
+
         return s_ReadOnlyStoreMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
     }, Hooks::Order::Latest);
 

@@ -73,10 +73,17 @@ repository including the player's own, split and merge their stacks, and sell th
 the player's gold, with no DM check and no check that the owner is the player's associate. The
 client can also point the panel at any object id itself (GuiInventory minor 1 is unchecked).
 
-While one of those four handlers runs for a non-DM whose panel shows anyone other than their own
-body, the creature they drive, or an associate of either, the panel reads as closed, which makes
-every such request fail exactly as it does with no panel open. Viewing is unaffected, including
-opening bags inside the other inventory. The module relies on this for `/search`.
+While a non-DM's panel shows anyone other than their own body, the creature they drive, or an
+associate of either, a message on those handlers that names the owner or one of the owner's items
+(bags included) is consumed before the engine reads it, and for inventory messages the matching
+cancel is sent so the item drops back. Input and group input only refuse the owner's items, never
+the owner, so attacking, casting on, or healing them still works, and using a container (opening a
+bag in the panel) is let through. Store messages are refused outright while such a panel is open.
+Viewing is unaffected. The module relies on this for `/search`.
+
+An earlier version faked the panel closed for the length of each handler instead. It did not work:
+with the owner blanked, `Unequip` queues the move on the searcher's own creature with the target's
+item, and nothing on that path checks whose the item is (found in game, 2026-09-23).
 
 `NWNX_Risenholm_GetOtherInventoryOwner(oPlayer)` returns whose inventory that panel is showing, or
 `OBJECT_INVALID` when it is closed.
