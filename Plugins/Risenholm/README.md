@@ -80,3 +80,35 @@ opening bags inside the other inventory. The module relies on this for `/search`
 
 `NWNX_Risenholm_GetOtherInventoryOwner(oPlayer)` returns whose inventory that panel is showing, or
 `OBJECT_INVALID` when it is closed.
+
+### Items concealed from one viewer
+
+A hook on `CNWSMessage::WriteRepositoryUpdate`, plus three exports. The module's `/hideitem` lets a
+character hide items from a `/search`, and a searcher who loses the roll-off for one must not be
+sent it. Everything in the other-inventory panel -- the backpack (update list 1) and any bag
+opened inside it (list 0) -- reaches the client through that function, which walks the
+repository's item list and diffs it against what that viewer's panel was last sent. For the length
+of one call for a viewer with registrations, the concealed items' list nodes are unlinked, so the
+diff never adds them (and deletes any an earlier update sent), then relinked in reverse order: the
+same nodes, with their own links untouched, so the list comes back exactly as it was.
+
+Only lists 0 and 1, and only a repository belonging to the registered owner or to a bag that owner
+carries. Barter (list 2) is never filtered, so nothing can be slipped into a trade unseen.
+
+| Export | |
+| --- | --- |
+| `NWNX_Risenholm_ConcealItemFromViewer(oViewer, oOwner, oItem)` | Hide `oItem` from `oViewer`'s view of `oOwner`. A different owner replaces the previous registration. |
+| `NWNX_Risenholm_ClearConcealedItems(oViewer)` | Drop everything registered for `oViewer`. |
+| `NWNX_Risenholm_GetIsItemConcealedFrom(oViewer, oItem)` | Whether that registration exists. The module probes one before opening a search, so a build without concealment refuses the search rather than showing hidden items. |
+
+### "[Hidden]" under a hidden item's name, for its holder only
+
+Hooks on `CNWSMessage::AddActiveItemPropertiesToMessage` (every item as a panel lists it),
+`SendServerToPlayerUpdateItemName` (SetName and `NWNX_Player_UpdateItemName`), and
+`SendServerToPlayerExamineGui_ItemData`, the three places an item's name reaches a client. When the
+viewer is the character carrying the item (bags included), the item's `SEARCH_HIDDEN_BY` local holds
+that character's UUID, and it is not equipped, the name is sent with a second line reading
+`[Hidden]`, the same shape as a Powered item's tooltip. The item's own name (`CNWSItem::m_sName`) is
+swapped only for the length of the call, so everyone else -- a searcher, a barter partner -- gets the
+real name. Unidentified items show their base name on the client whatever is sent, so they do not
+show the line.

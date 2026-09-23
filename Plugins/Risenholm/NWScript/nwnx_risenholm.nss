@@ -147,6 +147,24 @@ void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature);
 /// @return The owner, or OBJECT_INVALID if the panel is closed.
 object NWNX_Risenholm_GetOtherInventoryOwner(object oPlayer);
 
+/// @brief Keep oItem, which oOwner is carrying, out of oViewer's view of oOwner's inventory.
+/// @note Covers the other-inventory panel's backpack and any bag opened inside it, never barter.
+/// Registering against a different owner drops what was registered for the previous one.
+/// @param oViewer The player looking.
+/// @param oOwner The creature whose inventory they are looking at.
+/// @param oItem The item to leave out.
+void NWNX_Risenholm_ConcealItemFromViewer(object oViewer, object oOwner, object oItem);
+
+/// @brief Drop everything registered as concealed from oViewer.
+/// @param oViewer The player looking.
+void NWNX_Risenholm_ClearConcealedItems(object oViewer);
+
+/// @brief Whether oItem is registered as concealed from oViewer.
+/// @param oViewer The player looking.
+/// @param oItem The item.
+/// @return TRUE if registered, FALSE otherwise -- including on a plugin build without concealment.
+int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -309,4 +327,26 @@ object NWNX_Risenholm_GetOtherInventoryOwner(object oPlayer)
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "GetOtherInventoryOwner");
     return NWNXPopObject();
+}
+
+void NWNX_Risenholm_ConcealItemFromViewer(object oViewer, object oOwner, object oItem)
+{
+    NWNXPushObject(oItem);
+    NWNXPushObject(oOwner);
+    NWNXPushObject(oViewer);
+    NWNXCall(NWNX_Risenholm, "ConcealItemFromViewer");
+}
+
+void NWNX_Risenholm_ClearConcealedItems(object oViewer)
+{
+    NWNXPushObject(oViewer);
+    NWNXCall(NWNX_Risenholm, "ClearConcealedItems");
+}
+
+int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem)
+{
+    NWNXPushObject(oItem);
+    NWNXPushObject(oViewer);
+    NWNXCall(NWNX_Risenholm, "GetIsItemConcealedFrom");
+    return NWNXPopInt();
 }

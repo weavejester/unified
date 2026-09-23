@@ -39,6 +39,7 @@
 #include <unordered_set>
 #include "API/CNWSMessage.hpp"
 #include "API/CNWSPlayerInventoryGUI.hpp"
+#include "API/CExoLinkedListNode.hpp"
 
 
 using namespace NWNXLib;
@@ -2417,3 +2418,269 @@ NWNX_EXPORT ArgumentStack GetOtherInventoryOwner(ArgumentStack&& args)
 
     return oidOwner;
 }
+
+// ---- Items concealed from one viewer ----
+//
+// /hideitem lets a character keep an item out of a /search, and the searcher
+// only sees it if they win a roll-off for it. The search view is the engine's
+// own other-inventory panel, so hiding has to happen in what the engine
+// streams to that one client.
+//
+// Every item in that panel -- the backpack (update list 1) and a bag opened
+// inside it (list 0) -- reaches the client through
+// CNWSMessage::WriteRepositoryUpdate. It walks the repository's item list
+// from the tail with GetPrev and diffs it against a per-viewer, per-panel
+// "last sent" list (CNWSPlayerLUOInventory), sending A(dd) for anything new
+// and D(elete) for anything gone. So for the length of one call for one
+// viewer, the concealed items' nodes are taken out of the list; the diff never
+// adds them, and deletes them if an earlier update had sent them. The nodes
+// are relinked in reverse order the moment the call returns -- the same node
+// objects, with their own pPrev/pNext never touched, so the list comes back
+// exactly as it was. Nothing else runs in between; the server is single
+// threaded here.
+//
+// Only lists 0 and 1, and only repositories owned by the registered owner or
+// by a bag that owner is carrying. The other caller is the barter window
+// (list 2), and an item hidden from a search must never be hidden from
+// someone about to accept it in a trade. The viewer's own inventory is not
+// the owner's, so an item that somehow changes hands stays visible to its
+// new holder.
+//
+// Registered per viewer by the module when a search opens and cleared when
+// it closes; with nothing registered the hook returns straight away.
+
+struct ConcealedItems
+{
+    ObjectID oidOwner = Constants::OBJECT_INVALID;
+    std::unordered_set<ObjectID> items;
+};
+
+static std::unordered_map<ObjectID, ConcealedItems> s_ConcealedItems;
+
+static const ConcealedItems *FindConcealedItems(CNWSPlayer *pPlayer)
+{
+    if (s_ConcealedItems.empty() || !pPlayer)
+        return nullptr;
+
+    auto it = s_ConcealedItems.find(pPlayer->m_oidNWSObject);
+    if (it == s_ConcealedItems.end())
+        it = s_ConcealedItems.find(pPlayer->m_oidPCObject);
+
+    return (it == s_ConcealedItems.end() || it->second.items.empty()) ? nullptr : &it->second;
+}
+
+static bool GetIsRepositoryOfOwner(CItemRepository *pRepository, ObjectID oidOwner)
+{
+    if (pRepository->m_oidParent == oidOwner)
+        return true;
+
+    auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(pRepository->m_oidParent));
+    return pBag && pBag->m_oidPossessor == oidOwner;
+}
+
+static Hooks::Hook s_ConcealWriteRepositoryUpdateHook = Hooks::HookFunction(&CNWSMessage::WriteRepositoryUpdate,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pPlayerGameObject, CItemRepository *pRepository,
+        CNWSPlayerLUOInventory *pLastUpdateInventory, uint8_t nLastUpdateList, char cGuiElementByte,
+        uint8_t nCurrentPanel) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_ConcealWriteRepositoryUpdateHook->CallOriginal<void>(pThis, pPlayer, pPlayerGameObject, pRepository,
+                pLastUpdateInventory, nLastUpdateList, cGuiElementByte, nCurrentPanel);
+        };
+
+        const auto *pConcealed = FindConcealedItems(pPlayer);
+
+        if (!pConcealed || nLastUpdateList > 1 || !pRepository ||
+            !GetIsRepositoryOfOwner(pRepository, pConcealed->oidOwner))
+        {
+            CallOriginal();
+            return;
+        }
+
+        auto *pList = pRepository->m_oidItems.m_pcExoLinkedListInternal;
+        std::vector<CExoLinkedListNode*> unlinked;
+
+        for (auto *pNode = pList->pHead; pNode; )
+        {
+            auto *pNext = pNode->pNext;
+            auto *pOid  = static_cast<ObjectID*>(pNode->pObject);
+
+            if (pOid && pConcealed->items.count(*pOid))
+            {
+                if (pNode->pPrev) pNode->pPrev->pNext = pNode->pNext; else pList->pHead = pNode->pNext;
+                if (pNode->pNext) pNode->pNext->pPrev = pNode->pPrev; else pList->pTail = pNode->pPrev;
+                pList->m_nCount--;
+                unlinked.push_back(pNode);
+            }
+
+            pNode = pNext;
+        }
+
+        CallOriginal();
+
+        for (auto it = unlinked.rbegin(); it != unlinked.rend(); ++it)
+        {
+            auto *pNode = *it;
+            if (pNode->pPrev) pNode->pPrev->pNext = pNode; else pList->pHead = pNode;
+            if (pNode->pNext) pNode->pNext->pPrev = pNode; else pList->pTail = pNode;
+            pList->m_nCount++;
+        }
+    }, Hooks::Order::Latest);
+
+// Hide oItem, which oOwner is carrying, from oViewer's view of oOwner's
+// inventory. Registering against a different owner drops what was registered
+// for the last one.
+NWNX_EXPORT ArgumentStack ConcealItemFromViewer(ArgumentStack&& args)
+{
+    const auto oidViewer = args.extract<ObjectID>();
+    const auto oidOwner  = args.extract<ObjectID>();
+    const auto oidItem   = args.extract<ObjectID>();
+
+    if (oidViewer == Constants::OBJECT_INVALID || oidOwner == Constants::OBJECT_INVALID || oidItem == Constants::OBJECT_INVALID)
+        return {};
+
+    auto &entry = s_ConcealedItems[oidViewer];
+
+    if (entry.oidOwner != oidOwner)
+    {
+        entry.oidOwner = oidOwner;
+        entry.items.clear();
+    }
+
+    entry.items.insert(oidItem);
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack ClearConcealedItems(ArgumentStack&& args)
+{
+    s_ConcealedItems.erase(args.extract<ObjectID>());
+
+    return {};
+}
+
+// Whether oItem is registered as concealed from oViewer. The module checks one
+// registration with this before opening a search view, so a server on a build
+// without concealment refuses the search instead of showing hidden items.
+NWNX_EXPORT ArgumentStack GetIsItemConcealedFrom(ArgumentStack&& args)
+{
+    const auto oidViewer = args.extract<ObjectID>();
+    const auto oidItem   = args.extract<ObjectID>();
+
+    auto it = s_ConcealedItems.find(oidViewer);
+
+    return (int32_t)(it != s_ConcealedItems.end() && it->second.items.count(oidItem) != 0);
+}
+
+// ---- "[Hidden]" under a hidden item's name, for its holder only ----
+//
+// The holder needs to see which of their items /hideitem has marked, and a
+// searcher must never see it: a revealed item that says [Hidden] would tell
+// them it was deliberately hidden. A SetName would be global, so the item's
+// real name is left alone and the extra line is added per viewer instead, at
+// the three places an item's name is sent to a client (read from the
+// 8193.37 disassembly):
+//
+//   AddActiveItemPropertiesToMessage       every item as it is listed in a
+//                                          panel -- own pack, search panel,
+//                                          bags, barter -- copying m_sName
+//                                          (CNWSItem+0x418) into the message
+//   SendServerToPlayerUpdateItemName       SetName, and NWNX_Player_UpdateItemName,
+//                                          which /hideitem calls after a toggle
+//   SendServerToPlayerExamineGui_ItemData  the examine window
+//
+// For the length of one call, when the viewer is the character carrying the
+// item (bags included) AND the item's SEARCH_HIDDEN_BY local holds that
+// character's UUID AND it is not equipped, m_sName is swapped for the name
+// with "\n[Hidden]" beneath it -- the same two-line shape as a Powered item's
+// tooltip -- and put back as soon as the call returns. Equipped items are in
+// plain sight whatever the mark says, so they do not get the line. Anyone else
+// is sent the name exactly as it is.
+//
+// An unidentified item shows its base name on the client whatever name is
+// sent, so it does not get the line either -- a limitation, not a leak.
+
+static bool GetShowsHiddenLine(CNWSPlayer *pPlayer, CNWSItem *pItem)
+{
+    if (!pPlayer || !pItem)
+        return false;
+
+    auto *pVars = Utils::GetScriptVarTable(pItem);
+    if (!pVars)
+        return false;
+
+    CExoString sVarName = "SEARCH_HIDDEN_BY";
+    const CExoString sHiddenBy = pVars->GetString(sVarName);
+    if (sHiddenBy.IsEmpty())
+        return false;
+
+    ObjectID oidHolder = pItem->m_oidPossessor;
+    if (auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(oidHolder)))
+        oidHolder = pBag->m_oidPossessor;
+
+    if (oidHolder == Constants::OBJECT_INVALID ||
+        (oidHolder != pPlayer->m_oidNWSObject && oidHolder != pPlayer->m_oidPCObject))
+        return false;
+
+    auto *pHolder = Utils::AsNWSCreature(Utils::GetGameObject(oidHolder));
+    if (!pHolder)
+        return false;
+
+    if (pHolder->m_pInventory && pHolder->m_pInventory->GetItemInInventory(pItem))
+        return false;
+
+    return pHolder->m_pUUID.GetOrAssignRandom() == sHiddenBy;
+}
+
+class HiddenItemNameScope
+{
+public:
+    HiddenItemNameScope(CNWSPlayer *pPlayer, CNWSItem *pItem)
+    {
+        if (!GetShowsHiddenLine(pPlayer, pItem))
+            return;
+
+        const std::string sName = Utils::ExtractLocString(pItem->m_sName);
+        if (sName.empty())
+            return;
+
+        m_pItem  = pItem;
+        m_sSaved = pItem->m_sName;
+        pItem->m_sName = Utils::CreateLocString(sName + "\n[Hidden]");
+    }
+
+    ~HiddenItemNameScope()
+    {
+        if (m_pItem)
+            m_pItem->m_sName = m_sSaved;
+    }
+
+    HiddenItemNameScope(const HiddenItemNameScope&) = delete;
+    HiddenItemNameScope& operator=(const HiddenItemNameScope&) = delete;
+
+private:
+    CNWSItem *m_pItem = nullptr;
+    CExoLocString m_sSaved;
+};
+
+static Hooks::Hook s_HiddenNameActivePropertiesHook = Hooks::HookFunction(&CNWSMessage::AddActiveItemPropertiesToMessage,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSItem *pItem, CNWSCreature *pCreature) -> void
+    {
+        HiddenItemNameScope scope(pPlayer, pItem);
+        s_HiddenNameActivePropertiesHook->CallOriginal<void>(pThis, pPlayer, pItem, pCreature);
+    }, Hooks::Order::Latest);
+
+static Hooks::Hook s_HiddenNameUpdateItemNameHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerUpdateItemName,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSItem *pItem) -> int32_t
+    {
+        HiddenItemNameScope scope(pPlayer, pItem);
+        return s_HiddenNameUpdateItemNameHook->CallOriginal<int32_t>(pThis, pPlayer, pItem);
+    }, Hooks::Order::Latest);
+
+static Hooks::Hook s_HiddenNameExamineItemHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerExamineGui_ItemData,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, ObjectID oidItem) -> int32_t
+    {
+        HiddenItemNameScope scope(pPlayer, Utils::AsNWSItem(Utils::GetGameObject(oidItem)));
+        return s_HiddenNameExamineItemHook->CallOriginal<int32_t>(pThis, pPlayer, oidItem);
+    }, Hooks::Order::Latest);
