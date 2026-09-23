@@ -151,7 +151,29 @@ RefreshPlayerListEntry</h3>
 <p><code>NWNX_Risenholm_RefreshPlayerListEntry(oCreature)</code> re-sends the player-list entry of the player driving or owning <code>oCreature</code> to every client. Each client matches a chat line to a player through the object id in that entry, and the engine only sends it when a player enters the module, so once a player possesses something every line they send carries an object id no client recognises. The clickable reply portrait is then never built, and a tell from a Scar Intruder cannot be answered by clicking it. The client updates the existing row in place, and the name shown does not change. <code>pw_inc_invader.nss</code> calls it straight after possessing the Intruder and <code>pw_mod_unpossesa.nss</code> after every unpossession, which points the entry back at the PC body.</p>
 <h3><a class="anchor" id="autotoc_md625"></a>
 Disconnect crash guard</h3>
-<p>Not an export: a hook on <code>CServerExoAppInternal::RemovePCFromWorld</code>. The engine (8193.37) looks up the master of the creature a leaving player is driving and uses the result without a null check whenever any other client is on the character-select screen, so a player who disconnects while possessing a creature whose master no longer exists takes the whole server down (production, 2026-09-22). The hook clears such a dangling <code>m_oidMaster</code> first, which is the fallback the engine itself takes a few instructions later, and logs a warning naming the player and the creature. </p>
+<p>Not an export: a hook on <code>CServerExoAppInternal::RemovePCFromWorld</code>. The engine (8193.37) looks up the master of the creature a leaving player is driving and uses the result without a null check whenever any other client is on the character-select screen, so a player who disconnects while possessing a creature whose master no longer exists takes the whole server down (production, 2026-09-22). The hook clears such a dangling <code>m_oidMaster</code> first, which is the fallback the engine itself takes a few instructions later, and logs a warning naming the player and the creature.</p>
+<h3><a class="anchor" id="autotoc_md626"></a>
+Read-only inventories of other creatures</h3>
+<p>Not a switch: hooks on <code>CNWSMessage::HandlePlayerToServerInventoryMessage</code>, <code>...InputMessage</code>, <code>...GroupInputMessage</code>, and <code>...StoreMessage</code>. A player's other-inventory panel (the one <code>NWNX_Player_OpenInventory</code> opens on another creature, and the one a henchman's pack shows in) is trusted by the engine for any owner: it will equip onto the owner, move the owner's items into any repository including the player's own, split and merge their stacks, and sell them to a store for the player's gold, with no DM check and no check that the owner is the player's associate. The client can also point the panel at any object id itself (GuiInventory minor 1 is unchecked).</p>
+<p>While one of those four handlers runs for a non-DM whose panel shows anyone other than their own body, the creature they drive, or an associate of either, the panel reads as closed, which makes every such request fail exactly as it does with no panel open. Viewing is unaffected, including opening bags inside the other inventory. The module relies on this for <code>/search</code>.</p>
+<p><code>NWNX_Risenholm_GetOtherInventoryOwner(oPlayer)</code> returns whose inventory that panel is showing, or <code>OBJECT_INVALID</code> when it is closed.</p>
+<h3><a class="anchor" id="autotoc_md627"></a>
+Items concealed from one viewer</h3>
+<p>A hook on <code>CNWSMessage::WriteRepositoryUpdate</code>, plus three exports. The module's <code>/hideitem</code> lets a character hide items from a <code>/search</code>, and a searcher who loses the roll-off for one must not be sent it. Everything in the other-inventory panel &ndash; the backpack (update list 1) and any bag opened inside it (list 0) &ndash; reaches the client through that function, which walks the repository's item list and diffs it against what that viewer's panel was last sent. For the length of one call for a viewer with registrations, the concealed items' list nodes are unlinked, so the diff never adds them (and deletes any an earlier update sent), then relinked in reverse order: the same nodes, with their own links untouched, so the list comes back exactly as it was.</p>
+<p>Only lists 0 and 1, and only a repository belonging to the registered owner or to a bag that owner carries. Barter (list 2) is never filtered, so nothing can be slipped into a trade unseen.</p>
+<table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Export   </th><th class="markdownTableHeadNone"></th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_Risenholm_ConcealItemFromViewer(oViewer, oOwner, oItem)</code>   </td><td class="markdownTableBodyNone">Hide <code>oItem</code> from <code>oViewer</code>'s view of <code>oOwner</code>. A different owner replaces the previous registration.    </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><code>NWNX_Risenholm_ClearConcealedItems(oViewer)</code>   </td><td class="markdownTableBodyNone">Drop everything registered for <code>oViewer</code>.    </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><code>NWNX_Risenholm_GetIsItemConcealedFrom(oViewer, oItem)</code>   </td><td class="markdownTableBodyNone">Whether that registration exists. The module probes one before opening a search, so a build without concealment refuses the search rather than showing hidden items.   </td></tr>
+</table>
+<h3><a class="anchor" id="autotoc_md628"></a>
+"[Hidden]" under a hidden item's name, for its holder only</h3>
+<p>Hooks on <code>CNWSMessage::AddActiveItemPropertiesToMessage</code> (every item as a panel lists it), <code>SendServerToPlayerUpdateItemName</code> (SetName and <code>NWNX_Player_UpdateItemName</code>), and <code>SendServerToPlayerExamineGui_ItemData</code>, the three places an item's name reaches a client. When the viewer is the character carrying the item (bags included), the item's <code>SEARCH_HIDDEN_BY</code> local holds that character's UUID, and it is not equipped, the name is sent with a second line reading <code>[Hidden]</code>, the same shape as a Powered item's tooltip. The item's own name (<code>CNWSItem::m_sName</code>) is swapped only for the length of the call, so everyone else &ndash; a searcher, a barter partner &ndash; gets the real name. Unidentified items show their base name on the client whatever is sent, so they do not show the line. </p>
 </div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="files"></a>
 Files</h2></td></tr>
@@ -217,6 +239,18 @@ Functions</h2></td></tr>
 <tr class="memitem:ga73faf9ac14079593e3ad9868ee15cb1b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga73faf9ac14079593e3ad9868ee15cb1b">NWNX_Risenholm_RefreshPlayerListEntry</a> (object oCreature)</td></tr>
 <tr class="memdesc:ga73faf9ac14079593e3ad9868ee15cb1b"><td class="mdescLeft">&#160;</td><td class="mdescRight">Re-send the player-list entry of the player driving or owning oCreature to every client.  <a href="group__risenholm.html#ga73faf9ac14079593e3ad9868ee15cb1b">More...</a><br /></td></tr>
 <tr class="separator:ga73faf9ac14079593e3ad9868ee15cb1b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gacb0a6901ea32f12a2f76e8c5f8d3c3e6"><td class="memItemLeft" align="right" valign="top">object&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gacb0a6901ea32f12a2f76e8c5f8d3c3e6">NWNX_Risenholm_GetOtherInventoryOwner</a> (object oPlayer)</td></tr>
+<tr class="memdesc:gacb0a6901ea32f12a2f76e8c5f8d3c3e6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Whose inventory oPlayer's other-inventory panel is showing.  <a href="group__risenholm.html#gacb0a6901ea32f12a2f76e8c5f8d3c3e6">More...</a><br /></td></tr>
+<tr class="separator:gacb0a6901ea32f12a2f76e8c5f8d3c3e6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga13b20952470be6538451c74f8e53c438"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga13b20952470be6538451c74f8e53c438">NWNX_Risenholm_ConcealItemFromViewer</a> (object oViewer, object oOwner, object oItem)</td></tr>
+<tr class="memdesc:ga13b20952470be6538451c74f8e53c438"><td class="mdescLeft">&#160;</td><td class="mdescRight">Keep oItem, which oOwner is carrying, out of oViewer's view of oOwner's inventory.  <a href="group__risenholm.html#ga13b20952470be6538451c74f8e53c438">More...</a><br /></td></tr>
+<tr class="separator:ga13b20952470be6538451c74f8e53c438"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga49d6377bed20ef4a811217f00a1f292e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#ga49d6377bed20ef4a811217f00a1f292e">NWNX_Risenholm_ClearConcealedItems</a> (object oViewer)</td></tr>
+<tr class="memdesc:ga49d6377bed20ef4a811217f00a1f292e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Drop everything registered as concealed from oViewer.  <a href="group__risenholm.html#ga49d6377bed20ef4a811217f00a1f292e">More...</a><br /></td></tr>
+<tr class="separator:ga49d6377bed20ef4a811217f00a1f292e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gac978171db49f3d6ef2cf20c1331f6111"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__risenholm.html#gac978171db49f3d6ef2cf20c1331f6111">NWNX_Risenholm_GetIsItemConcealedFrom</a> (object oViewer, object oItem)</td></tr>
+<tr class="memdesc:gac978171db49f3d6ef2cf20c1331f6111"><td class="mdescLeft">&#160;</td><td class="mdescRight">Whether oItem is registered as concealed from oViewer.  <a href="group__risenholm.html#gac978171db49f3d6ef2cf20c1331f6111">More...</a><br /></td></tr>
+<tr class="separator:gac978171db49f3d6ef2cf20c1331f6111"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga421ca3d3afdf421c3c7d2666d0cef246"></a>
@@ -268,7 +302,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00144">144</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00170">170</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -297,7 +331,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00154">154</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00180">180</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -337,7 +371,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00198">198</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00224">224</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -412,7 +446,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00205">205</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00231">231</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -435,7 +469,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>Deletes the file afterward. </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>True if the shutdown file was found, false otherwise </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00218">218</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00244">244</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -458,7 +492,7 @@ Functions</h2></td></tr>
 <dl class="section note"><dt>Note</dt><dd>No-op unless at least one NWNX_RISENHOLM_TRIM_AI_* switch is set in the plugin environment; each sweeps only what its switch covers (see the plugin README). </dd></dl>
 <dl class="section return"><dt>Returns</dt><dd>The number of objects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00160">160</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00186">186</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -490,7 +524,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose tag (TagEffect) is exactly sTag. Native replacement for the NWScript effect-list walk in pw_inc_effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00166">166</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00192">192</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -528,7 +562,7 @@ Functions</h2></td></tr>
 
 <p>TRUE if oObject carries an effect whose string parameter nIndex (0-5) is exactly sValue, e.g. the RunScript script name of a primed effect. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00174">174</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00200">200</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -561,7 +595,7 @@ Functions</h2></td></tr>
 <p>Remove every effect on oObject whose tag is exactly sTag. </p>
 <dl class="section return"><dt>Returns</dt><dd>The number of effects removed. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00183">183</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00209">209</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -590,7 +624,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00191">191</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00217">217</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -618,7 +652,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00224">224</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00250">250</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -657,7 +691,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00232">232</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00258">258</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -696,7 +730,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00242">242</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00268">268</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -724,7 +758,7 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00252">252</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00278">278</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -753,7 +787,7 @@ Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The snapshot size in bytes, or 0 on failure. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00258">258</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00284">284</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -774,7 +808,7 @@ Functions</h2></td></tr>
 
 <p>Drop the snapshot taken by NWNX_Risenholm_PrepareAfterimage. </p>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00265">265</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00291">291</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -829,7 +863,7 @@ Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The clone, or OBJECT_INVALID. </dd></dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00270">270</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00296">296</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -871,7 +905,7 @@ Per-session, like the engine flag it sets: a character who logs out and back in 
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00286">286</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00312">312</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -900,7 +934,152 @@ Per-session, like the engine flag it sets: a character who logs out and back in 
   </dd>
 </dl>
 
-<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00293">293</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00319">319</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="gacb0a6901ea32f12a2f76e8c5f8d3c3e6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gacb0a6901ea32f12a2f76e8c5f8d3c3e6">&#9670;&nbsp;</a></span>NWNX_Risenholm_GetOtherInventoryOwner()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">object NWNX_Risenholm_GetOtherInventoryOwner </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oPlayer</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Whose inventory oPlayer's other-inventory panel is showing. </p>
+<dl class="section note"><dt>Note</dt><dd>The panel NWNX_Player_OpenInventory opens on another creature. For a non-DM it is read-only unless the owner is their own body or one of their associates: the plugin stops the engine acting on it, which it otherwise would for any owner at all (see the plugin README). </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oPlayer</td><td>The player. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The owner, or OBJECT_INVALID if the panel is closed. </dd></dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00325">325</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga13b20952470be6538451c74f8e53c438"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga13b20952470be6538451c74f8e53c438">&#9670;&nbsp;</a></span>NWNX_Risenholm_ConcealItemFromViewer()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_ConcealItemFromViewer </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oViewer</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oOwner</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oItem</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Keep oItem, which oOwner is carrying, out of oViewer's view of oOwner's inventory. </p>
+<dl class="section note"><dt>Note</dt><dd>Covers the other-inventory panel's backpack and any bag opened inside it, never barter. Registering against a different owner drops what was registered for the previous one. </dd></dl>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oViewer</td><td>The player looking. </td></tr>
+    <tr><td class="paramname">oOwner</td><td>The creature whose inventory they are looking at. </td></tr>
+    <tr><td class="paramname">oItem</td><td>The item to leave out. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00332">332</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="ga49d6377bed20ef4a811217f00a1f292e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga49d6377bed20ef4a811217f00a1f292e">&#9670;&nbsp;</a></span>NWNX_Risenholm_ClearConcealedItems()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void NWNX_Risenholm_ClearConcealedItems </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oViewer</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Drop everything registered as concealed from oViewer. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oViewer</td><td>The player looking. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00340">340</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
+
+</div>
+</div>
+<a id="gac978171db49f3d6ef2cf20c1331f6111"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gac978171db49f3d6ef2cf20c1331f6111">&#9670;&nbsp;</a></span>NWNX_Risenholm_GetIsItemConcealedFrom()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int NWNX_Risenholm_GetIsItemConcealedFrom </td>
+          <td>(</td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oViewer</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">object&#160;</td>
+          <td class="paramname"><em>oItem</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Whether oItem is registered as concealed from oViewer. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">oViewer</td><td>The player looking. </td></tr>
+    <tr><td class="paramname">oItem</td><td>The item. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>TRUE if registered, FALSE otherwise &ndash; including on a plugin build without concealment. </dd></dl>
+
+<p class="definition">Definition at line <a class="el" href="nwnx__risenholm_8nss_source.html#l00346">346</a> of file <a class="el" href="nwnx__risenholm_8nss_source.html">nwnx_risenholm.nss</a>.</p>
 
 </div>
 </div>
@@ -910,7 +1089,7 @@ Per-session, like the engine flag it sets: a character who logs out and back in 
 		<div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
 			<ul>
 				<li class="footer">
-					Generated on Wed Sep 23 2026 02:54:56 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
+					Generated on Wed Sep 23 2026 16:51:41 for NWNX:EE by <a href="http://www.doxygen.org/index.html">
 					<img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.9.1.
 					<a href="dark/">Dark version</a>
 				</li>

@@ -1,5 +1,16 @@
 var NAVTREEINDEX20 =
 {
+"structNWNX__Tileset__TilesetGroupData.html":[0,42,3],
+"structNWNX__Tileset__TilesetGroupData.html#a046c239ee967d9c5a8007997d873400d":[0,42,3,3],
+"structNWNX__Tileset__TilesetGroupData.html#a0a2b1f76c67d6bec23b9019682784067":[0,42,3,2],
+"structNWNX__Tileset__TilesetGroupData.html#aa98d1a6957d1951424734a0e74b19521":[0,42,3,1],
+"structNWNX__Tileset__TilesetGroupData.html#afd49c3546a569a6da3e42379edc26f01":[0,42,3,0],
+"structNWNX__Time__HighResTimestamp.html":[0,1,3],
+"structNWNX__Time__HighResTimestamp.html#a43aea683c1a6671d6699f11079f904fe":[0,1,3,1],
+"structNWNX__Time__HighResTimestamp.html#a9ead36e54ab4ced72197c5a6d8ffc70e":[0,1,3,0],
+"structNWNX__Util__HighResTimestamp.html":[0,45,3],
+"structNWNX__Util__HighResTimestamp.html#adb932a093a3a74a4a067f0b6c79030c0":[0,45,3,1],
+"structNWNX__Util__HighResTimestamp.html#af3737b091078810d1d68beee390a48e0":[0,45,3,0],
 "structNWNX__Util__WorldTime.html":[0,45,2],
 "structNWNX__Util__WorldTime.html#a40e833c28b4d71306dd171afe50dc3a9":[0,45,2,1],
 "structNWNX__Util__WorldTime.html#afc097db3b754424f759865e53f56de39":[0,45,2,0],

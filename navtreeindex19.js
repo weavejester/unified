@@ -1,5 +1,16 @@
 var NAVTREEINDEX19 =
 {
+"structNWNX__Damage__AttackEventData.html#a4d17206ebc330bb76f5227665bc6ef31":[0,9,3,20],
+"structNWNX__Damage__AttackEventData.html#a58e7ae969bea68f6676564575bfbd1c8":[0,9,3,31],
+"structNWNX__Damage__AttackEventData.html#a7360868ab701bc83ef18b1891f99239c":[0,9,3,21],
+"structNWNX__Damage__AttackEventData.html#a77439bb6727bb0e78ad1c145170ac3d5":[0,9,3,6],
+"structNWNX__Damage__AttackEventData.html#a7b24cc68dd6f50db4069bc0e3e9facf7":[0,9,3,2],
+"structNWNX__Damage__AttackEventData.html#a7c6d84c411bf4c29591940889942b507":[0,9,3,15],
+"structNWNX__Damage__AttackEventData.html#a7d72d5e94a755eae99f79943b9fe8d37":[0,9,3,32],
+"structNWNX__Damage__AttackEventData.html#a82dc8d56f564fca63e68fcc2ea8a6943":[0,9,3,9],
+"structNWNX__Damage__AttackEventData.html#a838f86200ed83ab9b52a84720168222d":[0,9,3,38],
+"structNWNX__Damage__AttackEventData.html#a839798bdaa39dbf0756a9f930f4a4873":[0,9,3,35],
+"structNWNX__Damage__AttackEventData.html#a9e774c3889ba6d3a0272fe740e65460b":[0,9,3,28],
 "structNWNX__Damage__AttackEventData.html#abd9b45439358d4428a37e2a695e0eedc":[0,9,3,33],
 "structNWNX__Damage__AttackEventData.html#ad76bfe56fadd9f06296452fe451345f7":[0,9,3,7],
 "structNWNX__Damage__AttackEventData.html#ad83a24a3c10d2139f945bca7234d038d":[0,9,3,29],
@@ -238,16 +249,5 @@ var NAVTREEINDEX19 =
 "structNWNX__Tileset__TilesetData.html#ab190d02f421837b6e1ffa9b3e3f302ff":[0,42,2,10],
 "structNWNX__Tileset__TilesetData.html#ac164a541634d072f4d22b3c1ec9c578a":[0,42,2,0],
 "structNWNX__Tileset__TilesetData.html#ac66c0a4836ce34987948f9af09df6709":[0,42,2,1],
-"structNWNX__Tileset__TilesetData.html#aecb8866be243c65e433fa7e7098f776f":[0,42,2,9],
-"structNWNX__Tileset__TilesetGroupData.html":[0,42,3],
-"structNWNX__Tileset__TilesetGroupData.html#a046c239ee967d9c5a8007997d873400d":[0,42,3,3],
-"structNWNX__Tileset__TilesetGroupData.html#a0a2b1f76c67d6bec23b9019682784067":[0,42,3,2],
-"structNWNX__Tileset__TilesetGroupData.html#aa98d1a6957d1951424734a0e74b19521":[0,42,3,1],
-"structNWNX__Tileset__TilesetGroupData.html#afd49c3546a569a6da3e42379edc26f01":[0,42,3,0],
-"structNWNX__Time__HighResTimestamp.html":[0,1,3],
-"structNWNX__Time__HighResTimestamp.html#a43aea683c1a6671d6699f11079f904fe":[0,1,3,1],
-"structNWNX__Time__HighResTimestamp.html#a9ead36e54ab4ced72197c5a6d8ffc70e":[0,1,3,0],
-"structNWNX__Util__HighResTimestamp.html":[0,45,3],
-"structNWNX__Util__HighResTimestamp.html#adb932a093a3a74a4a067f0b6c79030c0":[0,45,3,1],
-"structNWNX__Util__HighResTimestamp.html#af3737b091078810d1d68beee390a48e0":[0,45,3,0]
+"structNWNX__Tileset__TilesetData.html#aecb8866be243c65e433fa7e7098f776f":[0,42,2,9]
 };

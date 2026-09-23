@@ -19,5 +19,9 @@ var nwnx__risenholm_8nss =
     [ "NWNX_Risenholm_CreateAfterimage", "group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd", null ],
     [ "NWNX_Risenholm_SetAlwaysWalk", "group__risenholm.html#gaf72de5ba4975fce1654d27c6ffa65241", null ],
     [ "NWNX_Risenholm_RefreshPlayerListEntry", "group__risenholm.html#ga73faf9ac14079593e3ad9868ee15cb1b", null ],
+    [ "NWNX_Risenholm_GetOtherInventoryOwner", "group__risenholm.html#gacb0a6901ea32f12a2f76e8c5f8d3c3e6", null ],
+    [ "NWNX_Risenholm_ConcealItemFromViewer", "group__risenholm.html#ga13b20952470be6538451c74f8e53c438", null ],
+    [ "NWNX_Risenholm_ClearConcealedItems", "group__risenholm.html#ga49d6377bed20ef4a811217f00a1f292e", null ],
+    [ "NWNX_Risenholm_GetIsItemConcealedFrom", "group__risenholm.html#gac978171db49f3d6ef2cf20c1331f6111", null ],
     [ "NWNX_Risenholm", "group__risenholm.html#ga93b050e93569b48fe67767398cd24f78", null ]
 ];
