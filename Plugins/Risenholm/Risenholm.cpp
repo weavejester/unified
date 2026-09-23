@@ -31,6 +31,8 @@
 #include "API/CNWSScriptVar.hpp"
 #include "API/CNWSScriptVarTable.hpp"
 #include "API/CServerExoAppInternal.hpp"
+#include "API/CNetLayer.hpp"
+#include "API/CNetLayerPlayerInfo.hpp"
 #include "API/CNWSFaction.hpp"
 #include "API/CFactionManager.hpp"
 #include <vector>
@@ -1675,6 +1677,50 @@ NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
 
     return {};
 }
+
+// CServerExoAppInternal::RemovePCFromWorld (8193.37) segfaults when a player
+// disconnects while driving a creature whose m_oidMaster no longer resolves to
+// a creature, if any other client is on the character-select screen at that
+// moment. Read from the disassembly after the 2026-09-22 production crash
+// (RemovePCFromWorld+0xf3, reached from NWNX_Events' disconnect hook):
+//
+//   - if the driven creature's m_oidMaster is not OBJECT_INVALID, the function
+//     stores GetCreatureByGameObjectID(m_oidMaster) WITHOUT a null check;
+//   - it then walks the player list and, for every player with
+//     m_bPlayModuleListingCharacters set, sends a character-list response
+//     carrying that pointer's m_idSelf -- a read of NULL+8.
+//
+// The same lookup a few instructions later IS null-checked, and falls back to
+// the driven creature itself (cmovne), and SaveServerCharacter separately
+// refuses to save a possessed familiar whose master does not resolve. So
+// clearing a dangling master here makes the first lookup agree with the
+// engine's own fallback and changes nothing else: no character is saved that
+// would not have been, and OnClientLeave sees the same object it would have.
+//
+// NWNX_Events hooks this at Order::Earliest, so NWNX_ON_CLIENT_DISCONNECT_BEFORE
+// has already run by the time this sees the creature.
+static Hooks::Hook s_RemovePCFromWorldHook = Hooks::HookFunction(&CServerExoAppInternal::RemovePCFromWorld,
+    +[](CServerExoAppInternal *pThis, CNWSPlayer *pPlayer) -> void
+    {
+        auto *pServer   = Globals::AppManager()->m_pServerExoApp;
+        auto *pCreature = pPlayer ? Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidNWSObject)) : nullptr;
+
+        if (pCreature && pCreature->m_oidMaster != Constants::OBJECT_INVALID &&
+            !pServer->GetCreatureByGameObjectID(pCreature->m_oidMaster))
+        {
+            auto *pInfo = pServer->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID);
+
+            LOG_WARNING("RemovePCFromWorld: player '%s' is leaving while driving %x (tag '%s', associate type %d), "
+                        "whose master %x no longer exists; clearing it to avoid the engine's null dereference",
+                        pInfo ? pInfo->m_sPlayerName.CStr() : "?",
+                        pCreature->m_idSelf, pCreature->m_sTag.CStr(),
+                        pCreature->m_nAssociateType, pCreature->m_oidMaster);
+
+            pCreature->m_oidMaster = Constants::OBJECT_INVALID;
+        }
+
+        s_RemovePCFromWorldHook->CallOriginal<void>(pThis, pPlayer);
+    });
 
 NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 {

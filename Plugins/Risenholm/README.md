@@ -53,3 +53,12 @@ clickable reply portrait is then never built, and a tell from a Scar Intruder ca
 clicking it. The client updates the existing row in place, and the name shown does not change.
 `pw_inc_invader.nss` calls it straight after possessing the Intruder and `pw_mod_unpossesa.nss`
 after every unpossession, which points the entry back at the PC body.
+
+### Disconnect crash guard
+
+Not an export: a hook on `CServerExoAppInternal::RemovePCFromWorld`. The engine (8193.37) looks up
+the master of the creature a leaving player is driving and uses the result without a null check
+whenever any other client is on the character-select screen, so a player who disconnects while
+possessing a creature whose master no longer exists takes the whole server down (production,
+2026-09-22). The hook clears such a dangling `m_oidMaster` first, which is the fallback the engine
+itself takes a few instructions later, and logs a warning naming the player and the creature.
