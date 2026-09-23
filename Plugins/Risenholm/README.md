@@ -62,3 +62,21 @@ whenever any other client is on the character-select screen, so a player who dis
 possessing a creature whose master no longer exists takes the whole server down (production,
 2026-09-22). The hook clears such a dangling `m_oidMaster` first, which is the fallback the engine
 itself takes a few instructions later, and logs a warning naming the player and the creature.
+
+### Read-only inventories of other creatures
+
+Not a switch: hooks on `CNWSMessage::HandlePlayerToServerInventoryMessage`, `...InputMessage`,
+`...GroupInputMessage`, and `...StoreMessage`. A player's other-inventory panel (the one
+`NWNX_Player_OpenInventory` opens on another creature, and the one a henchman's pack shows in) is
+trusted by the engine for any owner: it will equip onto the owner, move the owner's items into any
+repository including the player's own, split and merge their stacks, and sell them to a store for
+the player's gold, with no DM check and no check that the owner is the player's associate. The
+client can also point the panel at any object id itself (GuiInventory minor 1 is unchecked).
+
+While one of those four handlers runs for a non-DM whose panel shows anyone other than their own
+body, the creature they drive, or an associate of either, the panel reads as closed, which makes
+every such request fail exactly as it does with no panel open. Viewing is unaffected, including
+opening bags inside the other inventory. The module relies on this for `/search`.
+
+`NWNX_Risenholm_GetOtherInventoryOwner(oPlayer)` returns whose inventory that panel is showing, or
+`OBJECT_INVALID` when it is closed.

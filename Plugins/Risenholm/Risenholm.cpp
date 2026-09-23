@@ -37,6 +37,8 @@
 #include "API/CFactionManager.hpp"
 #include <vector>
 #include <unordered_set>
+#include "API/CNWSMessage.hpp"
+#include "API/CNWSPlayerInventoryGUI.hpp"
 
 
 using namespace NWNXLib;
@@ -2268,4 +2270,150 @@ NWNX_EXPORT ArgumentStack SetAlwaysWalk(ArgumentStack&& args)
     }
 
     return {};
+}
+
+// ---- Read-only inventories of other creatures ----
+//
+// A player's "other inventory" panel (CNWSPlayer::m_pOtherInventoryGUI) exists
+// so they can manage a henchman's pack, and the engine trusts it completely:
+// for any item whose possessor is that panel's owner, it carries out the
+// player's request on the owner's behalf. Read from the decompilation, 8193.37:
+//
+//   HandlePlayerToServerInventoryMessage   equip onto the owner (minor 1), and
+//                                          move/unequip out of the owner's
+//                                          inventory into any repository,
+//                                          the player's own included (minor 7)
+//   HandlePlayerToServerInputMessage       split and merge the owner's stacks
+//   HandlePlayerToServerGroupInputMessage  the same, as a group input
+//   HandlePlayerToServerStoreMessage       RequestSell sells the owner's items
+//                                          for the player's gold; RequestBuy
+//                                          buys into the owner's inventory
+//
+// None of those ask whether the player is a DM, or whether the owner is an
+// associate of theirs -- and nothing restricts who the owner can be. The
+// client sets it itself with GuiInventory minor 1 (any object id, no checks),
+// and NWNX_Player_OpenInventory sets it to anyone. So opening another PC's
+// inventory to let a player LOOK, which is what /search does, also let them
+// take everything that is not cursed.
+//
+// The fix: while one of those four handlers runs for a non-DM whose panel
+// shows someone other than their own body or one of their associates, the
+// panel reads as closed -- not open, owner OBJECT_INVALID, exactly the state
+// HandlePlayerToServerGuiInventoryMessage leaves on close. Every trust check
+// above then fails the way it does for a player with no panel open, which is
+// the case the engine already has to defend against forged object ids. The
+// panel is restored the moment the handler returns, so viewing is untouched:
+// the inventory stream (WriteGameObjUpdate_MajorGUIPanels_Inventory) and
+// opening a bag inside it (CNWSItem::OpenInventory, reached from the
+// UseObject ACTION, which runs later and outside every handler) both still
+// see the real owner.
+//
+// Hooked at Latest so the blanking wraps the engine function alone.
+// NWNX_Events hooks the Input and Inventory handlers at Early to run module
+// scripts, and those scripts should never see the panel faked closed.
+
+static bool GetIsTrustedOtherInventoryOwner(CNWSPlayer *pPlayer, ObjectID oidOwner)
+{
+    if (oidOwner == Constants::OBJECT_INVALID)
+        return true;
+
+    if (pPlayer->GetIsDM())
+        return true;
+
+    // Their own body while driving something else, and whatever they drive.
+    if (oidOwner == pPlayer->m_oidNWSObject || oidOwner == pPlayer->m_oidPCObject)
+        return true;
+
+    auto *pOwner = Utils::AsNWSCreature(Utils::GetGameObject(oidOwner));
+    if (!pOwner)
+        return false;
+
+    return pOwner->m_oidMaster != Constants::OBJECT_INVALID &&
+           (pOwner->m_oidMaster == pPlayer->m_oidNWSObject || pOwner->m_oidMaster == pPlayer->m_oidPCObject);
+}
+
+class OtherInventoryReadOnlyScope
+{
+public:
+    explicit OtherInventoryReadOnlyScope(CNWSPlayer *pPlayer)
+    {
+        if (!pPlayer || !pPlayer->m_pOtherInventoryGUI)
+            return;
+
+        auto *pGUI = pPlayer->m_pOtherInventoryGUI;
+
+        if (!pGUI->m_bGuiInventoryOpen || GetIsTrustedOtherInventoryOwner(pPlayer, pGUI->m_oidInventoryOwner))
+            return;
+
+        m_pGUI     = pGUI;
+        m_bOpen    = pGUI->m_bGuiInventoryOpen;
+        m_oidOwner = pGUI->m_oidInventoryOwner;
+
+        pGUI->m_bGuiInventoryOpen = false;
+        pGUI->m_oidInventoryOwner = Constants::OBJECT_INVALID;
+    }
+
+    ~OtherInventoryReadOnlyScope()
+    {
+        // Put it back only if the handler left it as we did. None of the four
+        // touches this panel, but if one ever does, what it set wins.
+        if (m_pGUI && !m_pGUI->m_bGuiInventoryOpen && m_pGUI->m_oidInventoryOwner == Constants::OBJECT_INVALID)
+        {
+            m_pGUI->m_bGuiInventoryOpen = m_bOpen;
+            m_pGUI->m_oidInventoryOwner = m_oidOwner;
+        }
+    }
+
+    OtherInventoryReadOnlyScope(const OtherInventoryReadOnlyScope&) = delete;
+    OtherInventoryReadOnlyScope& operator=(const OtherInventoryReadOnlyScope&) = delete;
+
+private:
+    CNWSPlayerInventoryGUI *m_pGUI = nullptr;
+    BOOL m_bOpen = false;
+    ObjectID m_oidOwner = Constants::OBJECT_INVALID;
+};
+
+static Hooks::Hook s_ReadOnlyInventoryMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInventoryMessage,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
+    {
+        OtherInventoryReadOnlyScope scope(pPlayer);
+        return s_ReadOnlyInventoryMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+    }, Hooks::Order::Latest);
+
+static Hooks::Hook s_ReadOnlyInputMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInputMessage,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
+    {
+        OtherInventoryReadOnlyScope scope(pPlayer);
+        return s_ReadOnlyInputMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+    }, Hooks::Order::Latest);
+
+static Hooks::Hook s_ReadOnlyGroupInputMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerGroupInputMessage,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
+    {
+        OtherInventoryReadOnlyScope scope(pPlayer);
+        return s_ReadOnlyGroupInputMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+    }, Hooks::Order::Latest);
+
+static Hooks::Hook s_ReadOnlyStoreMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerStoreMessage,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
+    {
+        OtherInventoryReadOnlyScope scope(pPlayer);
+        return s_ReadOnlyStoreMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
+    }, Hooks::Order::Latest);
+
+// Whose inventory oPlayer's other-inventory panel is showing, or
+// OBJECT_INVALID if it is closed. The module polls this to close a /search
+// view when the two separate, and to stop polling once the searcher has
+// closed it themselves.
+NWNX_EXPORT ArgumentStack GetOtherInventoryOwner(ArgumentStack&& args)
+{
+    ObjectID oidOwner = Constants::OBJECT_INVALID;
+
+    if (auto *pPlayer = Utils::PopPlayer(args))
+    {
+        if (auto *pGUI = pPlayer->m_pOtherInventoryGUI; pGUI && pGUI->m_bGuiInventoryOpen)
+            oidOwner = pGUI->m_oidInventoryOwner;
+    }
+
+    return oidOwner;
 }

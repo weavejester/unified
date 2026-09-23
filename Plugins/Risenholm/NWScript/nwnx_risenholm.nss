@@ -139,6 +139,14 @@ void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE);
 /// @param oCreature The PC body, or the creature its player is driving.
 void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature);
 
+/// @brief Whose inventory oPlayer's other-inventory panel is showing.
+/// @note The panel NWNX_Player_OpenInventory opens on another creature. For a non-DM it is
+/// read-only unless the owner is their own body or one of their associates: the plugin stops the
+/// engine acting on it, which it otherwise would for any owner at all (see the plugin README).
+/// @param oPlayer The player.
+/// @return The owner, or OBJECT_INVALID if the panel is closed.
+object NWNX_Risenholm_GetOtherInventoryOwner(object oPlayer);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -294,4 +302,11 @@ void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "RefreshPlayerListEntry");
+}
+
+object NWNX_Risenholm_GetOtherInventoryOwner(object oPlayer)
+{
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "GetOtherInventoryOwner");
+    return NWNXPopObject();
 }
