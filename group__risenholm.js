@@ -19,5 +19,6 @@ var group__risenholm =
     [ "NWNX_Risenholm_PrepareAfterimage", "group__risenholm.html#ga1ac3d331ebc03576c31145eabe00f1d5", null ],
     [ "NWNX_Risenholm_ReleaseAfterimage", "group__risenholm.html#ga87a86ef936f2c9cd6a724f83fd6098a7", null ],
     [ "NWNX_Risenholm_CreateAfterimage", "group__risenholm.html#gac8017629e9f3d0ee8a6deecdcacd0dbd", null ],
-    [ "NWNX_Risenholm_SetAlwaysWalk", "group__risenholm.html#gaf72de5ba4975fce1654d27c6ffa65241", null ]
+    [ "NWNX_Risenholm_SetAlwaysWalk", "group__risenholm.html#gaf72de5ba4975fce1654d27c6ffa65241", null ],
+    [ "NWNX_Risenholm_RefreshPlayerListEntry", "group__risenholm.html#ga73faf9ac14079593e3ad9868ee15cb1b", null ]
 ];

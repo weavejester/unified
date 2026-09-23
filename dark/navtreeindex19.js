@@ -1,5 +1,9 @@
 var NAVTREEINDEX19 =
 {
+"structNWNX__Damage__AttackEventData.html#abd9b45439358d4428a37e2a695e0eedc":[0,9,3,33],
+"structNWNX__Damage__AttackEventData.html#ad76bfe56fadd9f06296452fe451345f7":[0,9,3,7],
+"structNWNX__Damage__AttackEventData.html#ad83a24a3c10d2139f945bca7234d038d":[0,9,3,29],
+"structNWNX__Damage__AttackEventData.html#ada8bc3213c9e2e618ae1cd56ed650836":[0,9,3,11],
 "structNWNX__Damage__AttackEventData.html#ae3c681521adf4a79dc0bee96decc04ca":[0,9,3,25],
 "structNWNX__Damage__AttackEventData.html#ae50e334035835e815d0e7ab0891afe1e":[0,9,3,13],
 "structNWNX__Damage__AttackEventData.html#ae5d7b491bc4b3bac0ee4504fa502f9f8":[0,9,3,26],
@@ -245,9 +249,5 @@ var NAVTREEINDEX19 =
 "structNWNX__Time__HighResTimestamp.html#a9ead36e54ab4ced72197c5a6d8ffc70e":[0,1,3,0],
 "structNWNX__Util__HighResTimestamp.html":[0,45,3],
 "structNWNX__Util__HighResTimestamp.html#adb932a093a3a74a4a067f0b6c79030c0":[0,45,3,1],
-"structNWNX__Util__HighResTimestamp.html#af3737b091078810d1d68beee390a48e0":[0,45,3,0],
-"structNWNX__Util__WorldTime.html":[0,45,2],
-"structNWNX__Util__WorldTime.html#a40e833c28b4d71306dd171afe50dc3a9":[0,45,2,1],
-"structNWNX__Util__WorldTime.html#afc097db3b754424f759865e53f56de39":[0,45,2,0],
-"structNWNX__Weapon__DevastatingCriticalEvent__Data.html":[0,47,2]
+"structNWNX__Util__HighResTimestamp.html#af3737b091078810d1d68beee390a48e0":[0,45,3,0]
 };

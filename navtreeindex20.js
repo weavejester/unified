@@ -1,5 +1,9 @@
 var NAVTREEINDEX20 =
 {
+"structNWNX__Util__WorldTime.html":[0,45,2],
+"structNWNX__Util__WorldTime.html#a40e833c28b4d71306dd171afe50dc3a9":[0,45,2,1],
+"structNWNX__Util__WorldTime.html#afc097db3b754424f759865e53f56de39":[0,45,2,0],
+"structNWNX__Weapon__DevastatingCriticalEvent__Data.html":[0,47,2],
 "structNWNX__Weapon__DevastatingCriticalEvent__Data.html#a05c644a763be5a9e7614b16137de7c23":[0,47,2,1],
 "structNWNX__Weapon__DevastatingCriticalEvent__Data.html#a0ab39f5f5fdd4c3c995f8b84a5193c6a":[0,47,2,0],
 "structNWNX__Weapon__DevastatingCriticalEvent__Data.html#ad61f6ae678343f3781deacdb33efb27d":[0,47,2,2],
