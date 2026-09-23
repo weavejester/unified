@@ -12,6 +12,7 @@
 #include "API/CItemRepository.hpp"
 #include "API/CPathfindInformation.hpp"
 #include "API/CNWSArea.hpp"
+#include "API/CNWSModule.hpp"
 #include "API/CNWSInventory.hpp"
 #include "API/CNWBaseItemArray.hpp"
 #include "API/CNWBaseItem.hpp"
@@ -407,6 +408,157 @@ static Hooks::Hook s_ItemAIUpdateHook = Hooks::HookFunction(Functions::_ZN8CNWSI
 
         s_ItemAIUpdateHook->CallOriginal<void>(pItem);
     }, Hooks::Order::Earliest);
+
+
+// ---------------------------------------------------------------------------
+// RunScript ON_REMOVED when the host creature is destroyed
+// ---------------------------------------------------------------------------
+//
+// An EffectRunScript's removal script is run by
+// CNWSEffectListHandler::OnRemoveRunScript, synchronously and with the host as
+// OBJECT_SELF, but only when the effect goes through
+// CNWSObject::RemoveEffect/RemoveEffectById. Destroying the host takes neither
+// path: ~CNWSObject frees each CGameEffect directly. So DestroyObject, corpse
+// decay and the spawn sweep all drop every RunScript effect on a creature
+// without its ON_REMOVED, and whatever the module cleans up there leaks.
+// (8193.37 disassembly, 2026-09-23.)
+//
+// Found on production 2026-09-23. pw_rs_provoke lives on the provoked NPC,
+// and its ON_REMOVED is the only thing that removes the PERMANENT beam it put
+// on the provoker. When the NPC was destroyed, the player kept a beam pointing
+// at nothing, visible only to them, and saved into their .bic. The same
+// mechanism leaked pw_rs_retal and pw_rs_dr_custom SQL rows keyed by the dead
+// creature, and pw_rs_tele entries in the area's telegraph list.
+//
+// This removes every RunScript effect through RemoveEffectById at the start of
+// ~CNWSCreature. The creature is still whole there and still in the object
+// table, so ON_REMOVED sees a valid OBJECT_SELF. Anything the script queues on
+// the creature itself (DelayCommand, AssignCommand to it) dies with it; queue
+// on the module instead, as pw_rs_provoke does. All 58 ON_REMOVED branches in
+// the module were audited against this on 2026-09-23.
+//
+// Deliberately not done:
+//  - Player characters. Their effects are saved to the .bic and reapplied at
+//    login, and OnApplyRunScript skips the ON_APPLIED script when it is loading
+//    a save (its bLoadingGame argument), so firing ON_REMOVED at logout would
+//    unbalance every apply/remove pair.
+//  - Inside the area and module destructors and module unload, where the
+//    engine is emptying containers a script could add to. DestroyArea is NOT
+//    such a case: it queues an ordinary destroy for each creature in the area
+//    first, so those creatures come through the normal path and their scripts
+//    do run, after DestroyArea has returned. Verified on the dev server
+//    2026-09-23 with a chicken carrying a logging RunScript effect: DestroyObject
+//    and DestroyArea both ran ON_REMOVED with a valid OBJECT_SELF, and nothing
+//    ran with the switch off.
+//  - Creatures that are not in the object table, such as a temporary one built
+//    to read a character file. Module scripts must not run against those.
+//  - Placeables, doors and other object types. Creatures only, for now.
+//
+// Switch: NWNX_RISENHOLM_RUNSCRIPT_REMOVE_ON_DESTROY (bool, default false).
+
+static bool GetRunScriptRemoveOnDestroy()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("RUNSCRIPT_REMOVE_ON_DESTROY", false);
+        LOG_INFO("RunScript ON_REMOVED on creature destruction: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bRunScriptRemoveOnDestroyLogged = (GetRunScriptRemoveOnDestroy(), true);
+
+// Depth of the teardown contexts (area destructor, module destructor, module
+// unload) in which no removal script may run. They can nest.
+static int s_nRunScriptRemoveSuppressed = 0;
+
+static void RemoveRunScriptEffectsBeforeDestroy(CNWSCreature *pCreature)
+{
+    if (!GetRunScriptRemoveOnDestroy() || s_nRunScriptRemoveSuppressed > 0)
+        return;
+
+    if (pCreature->m_bPlayerCharacter)
+        return;
+
+    if (Utils::GetGameObject(pCreature->m_idSelf) != static_cast<CGameObject*>(pCreature))
+        return;
+
+    // Ids first, as the RemoveEffect command does: a removal script may itself
+    // remove other effects, and RemoveEffectById on an id that is already gone
+    // finds nothing and does nothing. Linked effects share an id, so one call
+    // takes the whole link, as a script RemoveEffect would.
+    std::vector<uint64_t> ids;
+    auto &effects = pCreature->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (effects.element[i] && effects.element[i]->m_nType == Constants::EffectTrueType::RunScript)
+            ids.push_back(effects.element[i]->m_nID);
+    }
+
+    for (uint64_t id : ids)
+        pCreature->RemoveEffectById(id);
+}
+
+// None of these are in NWNX's function table, so the addresses come from the
+// exported symbols, as the item constructor hook above does it. All four have
+// an ordinary push/mov prologue the hook engine can relocate.
+static Hooks::Hook HookByName(const char *sSymbol, void *pHandler)
+{
+    void *pTarget = dlsym(RTLD_DEFAULT, sSymbol);
+
+    if (!pTarget)
+    {
+        LOG_ERROR("%s not found; RunScript ON_REMOVED on creature destruction is off", sSymbol);
+        return nullptr;
+    }
+
+    return Hooks::HookFunction(pTarget, pHandler, Hooks::Order::Earliest);
+}
+
+static Hooks::Hook s_RunScriptCreatureDtorHook;
+static Hooks::Hook s_RunScriptAreaDtorHook;
+static Hooks::Hook s_RunScriptModuleDtorHook;
+static Hooks::Hook s_RunScriptUnloadModuleHook;
+
+static const bool s_bRunScriptRemoveOnDestroyHooked = []() -> bool
+{
+    s_RunScriptCreatureDtorHook = HookByName("_ZN12CNWSCreatureD1Ev",
+        (void*)+[](CNWSCreature *pCreature) -> void
+        {
+            RemoveRunScriptEffectsBeforeDestroy(pCreature);
+            s_RunScriptCreatureDtorHook->CallOriginal<void>(pCreature);
+        });
+
+    s_RunScriptAreaDtorHook = HookByName("_ZN8CNWSAreaD1Ev",
+        (void*)+[](CNWSArea *pArea) -> void
+        {
+            s_nRunScriptRemoveSuppressed++;
+            s_RunScriptAreaDtorHook->CallOriginal<void>(pArea);
+            s_nRunScriptRemoveSuppressed--;
+        });
+
+    s_RunScriptModuleDtorHook = HookByName("_ZN10CNWSModuleD1Ev",
+        (void*)+[](CNWSModule *pModule) -> void
+        {
+            s_nRunScriptRemoveSuppressed++;
+            s_RunScriptModuleDtorHook->CallOriginal<void>(pModule);
+            s_nRunScriptRemoveSuppressed--;
+        });
+
+    s_RunScriptUnloadModuleHook = HookByName("_ZN21CServerExoAppInternal12UnloadModuleEv",
+        (void*)+[](CServerExoAppInternal *pApp) -> int32_t
+        {
+            s_nRunScriptRemoveSuppressed++;
+            int32_t bRet = s_RunScriptUnloadModuleHook->CallOriginal<int32_t>(pApp);
+            s_nRunScriptRemoveSuppressed--;
+            return bRet;
+        });
+
+    return true;
+}();
 
 
 
