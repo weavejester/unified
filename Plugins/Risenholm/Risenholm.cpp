@@ -1632,6 +1632,50 @@ NWNX_EXPORT ArgumentStack SetPCLikeStatus(ArgumentStack&& args)
     return {};
 }
 
+// Re-send the player-list entry of the player driving (or owning) a creature, so
+// the object id stored in every client's copy tracks what that player is driving
+// right now.
+//
+// A chat line carries nothing but the speaker's object id and the text. The
+// client turns that id into a player by searching its OWN copy of the player
+// list (CClientExoApp::GetPlayerByGameObjectID, matching CNWCPlayer+0x34), and
+// builds the clickable reply portrait beside the line only on a hit; clicking it
+// fills the chat bar with /tp "<player name>". That +0x34 is written from the
+// object id in a SendServerToPlayerPlayerList_Add/_All entry, which is the
+// player's m_oidNWSObject at the moment of sending -- and the engine sends those
+// only when a player enters the module. Possession moves m_oidNWSObject onto the
+// possessed creature, every line the player sends from then on is stamped with
+// that creature's id, and no client can match it: no portrait, so a tell from a
+// Scar Intruder cannot be answered by clicking it, which gives the invasion away
+// out of character. Read from the 8193.37 server and Linux client disassembly,
+// 2026-09-23.
+//
+// Safe at any point after the player has entered the module (NWNX_Rename warns
+// against sending the list before the engine's own first Add). The client's
+// handler looks the entry up by player id first and updates that row in place,
+// so this never adds a second row, and nothing visible changes: an ordinary
+// entry's name is the net layer's player name, which possession cannot touch,
+// and the character-name block the engine builds follows m_oidMaster back to the
+// PC body whenever the driven creature is not itself flagged a player character
+// (m_bIsPC, which no possession path writes). Mirrors the engine's login
+// broadcast, once to players and once to DMs; NWNX_Rename hooks both sends and
+// applies its overrides exactly as it does at login.
+NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
+{
+    auto oidCreature = args.extract<ObjectID>();
+
+    auto *pPlayer  = FindPlayerForCreature(oidCreature);
+    auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage();
+
+    if (!pPlayer || !pMessage)
+        return {};
+
+    pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_PLAYERS, pPlayer);
+    pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_GAMEMASTERS, pPlayer);
+
+    return {};
+}
+
 NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 {
     auto oidCreature = args.extract<ObjectID>();

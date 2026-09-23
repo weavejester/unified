@@ -42,3 +42,14 @@ file and the next `canon` merge would take the fix with it.
 
 State is per-session, matching the engine flag; the module keeps the player's preference in the PC
 local `IS_FORCE_WALK_ON` and re-pushes it from `pw_mod_enter.nss` on login.
+
+### RefreshPlayerListEntry
+
+`NWNX_Risenholm_RefreshPlayerListEntry(oCreature)` re-sends the player-list entry of the player
+driving or owning `oCreature` to every client. Each client matches a chat line to a player through
+the object id in that entry, and the engine only sends it when a player enters the module, so once
+a player possesses something every line they send carries an object id no client recognises. The
+clickable reply portrait is then never built, and a tell from a Scar Intruder cannot be answered by
+clicking it. The client updates the existing row in place, and the name shown does not change.
+`pw_inc_invader.nss` calls it straight after possessing the Intruder and `pw_mod_unpossesa.nss`
+after every unpossession, which points the entry back at the PC body.

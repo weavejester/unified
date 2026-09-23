@@ -131,6 +131,14 @@ object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int
 /// @param bWalk TRUE to force walking, FALSE to hand the flag back to whatever else wants it.
 void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE);
 
+/// @brief Re-send the player-list entry of the player driving or owning oCreature to every client.
+/// @note Call after possession changes what a player drives. Clients match a chat line to a player
+/// through the object id in this entry, which the engine only sends at login, so while a player is
+/// possessing something their lines get no clickable portrait and a tell from them cannot be
+/// answered by clicking it. The name shown in the player list does not change.
+/// @param oCreature The PC body, or the creature its player is driving.
+void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -280,4 +288,10 @@ void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE)
     NWNXPushInt(bWalk);
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "SetAlwaysWalk");
+}
+
+void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "RefreshPlayerListEntry");
 }
