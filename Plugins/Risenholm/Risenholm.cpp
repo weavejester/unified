@@ -41,6 +41,7 @@
 #include "API/CNWSMessage.hpp"
 #include "API/CNWSPlayerInventoryGUI.hpp"
 #include "API/CExoLinkedListNode.hpp"
+#include "API/CNWSObjectActionNode.hpp"
 
 
 using namespace NWNXLib;
@@ -2077,6 +2078,144 @@ NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
 
     return {};
 } 
+
+// RISENHOLM MODIFICATION: use a single-use Cast Spell item at once.
+//
+// The item counterpart of NWNX_Creature_AddCastSpellActions's bInstant, which
+// the module's QuickPotion Menu uses to drink potions and read scrolls out
+// of combat the way QuickCast's Autocast casts buffs: no action queued, no
+// drink or read animation, no conjure time. The engine offers no such thing
+// for items -- AddItemCastSpellActions has no instant flag -- so this is the
+// completion half of CNWSCreature::AIActionItemCastSpell, done directly.
+// Disassembled at 0x499f60 (8193.37-17); the order of each step below is the
+// engine's.
+//
+// It deliberately goes through CNWSObject::SpellCastAndImpact with the item
+// id, exactly as the engine does, rather than casting the spell some other
+// way. That is what makes the use indistinguishable from an ordinary one to
+// everything downstream: NWNX_ON_CAST_SPELL fires with ITEM_OBJECT_ID set (the
+// module's Stability cost and free item uses live there), GetSpellCastItem
+// returns the item in the spell script, and the caster level is the item's
+// iprp_spells CasterLvl.
+//
+// Consumption also follows the engine, and runs AFTER the cast for the same
+// reason it does there: a free use refunds by adding one to the stack from
+// inside the cast event, and the decrement here then nets it out. The last of
+// a stack is destroyed 500ms after the spell's projectile time rather than on
+// the spot, because the impact script is queued, not run inline, and still
+// needs GetSpellCastItem to answer.
+//
+// Single-use properties only. Charges and uses/day go through other branches
+// of the engine's consumption switch and nothing here needs them.
+NWNX_EXPORT ArgumentStack UseItemInstant(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::PopCreature(args);
+    auto *pItem = Utils::PopItem(args);
+    const auto oidTarget = args.extract<ObjectID>();
+
+    if (!pCreature || !pItem || pCreature->GetDead() || pCreature->GetIsPCDying())
+        return false;
+
+    auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
+    if (!pTarget || pTarget->m_oidArea != pCreature->m_oidArea)
+        return false;
+
+    // Carried by the creature, loose or one bag down -- the same reach the
+    // inventory's own Use has.
+    if (pItem->m_oidPossessor != pCreature->m_idSelf)
+    {
+        auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(pItem->m_oidPossessor));
+        if (!pBag || pBag->m_oidPossessor != pCreature->m_idSelf)
+            return false;
+    }
+
+    if (!pCreature->CanUseItem(pItem, false))
+        return false;
+
+    // Refuse while a spell or item cast is running. Both keep their state in
+    // the very m_nLastSpell* / m_bLastSpellCast fields written below, so
+    // cutting in would clobber the conjure in progress -- with m_bLastSpellCast
+    // left set, its own SpellCastAndImpact would then do nothing at all. 15
+    // and 17 are the ids AddCastSpellActions and AddItemCastSpellActions queue.
+    // Only the head matters: a cast still waiting in the queue writes those
+    // fields afresh when it starts.
+    if (auto *pHead = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal->pHead)
+    {
+        auto *pAction = static_cast<CNWSObjectActionNode*>(pHead->pObject);
+        if (pAction && (pAction->m_nActionId == 15 || pAction->m_nActionId == 17))
+            return false;
+    }
+
+    CNWItemProperty *pProperty = nullptr;
+    for (int32_t i = 0; i < pItem->m_lstActiveProperties.num; i++)
+    {
+        auto *pCandidate = pItem->GetActiveProperty(i);
+
+        if (pCandidate && pCandidate->m_nPropertyName == Constants::ItemProperty::CastSpell &&
+            pCandidate->m_nCostTableValue == 1 && pCandidate->m_bUseable)
+        {
+            pProperty = pCandidate;
+            break;
+        }
+    }
+
+    if (!pProperty)
+        return false;
+
+    auto *pIPRPSpells = Globals::Rules()->m_p2DArrays->GetIPRPSpells();
+    int32_t nSpellId = -1;
+    int32_t nCasterLevel = 0;
+
+    if (!pIPRPSpells->GetINTEntry(pProperty->m_nSubType, "SpellIndex", &nSpellId) || nSpellId < 0)
+        return false;
+
+    pIPRPSpells->GetINTEntry(pProperty->m_nSubType, "CasterLvl", &nCasterLevel);
+
+    // The fields AIActionItemCastSpell fills in just before its own
+    // SpellCastAndImpact call. m_bLastSpellCast in particular must be clear:
+    // SpellCastAndImpact does nothing at all while it is set.
+    const Vector vTarget = pTarget->m_vPosition;
+
+    pCreature->m_oidSpellTarget = oidTarget;
+    pCreature->m_vLastSpellTarget = vTarget;
+    pCreature->m_oidLastSpellTarget = oidTarget;
+    pCreature->m_nLastSpellId = nSpellId;
+    pCreature->m_bLastSpellCast = false;
+    pCreature->m_bLastSpellCastSpontaneous = false;
+    pCreature->m_nLastSpellCastMetaType = 0;
+    pCreature->m_nLastSpellCastFeat = 0xFFFF;
+    pCreature->m_oidLastSpellCastItem = pItem->m_idSelf;
+    pCreature->m_bLastItemCastSpell = true;
+    pCreature->m_nLastItemCastSpellLevel = nCasterLevel;
+    pItem->m_bRecalculateCost = true;
+    pCreature->CalculateLastSpellProjectileTime(0);
+
+    pCreature->SpellCastAndImpact(nSpellId, vTarget, oidTarget, 0xFF, pItem->m_idSelf, false, false, 0, false);
+
+    // The engine's single-use consumption. A plot item's last use leaves the
+    // property spent but keeps the item.
+    bool bDestroy = false;
+
+    if (pItem->m_nStackSize > 1)
+        pItem->m_nStackSize--;
+    else
+    {
+        pProperty->m_bUseable = false;
+        bDestroy = !pItem->m_bPlotObject;
+    }
+
+    if (bDestroy)
+    {
+        Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->AddEventDeltaTime(0,
+            pCreature->m_nLastSpellProjectileTime + 500, pCreature->m_idSelf, pItem->m_idSelf,
+            Constants::AIMasterEvent::DestroyObject);
+    }
+    else
+        pItem->UpdateUsedActiveProperties(false);
+
+    return true;
+}
+// END RISENHOLM MODIFICATION
 
 NWNX_EXPORT ArgumentStack ForceExamineWindow(ArgumentStack&& args)
 {

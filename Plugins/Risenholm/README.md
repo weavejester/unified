@@ -55,6 +55,23 @@ clicking it. The client updates the existing row in place, and the name shown do
 `pw_inc_invader.nss` calls it straight after possessing the Intruder and `pw_mod_unpossesa.nss`
 after every unpossession, which points the entry back at the PC body.
 
+### UseItemInstant
+
+`NWNX_Risenholm_UseItemInstant(oCreature, oItem, oTarget)` uses a single-use Cast Spell property
+at once, with no action, animation, or conjure time: the item counterpart of
+`NWNX_Creature_AddCastSpellActions`' `bInstant`, which `AddItemCastSpellActions` has no equivalent
+of. It performs the completion half of `CNWSCreature::AIActionItemCastSpell` (8193.37, 0x499f60)
+directly: the same creature fields, then `SpellCastAndImpact` with the item id, so
+`NWNX_ON_CAST_SPELL` sees `ITEM_OBJECT_ID` and the spell script sees `GetSpellCastItem` and the
+item's `iprp_spells` `CasterLvl`. Consumption follows afterwards, as the engine's does: one off the
+stack, or for the last one the property spent and the item destroyed 500ms after the projectile time
+(kept if plot). A free use that refunds from inside the cast event therefore nets out.
+
+Refuses while a spell or item cast is at the head of the action queue, since both keep their state
+in the fields this writes. The impact is queued and reads the item caster level off the creature
+when it lands, so several uses need spacing a tick apart -- the module's QuickPotion Autocast
+(`pw_inc_quickpot.nss`) chains them 0.1s apart.
+
 ### Disconnect crash guard
 
 Not an export: a hook on `CServerExoAppInternal::RemovePCFromWorld`. The engine (8193.37) looks up

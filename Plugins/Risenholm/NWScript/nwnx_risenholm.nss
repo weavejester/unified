@@ -80,6 +80,27 @@ int NWNX_Risenholm_GetIsDMManifested(object oCreature);
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
 
+/// @brief Use oItem's single-use Cast Spell property on oTarget at once: no
+/// action, animation, or conjure time. The item counterpart of
+/// NWNX_Creature_AddCastSpellActions' bInstant.
+///
+/// Otherwise indistinguishable from an ordinary use -- NWNX_ON_CAST_SPELL
+/// fires with the item, GetSpellCastItem returns it, the caster level is its
+/// iprp_spells CasterLvl, and one is consumed afterwards the way the engine
+/// consumes it (so a free use that refunds from the cast event nets out).
+///
+/// The spell's impact is queued, and reads the ITEM caster level from
+/// oCreature when it lands. Space several uses at least a tick apart (a
+/// DelayCommand of 0.1 is plenty for a self-target) or they share the last
+/// one's caster level.
+/// @param oCreature The user; must carry oItem, loose or in a bag.
+/// @param oItem The item. Charges and uses/day are not supported.
+/// @param oTarget The target, in oCreature's area.
+/// @return TRUE if the spell was cast. FALSE, with nothing changed, if the
+/// item has no usable single-use Cast Spell property, oCreature cannot use
+/// it, or oCreature is in the middle of casting a spell or using an item.
+int NWNX_Risenholm_UseItemInstant(object oCreature, object oItem, object oTarget);
+
 /// @brief Perform a free attack on oTarget from oCreature
 /// @param oCreature The source of the attack
 /// @param oTarget The target of the attack
@@ -253,6 +274,18 @@ void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem)
 
     NWNXPushObject(oItem);
     NWNXCall(NWNX_Risenholm, sFunc);
+}
+
+int NWNX_Risenholm_UseItemInstant(object oCreature, object oItem, object oTarget)
+{
+    string sFunc = "UseItemInstant";
+
+    NWNXPushObject(oTarget);
+    NWNXPushObject(oItem);
+    NWNXPushObject(oCreature);
+
+    NWNXCall(NWNX_Risenholm, sFunc);
+    return NWNXPopInt();
 }
 
 void NWNX_Risenholm_AddAttackOfOpportunity(object oCreature, object oTarget)
