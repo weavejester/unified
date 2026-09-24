@@ -2082,7 +2082,7 @@ NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
 // RISENHOLM MODIFICATION: use a single-use Cast Spell item at once.
 //
 // The item counterpart of NWNX_Creature_AddCastSpellActions's bInstant, which
-// the module's QuickPotion Menu uses to drink potions and read scrolls out
+// the module's QuickUse Menu uses to drink potions and read scrolls out
 // of combat the way QuickCast's Autocast casts buffs: no action queued, no
 // drink or read animation, no conjure time. The engine offers no such thing
 // for items -- AddItemCastSpellActions has no instant flag -- so this is the

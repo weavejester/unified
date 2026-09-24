@@ -69,8 +69,8 @@ stack, or for the last one the property spent and the item destroyed 500ms after
 
 Refuses while a spell or item cast is at the head of the action queue, since both keep their state
 in the fields this writes. The impact is queued and reads the item caster level off the creature
-when it lands, so several uses need spacing a tick apart -- the module's QuickPotion Autocast
-(`pw_inc_quickpot.nss`) chains them 0.1s apart.
+when it lands, so several uses need spacing a tick apart -- the module's QuickUse Autocast
+(`pw_inc_quickuse.nss`) chains them 0.1s apart.
 
 ### Disconnect crash guard
 
