@@ -1471,6 +1471,133 @@ static Hooks::Hook s_InitializeNumberOfAttacksHook = Hooks::HookFunction(&CNWSCo
 // END RISENHOLM MODIFICATION
 
 
+// ---------------------------------------------------------------------------
+// Ability bonuses from one item stack
+// ---------------------------------------------------------------------------
+//
+// Every Ability Bonus and Decrease Ability property becomes an effect of its
+// own, created by the item with no spell id
+// (CNWSItemPropertyHandler::ApplyAbilityBonus), and stock
+// CNWSCreature::GetTotalEffectBonus then counts only the largest of each
+// item's effects on an ability -- it looks the creator up with
+// GetItemByGameObjectID and keeps one entry per item. So +5 and +1 Strength on
+// one item gave +5, and -2 and -1 gave -2.
+//
+// This replaces the Ability branch, the one GetTotalSTRBonus and its five
+// siblings call on every ability read (nothing caches it), with the stock
+// rules as read from the 8193.37 disassembly (0x45f4f2 onwards) minus the
+// per-item one:
+//
+//  - an effect with a spell id counts only as the largest of that spell's
+//    effects on the ability, bonuses and penalties apart;
+//  - every other effect counts in full, an item's now included;
+//  - bonuses and penalties are totalled separately, each capped by
+//    GetAbilityBonusLimit / GetAbilityPenaltyLimit, and the penalty is taken
+//    from the bonus.
+//
+// Stock keeps at most 50 entries a side and ignores the rest; this tracks at
+// most 50 spells a side the same way. Nothing comes near either.
+//
+// The largest-per-item rule could have been hiding a worn item's effects
+// applied twice, which would now double. Checked there is no such path:
+// CNWSObject::SaveEffectList skips DURATION_TYPE_EQUIPPED, so a relog does not
+// bring equipped effects back from the TURD on top of the re-equip, and
+// NWNX_Risenholm_ApplyItemProperties only wakes a dormant item, whose
+// permanent properties were never applied (pw_inc_loadout decides dormancy
+// before an item goes on, never for one already worn).
+//
+// Every other bonus type goes to the original untouched. NWNX_Feat and
+// NWNX_Race hook this function Early and call through, so they still run.
+//
+// Switch: NWNX_RISENHOLM_STACK_ITEM_ABILITIES (bool, default false).
+
+static bool GetStackItemAbilities()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("STACK_ITEM_ABILITIES", false);
+        LOG_INFO("Ability bonuses from one item stack: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bStackItemAbilitiesLogged = (GetStackItemAbilities(), true);
+
+static Hooks::Hook s_GetTotalEffectBonusHook = Hooks::HookFunction(&CNWSCreature::GetTotalEffectBonus,
+    +[](CNWSCreature *thisPtr, uint8_t nEffectBonusType, CNWSObject *pObject, BOOL bElementalDamage, BOOL bForceMax,
+            uint8_t nSaveType, uint8_t nSpecificType, uint8_t nSkill, uint8_t nAbilityScore, BOOL bOffHand) -> int32_t
+    {
+        if (nEffectBonusType != Constants::EffectBonusType::Ability || !GetStackItemAbilities() || !thisPtr->m_pStats)
+        {
+            return s_GetTotalEffectBonusHook->CallOriginal<int32_t>(thisPtr, nEffectBonusType, pObject, bElementalDamage,
+                                                                    bForceMax, nSaveType, nSpecificType, nSkill,
+                                                                    nAbilityScore, bOffHand);
+        }
+
+        constexpr int32_t MaxSpells = 50;
+
+        struct SpellEntry
+        {
+            uint32_t nSpellId;
+            int32_t nAmount;
+        };
+
+        // [0] bonuses, [1] penalties.
+        SpellEntry spells[2][MaxSpells];
+        int32_t nSpells[2] = {0, 0};
+        int32_t nTotal[2] = {0, 0};
+
+        // The engine keeps applied effects sorted by type, and m_nAbilityPtr
+        // is where the ability ones begin, as stock walks them.
+        auto &effects = thisPtr->m_appliedEffects;
+
+        for (int32_t i = thisPtr->m_pStats->m_nAbilityPtr; i < effects.num; i++)
+        {
+            auto *pEffect = effects.element[i];
+
+            if (pEffect->m_nType < Constants::EffectTrueType::AbilityIncrease ||
+                pEffect->m_nType > Constants::EffectTrueType::AbilityDecrease)
+                break;
+
+            if (pEffect->GetInteger(0) != nAbilityScore)
+                continue;
+
+            const int nSide = pEffect->m_nType == Constants::EffectTrueType::AbilityDecrease ? 1 : 0;
+            const int32_t nAmount = pEffect->GetInteger(1);
+
+            if (pEffect->m_nSpellId == ~0u)
+            {
+                nTotal[nSide] += nAmount;
+                continue;
+            }
+
+            int32_t j = 0;
+
+            while (j < nSpells[nSide] && spells[nSide][j].nSpellId != pEffect->m_nSpellId)
+                j++;
+
+            if (j < nSpells[nSide])
+                spells[nSide][j].nAmount = std::max(spells[nSide][j].nAmount, nAmount);
+            else if (j < MaxSpells)
+                spells[nSide][nSpells[nSide]++] = {pEffect->m_nSpellId, nAmount};
+        }
+
+        for (int nSide = 0; nSide < 2; nSide++)
+        {
+            for (int32_t j = 0; j < nSpells[nSide]; j++)
+                nTotal[nSide] += spells[nSide][j].nAmount;
+        }
+
+        auto *pServerExoApp = Globals::AppManager()->m_pServerExoApp;
+        const int32_t nBonus = std::min(nTotal[0], pServerExoApp->GetAbilityBonusLimit());
+        const int32_t nPenalty = std::min(nTotal[1], pServerExoApp->GetAbilityPenaltyLimit());
+
+        return nBonus - nPenalty;
+    }, Hooks::Order::Final);
+
+
 static Hooks::Hook s_GetDEXModHook = Hooks::HookFunction(&CNWSCreatureStats::GetDEXMod,
     +[](CNWSCreatureStats* thisPtr, BOOL bUseArmourPenalty) -> char
     {
