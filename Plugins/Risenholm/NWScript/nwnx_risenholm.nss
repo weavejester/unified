@@ -101,6 +101,16 @@ void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
 /// it, or oCreature is in the middle of casting a spell or using an item.
 int NWNX_Risenholm_UseItemInstant(object oCreature, object oItem, object oTarget);
 
+/// @brief Apply the properties of an item oCreature is already wearing, as equipping it would.
+/// @note For waking a dormant item (pw_inc_loadout.nss): clear its LOADOUT_DORMANT local first.
+/// While that local is set the plugin keeps every property of the item off its wearer, on
+/// equip, at login, and when a property is added to it, and this refuses too.
+/// @param oCreature The wearer.
+/// @param oItem The item, equipped on oCreature.
+/// @return TRUE if the properties were applied. FALSE if oItem is not worn by oCreature or is
+/// still marked dormant.
+int NWNX_Risenholm_ApplyItemProperties(object oCreature, object oItem);
+
 /// @brief Perform a free attack on oTarget from oCreature
 /// @param oCreature The source of the attack
 /// @param oTarget The target of the attack
@@ -285,6 +295,14 @@ int NWNX_Risenholm_UseItemInstant(object oCreature, object oItem, object oTarget
     NWNXPushObject(oCreature);
 
     NWNXCall(NWNX_Risenholm, sFunc);
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_ApplyItemProperties(object oCreature, object oItem)
+{
+    NWNXPushObject(oItem);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "ApplyItemProperties");
     return NWNXPopInt();
 }
 

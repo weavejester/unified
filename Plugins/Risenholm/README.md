@@ -23,6 +23,32 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `FLAT_FOOTED_STATE` | int | Creature | 1 = Always FlatFooted, 2 = Never FlatFooted |
 | `SNEAK_ATTACK_IMMUNE` | int | Placeable | 1 = Immune to SneakAttacks |
 | `DISABLE_COMBAT_SHUFFLE` | int | Creature | 1 = Disable Combat Shuffle |
+| `LOADOUT_DORMANT` | int | Item | 1 = Dormant: none of its properties reach its wearer (see below) |
+
+### Dormant equipment
+
+Hooks on `CNWSItemPropertyHandler::OnItemPropertyApplied` and `OnItemPropertyRemoved`, at
+`Order::Early` so they sit outside NWNX_Events' hooks on the same functions. While an item carries
+the `LOADOUT_DORMANT` local, both do nothing for its permanent properties: those never reach the
+wearer, whether on equip, at login, or when one is added to it while worn, and skipping the removal
+in step keeps Bonus Spell Slot and Unlimited Ammunition balanced. Temporary properties (an oil,
+Magic Vestment, anything cast on the item) apply as normal. Because the Events hooks are skipped too,
+`NWNX_ON_ITEMPROPERTY_EFFECT_*` does not fire for a dormant item's permanent properties.
+`AddItemCastSpellActions` and `UseItemInstant` refuse a worn dormant item's Cast Spell properties.
+
+The engine runs the module's OnUnequip script before `CNWSItem::RemoveItemProperties`
+(`CNWSCreature::UnequipItem`, 8193.37), so the module must not clear the local from inside
+OnUnequip, or the removal would take off properties that were never applied.
+
+The item itself is untouched, so anything reading its properties still sees them all. The module
+decides what is dormant: see `pw_inc_loadout.nss`, which sets the local before the engine applies
+anything and clears it only after the engine's unequip.
+
+`NWNX_Risenholm_ApplyItemProperties(oCreature, oItem)` wakes an item that is already worn, once its
+local has been cleared: the per-property loop of `CNWSItem::ApplyItemProperties`, over permanent
+properties only (the temporary ones were never held back, so applying them again would stack them),
+then `ComputeArmourClass` and `UpdateCombatInformation`, the steps `CNWSCreature::EquipItem` takes
+around putting an item in its slot.
 
 ### CreateAfterimage
 

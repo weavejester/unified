@@ -23,6 +23,8 @@
 #include "API/CGameEffect.hpp"
 #include "API/CNWSTrigger.hpp"
 #include "API/CNWSEffectListHandler.hpp"
+#include "API/CNWSItemPropertyHandler.hpp"
+#include "API/CNWItemProperty.hpp"
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
 #include <cmath>
@@ -1653,12 +1655,148 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(&CNWSC
         }
     }, Hooks::Order::Final);
 
+// ---------------------------------------------------------------------------
+// Dormant equipment
+// ---------------------------------------------------------------------------
+//
+// A character's loadout is the Bound equipment they last rested in, or last
+// wore at Well Water (pw_inc_loadout.nss). Anything else Bound they put on is
+// DORMANT: it is worn and looks the part, but none of its own properties reach
+// the wearer, so a player can change clothes or swap a helmet for a hat without
+// changing their build. The module marks a dormant item with the
+// LOADOUT_DORMANT local, and this is what honours the mark.
+//
+// Every passive property reaches the wearer through
+// CNWSItemPropertyHandler::OnItemPropertyApplied -- on equip
+// (CNWSItem::ApplyItemProperties, from CNWSCreature::EquipItem), at login (the
+// same call with bLoadingGame set, from ReadItemsFromGff), and when a property
+// is added to an item already worn (CNWSEffectListHandler::OnApplyItemProperty).
+// Read from the 8193.37 decompilation. Refusing it there covers all three, and
+// leaves the item itself untouched: its properties stay on it, so Examine,
+// item value, the orbs, and every other reader still see a whole item.
+//
+// Order::Early puts this outside NWNX_Events' hook on the same function, which
+// sits at Order::Latest, so a dormant item skips that too -- and with it
+// pw_mod_iprpappb, the module's handler for its custom properties (Stamina,
+// Dash Speed, DR Threshold, and the rest), which is what we want.
+//
+// Only the item's own PERMANENT properties sleep. A temporary one is something
+// cast on the item while it is worn -- an oil, a weapon enhancement, Magic
+// Vestment, elemental damage on a monk's gloves -- and the spell paid for it,
+// so it applies whatever the item underneath is doing. The engine keeps the
+// distinction in CNWItemProperty::m_nDurationType, 1 for temporary and 2 for
+// permanent, the same values as the DURATION_TYPE_* constants
+// (CNWSEffectListHandler::OnApplyItemProperty, 8193.37).
+//
+// Removal is refused in step, by the same test. A dormant item's permanent
+// properties were never applied, so there is nothing to take off, and the
+// Events docs warn that skipping the apply of Bonus Spell Slot or Unlimited
+// Ammunition without also skipping its removal goes wrong. The engine runs the
+// module's OnUnequip script BEFORE it removes the properties
+// (CNWSCreature::UnequipItem), so pw_mod_unequ leaves the mark for a zero
+// delay to clear, and both halves see it.
+static bool GetIsItemDormant(CNWSItem *pItem)
+{
+    static CExoString sVarName = "LOADOUT_DORMANT";
+    auto *pScriptVarTable = pItem ? Utils::GetScriptVarTable(pItem) : nullptr;
+    return pScriptVarTable && pScriptVarTable->GetInt(sVarName);
+}
+
+static bool GetIsItemPropertyDormant(CNWSItem *pItem, CNWItemProperty *pItemProperty)
+{
+    constexpr uint8_t DurationTypeTemporary = 1;
+
+    return (!pItemProperty || pItemProperty->m_nDurationType != DurationTypeTemporary) && GetIsItemDormant(pItem);
+}
+
+// For the Cast Spell refusals, which unlike the property hooks can meet an
+// item that is not being worn. The mark is only meant to exist while it is,
+// but an unequip the engine makes without running OnUnequip would leave it
+// behind, and an item in a pack should never be refused for it.
+static bool GetIsWornItemDormant(CNWSItem *pItem)
+{
+    if (!GetIsItemDormant(pItem))
+        return false;
+
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pItem->m_oidPossessor));
+    return pCreature && pCreature->m_pInventory && pCreature->m_pInventory->GetSlotFromItem(pItem);
+}
+
+static Hooks::Hook s_DormantItemPropertyAppliedHook = Hooks::HookFunction(&CNWSItemPropertyHandler::OnItemPropertyApplied,
+    +[](CNWSItemPropertyHandler *thisPtr, CNWSItem *pItem, CNWItemProperty *pItemProperty, CNWSCreature *pCreature,
+            uint32_t nInventorySlot, BOOL bLoadingGame) -> int32_t
+    {
+        if (GetIsItemPropertyDormant(pItem, pItemProperty))
+            return 0;
+
+        return s_DormantItemPropertyAppliedHook->CallOriginal<int32_t>(thisPtr, pItem, pItemProperty, pCreature,
+                                                                       nInventorySlot, bLoadingGame);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_DormantItemPropertyRemovedHook = Hooks::HookFunction(&CNWSItemPropertyHandler::OnItemPropertyRemoved,
+    +[](CNWSItemPropertyHandler *thisPtr, CNWSItem *pItem, CNWItemProperty *pItemProperty, CNWSCreature *pCreature,
+            uint32_t nInventorySlot) -> int32_t
+    {
+        if (GetIsItemPropertyDormant(pItem, pItemProperty))
+            return 0;
+
+        return s_DormantItemPropertyRemovedHook->CallOriginal<int32_t>(thisPtr, pItem, pItemProperty, pCreature,
+                                                                       nInventorySlot);
+    }, Hooks::Order::Early);
+
+// Wakes an item that was dormant while worn, once the module has cleared its
+// LOADOUT_DORMANT mark: at a rest, or on reaching Well Water. The same steps
+// CNWSCreature::EquipItem takes around putting an item in its slot, minus the
+// slot itself, which it already holds. Nothing to do for an item not worn by
+// oCreature -- GetSlotFromItem answers 0 for that.
+//
+// Permanent properties only. CNWSItem::ApplyItemProperties would do the loop
+// below over every passive property, but the temporary ones were never asleep
+// -- the hooks above let them through -- so they are on the wearer already, and
+// applying them again would stack a second Magic Vestment on the first.
+NWNX_EXPORT ArgumentStack ApplyItemProperties(ArgumentStack&& args)
+{
+    constexpr uint8_t DurationTypeTemporary = 1;
+
+    auto *pCreature = Utils::PopCreature(args);
+    auto *pItem = Utils::PopItem(args);
+
+    if (!pCreature || !pItem || GetIsItemDormant(pItem))
+        return false;
+
+    const uint32_t nSlot = pCreature->m_pInventory->GetSlotFromItem(pItem);
+
+    if (!nSlot)
+        return false;
+
+    auto *pAIMaster = Globals::AppManager()->m_pServerExoApp->GetServerAIMaster();
+
+    for (int32_t i = 0; i < pItem->m_lstPassiveProperties.num; i++)
+    {
+        auto *pItemProperty = pItem->GetPassiveProperty(i);
+
+        if (pItemProperty && pItemProperty->m_nDurationType != DurationTypeTemporary)
+            pAIMaster->OnItemPropertyApplied(pItem, pItemProperty, pCreature, nSlot, false);
+    }
+
+    pCreature->ComputeArmourClass(pItem, true, false);
+    pCreature->m_pStats->UpdateCombatInformation();
+
+    return true;
+}
+
 static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(&CNWSCreature::AddItemCastSpellActions,
     +[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
     {
         if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItemUsed)))
         {
+            // A dormant item's Cast Spell properties are as asleep as the rest
+            // of it. pw_mod_useitemb refuses the inventory's Use with a
+            // message; this is the backstop for every other route here.
+            if (GetIsWornItemDormant(pItem))
+                return false;
+
             s_AddItemCastSpellGrenadeAction = pItem->m_nBaseItem == Constants::BaseItem::Grenade;
             auto retVal = s_AddItemCastSpellActionsHook->CallOriginal<int32_t>(thisPtr, oidItemUsed, nActivePropertyIndex,
                                                                                nSubPropertyIndex, vTargetLocation, oidTarget, bAreaTarget, bDecrementCharges);
@@ -2114,6 +2252,11 @@ NWNX_EXPORT ArgumentStack UseItemInstant(ArgumentStack&& args)
     const auto oidTarget = args.extract<ObjectID>();
 
     if (!pCreature || !pItem || pCreature->GetDead() || pCreature->GetIsPCDying())
+        return false;
+
+    // A dormant item's powers are asleep -- see GetIsItemDormant. This skips
+    // AddItemCastSpellActions, so it needs the refusal of its own.
+    if (Risenholm::GetIsWornItemDormant(pItem))
         return false;
 
     auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
