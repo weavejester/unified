@@ -1722,7 +1722,12 @@ static bool GetIsWornItemDormant(CNWSItem *pItem)
     return pCreature && pCreature->m_pInventory && pCreature->m_pInventory->GetSlotFromItem(pItem);
 }
 
-static Hooks::Hook s_DormantItemPropertyAppliedHook = Hooks::HookFunction(&CNWSItemPropertyHandler::OnItemPropertyApplied,
+// Hooked by mangled symbol, as NWNX_Events does, NOT &CNWSItemPropertyHandler::
+// OnItemPropertyApplied: both functions are virtual (overrides of
+// CItemPropertyApplierRemover), so the member pointer holds a vtable offset
+// rather than a code address, and hooking it segfaulted the server as the
+// plugin loaded (2026-09-26).
+static Hooks::Hook s_DormantItemPropertyAppliedHook = Hooks::HookFunction(Functions::_ZN23CNWSItemPropertyHandler21OnItemPropertyAppliedEP8CNWSItemP15CNWItemPropertyP12CNWSCreatureji,
     +[](CNWSItemPropertyHandler *thisPtr, CNWSItem *pItem, CNWItemProperty *pItemProperty, CNWSCreature *pCreature,
             uint32_t nInventorySlot, BOOL bLoadingGame) -> int32_t
     {
@@ -1733,7 +1738,7 @@ static Hooks::Hook s_DormantItemPropertyAppliedHook = Hooks::HookFunction(&CNWSI
                                                                        nInventorySlot, bLoadingGame);
     }, Hooks::Order::Early);
 
-static Hooks::Hook s_DormantItemPropertyRemovedHook = Hooks::HookFunction(&CNWSItemPropertyHandler::OnItemPropertyRemoved,
+static Hooks::Hook s_DormantItemPropertyRemovedHook = Hooks::HookFunction(Functions::_ZN23CNWSItemPropertyHandler21OnItemPropertyRemovedEP8CNWSItemP15CNWItemPropertyP12CNWSCreaturej,
     +[](CNWSItemPropertyHandler *thisPtr, CNWSItem *pItem, CNWItemProperty *pItemProperty, CNWSCreature *pCreature,
             uint32_t nInventorySlot) -> int32_t
     {
