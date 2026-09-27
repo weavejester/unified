@@ -21,6 +21,10 @@ void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature);
 /// @note Works around clients rendering a creature naked when its appearance id is swapped
 /// back to a humanoid form (eg. leaving wildshape) if they entered the area while it was
 /// transformed. Call it right after SetCreatureAppearanceType().
+/// @note Safe to call in the same tick as SetCreatureTailType() or SetCreatureWingType(): every
+/// field of each client's cached appearance is set to an impossible value, so nothing compares
+/// equal and gets skipped. Older builds reset the cache to real values instead, which swallowed
+/// a tail or wing cleared to NONE (0) in the same tick.
 /// @param oCreature The creature whose appearance should be re-sent.
 /// @param bFullObjectUpdate If TRUE, re-send the whole object rather than just the appearance
 /// block. Heavier - only needed if an appearance-only update proves insufficient.

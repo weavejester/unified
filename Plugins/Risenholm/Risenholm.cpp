@@ -2229,11 +2229,56 @@ NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 // animal's (empty) parts. Players present before the swap are unaffected because their
 // cache holds the correct humanoid part data from before.
 //
-// Wiping the cached appearance block makes ComputeAppearanceUpdateRequired flag every
+// Poisoning the cached appearance block makes ComputeAppearanceUpdateRequired flag every
 // field dirty, so the next WriteGameObjUpdate_UpdateAppearance re-sends the whole thing.
 // NWNX_Item_SetItemAppearance already relies on this exact trick, but only invalidates the
 // three armour item oids; a wholesale appearance swap needs the part variations, phenotype,
-// and colours too, hence the full Clear().
+// and colours too.
+//
+// Clear() alone is NOT enough, because it parks every field at a value a creature really
+// holds, and a field that compares equal is never written. The diff is field by field,
+// each with its own dirty bit (tail 0x800, wing 0x1000), and WriteGameObjUpdate_
+// UpdateAppearance writes the tail and wing DWORDs only under those bits. So clearing a
+// tail and calling this in the same tick -- which pw_ee_endwildshp does on every unshift --
+// left the cached tail at Clear()'s 0 and the live tail at CREATURE_TAIL_TYPE_NONE, also 0.
+// The tail delta that would have gone out without this call was cancelled by it, and every
+// observer kept rendering the wildshape tail until an area change rebuilt their cache.
+// (Read from the nwserver 8193.37 disassembly, 2026-09-27.) Every field is therefore set
+// to a value no creature can hold, not just the appearance type.
+//
+// The offsets are the ones ComputeAppearanceUpdateRequired compares, measured from the
+// CLastUpdateObject it is handed.
+static_assert(offsetof(CLastUpdateObject, m_cAppearance) + offsetof(CNWSPlayerLUOAppearanceInfo, m_nAppearanceType) == 0x14);
+static_assert(offsetof(CLastUpdateObject, m_cAppearance) + offsetof(CNWSPlayerLUOAppearanceInfo, m_nTailVariation) == 0x44);
+static_assert(offsetof(CLastUpdateObject, m_cAppearance) + offsetof(CNWSPlayerLUOAppearanceInfo, m_nWingVariation) == 0x48);
+static void PoisonAppearanceCache(CNWSPlayerLUOAppearanceInfo &cAppearance)
+{
+    cAppearance.Clear();
+
+    // Item oids and weapon VFX all feed the one items bit, 0x200.
+    cAppearance.m_oidLeftHandItem   = 0xFFFFFFFF;
+    cAppearance.m_oidRightHandItem  = 0xFFFFFFFF;
+    cAppearance.m_oidChestItem      = 0xFFFFFFFF;
+    cAppearance.m_oidHeadItem       = 0xFFFFFFFF;
+    cAppearance.m_oidCloakItem      = 0xFFFFFFFF;
+    cAppearance.m_nRightHandItemVFX = 0xFF;
+    cAppearance.m_nLeftHandItemVFX  = 0xFF;
+
+    cAppearance.m_nAppearanceType = 0xFFFF;
+    cAppearance.m_nPhenoType      = 0xFF;
+    cAppearance.m_nGender         = 0xFF;
+    cAppearance.m_nSkinColor      = 0xFF;
+    cAppearance.m_nHairColor      = 0xFF;
+    cAppearance.m_nTattooColor1   = 0xFF;
+    cAppearance.m_nTattooColor2   = 0xFF;
+    cAppearance.m_nHeadVariation  = 0xFFFF;
+    cAppearance.m_nTailVariation  = 0xFFFFFFFF;
+    cAppearance.m_nWingVariation  = 0xFFFFFFFF;
+
+    for (auto &nPart : cAppearance.m_pPartVariation)
+        nPart = 0xFFFF;
+}
+
 NWNX_EXPORT ArgumentStack ForceAppearanceUpdate(ArgumentStack&& args)
 {
     auto oidCreature      = args.extract<ObjectID>();
@@ -2257,11 +2302,7 @@ NWNX_EXPORT ArgumentStack ForceAppearanceUpdate(ArgumentStack&& args)
         }
         else if (auto *pLUO = pPlayer->GetLastUpdateObject(oidCreature))
         {
-            pLUO->m_cAppearance.Clear();
-            // Clear() parks m_nAppearanceType at 0, which is a real appearances.2da row --
-            // a creature actually using row 0 would compare equal and get no update. Force
-            // an impossible value so the appearance-type bit is always dirty.
-            pLUO->m_cAppearance.m_nAppearanceType = 0xFFFF;
+            PoisonAppearanceCache(pLUO->m_cAppearance);
         }
     }
 
