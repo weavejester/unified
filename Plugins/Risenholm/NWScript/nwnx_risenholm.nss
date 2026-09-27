@@ -30,6 +30,17 @@ void NWNX_Risenholm_ForceUpdateMageArmorStats(object oCreature);
 /// block. Heavier - only needed if an appearance-only update proves insufficient.
 void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdate = FALSE);
 
+/// @brief Reload oCreature's body parts on every client that sees it, with no visible swap.
+/// @note Works around a client bug: when a texture-replacing VFX (Stoneskin, Petrify, the jewel
+/// skins...) ends, the client re-tints every body part with ONE stored colour set, so armour with
+/// per-part colours comes back wearing one part's colours everywhere. The plugin already does
+/// this on its own whenever such an effect is removed; call it by hand only for a creature whose
+/// parts got out of step some other way. A plain appearance re-send cannot fix it: the client
+/// reloads only parts whose model changed, so this sends every part as empty and then as it is,
+/// both in one message, which the client applies before it draws a frame.
+/// @param oCreature The creature whose body parts should be reloaded.
+void NWNX_Risenholm_RefreshBodyParts(object oCreature);
+
 /// @brief Executes an external command in a child process and returns STDOUT as a string.
 /// @note Use only when necessary, keep user-alterable data to a minimum, or ideally zero.
 /// @param sCmd The path of the command to execute
@@ -269,6 +280,12 @@ void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdat
     NWNXPushInt(bFullObjectUpdate);
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "ForceAppearanceUpdate");
+}
+
+void NWNX_Risenholm_RefreshBodyParts(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "RefreshBodyParts");
 }
 
 string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2="", string sArg3="", string sArg4="", string sArg5="", string sArg6="")

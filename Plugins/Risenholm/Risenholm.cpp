@@ -44,6 +44,10 @@
 #include "API/CNWSPlayerInventoryGUI.hpp"
 #include "API/CExoLinkedListNode.hpp"
 #include "API/CNWSObjectActionNode.hpp"
+#include "API/CLastUpdateObject.hpp"
+#include "API/C2DA.hpp"
+#include <chrono>
+#include <cstring>
 
 
 using namespace NWNXLib;
@@ -2305,6 +2309,197 @@ NWNX_EXPORT ArgumentStack ForceAppearanceUpdate(ArgumentStack&& args)
             PoisonAppearanceCache(pLUO->m_cAppearance);
         }
     }
+
+    return {};
+}
+
+// ---------------------------------------------------------------------------
+// Body parts re-tinted after a texture-replacing VFX
+//
+// When a duration VFX whose progfx.2da row is Type 1 (a texture replace:
+// Stoneskin, Petrify, the jewel and bone skins, ShadowSkin, IceSkin...) ends,
+// the client puts each body part's PLT back through
+// CNWCAnimBaseParts::RestoreTexture, which re-applies every part with ONE
+// stored block of ten palette colours -- the block written by the last part
+// loaded (CNWCAnimBaseParts::ReplaceTexture keeps the resref per part but the
+// colours in a single buffer at +0x18). Armour coloured per part
+// (ITEM_APPR_TYPE_ARMOR_COLOR 6..119, the tailor's per-part mode) therefore
+// comes back with one part's colours on all of them, usually the untouched
+// whole-piece "defaults". Whole-piece colours are identical on every part and
+// survive. Read from nwmain-linux 8193.37 and reproduced in game 2026-09-27
+// with two tailor dummies in the same padded armour.
+//
+// Nothing the server re-sends repairs that on its own: the client only
+// reloads a part whose VARIATION differs from the one it has
+// (CNWCCreatureAppearance::CreateBodyParts skips the rest), so
+// ForceAppearanceUpdate, its full-object variant, and an NWNX unequip+equip
+// were each tried in game and changed nothing. A player's own re-equip works
+// because the parts go naked and come back.
+//
+// So that is what this does, invisibly. On the first object update the
+// player receives after the effect is removed -- the one carrying the VFX
+// 'D' delta, and WriteGameObjUpdate_UpdateObject writes the appearance block
+// BEFORE the 'U' block holding the VFX list -- two more appearance blocks are
+// appended: the chest item gone and every part variation 0 (parts unloaded),
+// then the chest item back and the real values. The client handles a whole
+// message before it renders, so the parts reload with the right per-part
+// colours and no frame ever shows the swap.
+// Whole-piece armour gets the same treatment: two small blocks and one reload
+// of the equipped parts is cheaper than telling the two apart.
+// ---------------------------------------------------------------------------
+
+static_assert(offsetof(CNWSCreature, m_cAppearance) + offsetof(CNWSCreatureAppearanceInfo, m_pPartVariation) == 0xa74);
+
+// (player id << 32 | creature oid) -> when it was queued. Consumed by the
+// update hook below; an entry the player's updates never reach (they stopped
+// seeing the creature) is dropped, unused, once it is older than a few seconds.
+static std::unordered_map<uint64_t, std::chrono::steady_clock::time_point> s_PendingPartRefresh;
+
+// Make the player's next tick carry an appearance update for the creature
+// even if nothing changed: a cached part value no creature has. The client
+// gets the real value, which it already has, and ignores it. Only works
+// BEFORE the tick's compare; the caller stores the tick's fields into the
+// cache right after the update hook, which undoes a poison set there.
+static void PoisonPartCache(CLastUpdateObject *pLUO)
+{
+    pLUO->m_cAppearance.m_pPartVariation[0] = 0xFFFF;
+}
+
+static uint64_t PartRefreshKey(uint32_t nPlayerId, ObjectID oidCreature)
+{
+    return (uint64_t(nPlayerId) << 32) | oidCreature;
+}
+
+// visualeffects.2da ProgFX_Duration -> progfx.2da Type == 1.
+static bool IsTextureReplaceVfx(int32_t nRow)
+{
+    static std::unordered_map<int32_t, bool> s_Cache;
+
+    auto it = s_Cache.find(nRow);
+    if (it != s_Cache.end())
+        return it->second;
+
+    // Through the name cache, not the fixed table slots: the dedicated server
+    // never fills the progfx slot (CTwoDimArrays::Load2DArrays loads it in a
+    // client-only block), so GetProgFxTable() is null here and a check built
+    // on it was silently false for every row (2026-09-27).
+    bool bReplace = false;
+    int32_t nProgFx = 0, nType = 0;
+    auto *pVfx    = Globals::Rules()->m_p2DArrays->GetCached2DA("visualeffects", true);
+    auto *pProgFx = Globals::Rules()->m_p2DArrays->GetCached2DA("progfx", true);
+
+    if (pVfx && pProgFx
+        && pVfx->GetINTEntry(nRow, "ProgFX_Duration", &nProgFx)
+        && pProgFx->GetINTEntry(nProgFx, "Type", &nType))
+        bReplace = nType == 1;
+
+    s_Cache[nRow] = bReplace;
+    return bReplace;
+}
+
+// Queue the refresh for every player currently tracking the creature.
+// bForceUpdate poisons each player's cached part list so the next tick sends
+// an update even when nothing else changed; the script export needs that,
+// whereas a VFX removal already brings its own 'D'.
+static void QueueBodyPartRefresh(CNWSCreature *pCreature, bool bForceUpdate)
+{
+    int32_t nQueued = 0;
+    bool bHasParts = false;
+    for (uint16_t nPart : pCreature->m_cAppearance.m_pPartVariation)
+        bHasParts |= nPart != 0;
+
+    if (!bHasParts)                                  // not a part-based body
+        return;
+
+    auto tNow = std::chrono::steady_clock::now();
+
+    for (auto *pPlayer : Globals::AppManager()->m_pServerExoApp->GetPlayerList())
+    {
+        auto *pLUO = pPlayer->GetLastUpdateObject(pCreature->m_idSelf);
+        if (!pLUO)
+            continue;
+
+        s_PendingPartRefresh[PartRefreshKey(pPlayer->m_nPlayerID, pCreature->m_idSelf)] = tNow;
+        nQueued++;
+
+        if (bForceUpdate)
+            PoisonPartCache(pLUO);
+    }
+
+    LOG_DEBUG("Body part refresh queued for creature %x on %d player(s)", pCreature->m_idSelf, nQueued);
+}
+
+static Hooks::Hook s_OnRemoveVisualEffectHook = Hooks::HookFunction(&CNWSEffectListHandler::OnRemoveVisualEffect,
+    +[](CNWSEffectListHandler *pThis, CNWSObject *pObject, CGameEffect *pEffect) -> int32_t
+    {
+        int32_t nRet = s_OnRemoveVisualEffectHook->CallOriginal<int32_t>(pThis, pObject, pEffect);
+
+        if (auto *pCreature = Utils::AsNWSCreature(pObject))
+            if (IsTextureReplaceVfx(pEffect->GetInteger(0)))
+                QueueBodyPartRefresh(pCreature, false);
+
+        return nRet;
+    }, Hooks::Order::Late);
+
+static Hooks::Hook s_WriteGameObjUpdate_UpdateObjectHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO,
+        uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        s_WriteGameObjUpdate_UpdateObjectHook->CallOriginal<void>(pThis, pPlayer, pObject, pLUO,
+            nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+
+        // Party members come through here with no LUO: nothing to refresh.
+        if (!pLUO || s_PendingPartRefresh.empty())
+            return;
+
+        auto it = s_PendingPartRefresh.find(PartRefreshKey(pPlayer->m_nPlayerID, pObject->m_idSelf));
+        if (it == s_PendingPartRefresh.end())
+            return;
+
+        auto *pCreature = Utils::AsNWSCreature(pObject);
+        bool bFresh = std::chrono::steady_clock::now() - it->second < std::chrono::seconds(10);
+        s_PendingPartRefresh.erase(it);
+
+        if (!bFresh || !pCreature)
+            return;
+
+        // Written into the update carrying the removal, i.e. right behind the
+        // VFX 'D' in the same message. That is the write that works: in game
+        // (2026-09-27) a cycle sent only in a LATER tick, after the client had
+        // swept the stopped effect, re-tinted some parts and left others,
+        // however often it was repeated, whereas this one restored every part.
+        LOG_DEBUG("Body part refresh written for creature %x to player %d", pObject->m_idSelf, pPlayer->m_nPlayerID);
+
+        // Parts (0x100) and equipped items (0x200) together: the chest item
+        // has to leave and come back with the parts, because the client keeps
+        // the per-part colours only as long as it does. Its chest-delete
+        // branch wipes them to "no override" and its chest-add branch re-reads
+        // them from the item before the rebuild; a parts-only pair was tried
+        // first and re-tinted just some of the parts.
+        static constexpr uint32_t APPEARANCE_PARTS_AND_ITEMS = 0x300;
+        auto &cAppearance = pCreature->m_cAppearance;
+        uint16_t nSavedParts[19];
+        memcpy(nSavedParts, cAppearance.m_pPartVariation, sizeof(nSavedParts));
+        const ObjectID oidChest = cAppearance.m_oidChestItem;
+
+        // Both blocks list only what differs from the player's cached copy, so
+        // the cache has to follow each write, or the second block would be
+        // empty and the client would keep the unloaded parts.
+        memset(cAppearance.m_pPartVariation, 0, sizeof(nSavedParts));
+        cAppearance.m_oidChestItem = Constants::OBJECT_INVALID;
+        pThis->WriteGameObjUpdate_UpdateAppearance(pObject, pLUO, APPEARANCE_PARTS_AND_ITEMS, pPlayer);
+        pThis->UpdateLastUpdateObjectAppearance(pObject, pLUO, APPEARANCE_PARTS_AND_ITEMS);
+
+        memcpy(cAppearance.m_pPartVariation, nSavedParts, sizeof(nSavedParts));
+        cAppearance.m_oidChestItem = oidChest;
+        pThis->WriteGameObjUpdate_UpdateAppearance(pObject, pLUO, APPEARANCE_PARTS_AND_ITEMS, pPlayer);
+        pThis->UpdateLastUpdateObjectAppearance(pObject, pLUO, APPEARANCE_PARTS_AND_ITEMS);
+    }, Hooks::Order::Late);
+
+NWNX_EXPORT ArgumentStack RefreshBodyParts(ArgumentStack&& args)
+{
+    if (auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>())))
+        QueueBodyPartRefresh(pCreature, true);
 
     return {};
 }

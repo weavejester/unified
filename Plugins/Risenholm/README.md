@@ -82,6 +82,28 @@ clicking it. The client updates the existing row in place, and the name shown do
 `pw_inc_invader.nss` calls it straight after possessing the Intruder and `pw_mod_unpossesa.nss`
 after every unpossession, which points the entry back at the PC body.
 
+### RefreshBodyParts
+
+`NWNX_Risenholm_RefreshBodyParts(oCreature)` reloads a creature's body parts on every client that
+tracks it, without a visible swap, and the plugin calls the same thing itself whenever a
+texture-replacing VFX (visualeffects.2da `ProgFX_Duration` pointing at a progfx.2da row of Type 1:
+Stoneskin, Greater Stoneskin, Petrify, the jewel and bone skins, ShadowSkin, IceSkin) is removed
+from a part-based creature.
+
+The bug it covers is in the client. When such an effect ends, `CNWCAnimBaseParts::RestoreTexture`
+re-tints every part with ONE stored set of ten palette colours, the set the last part loaded wrote,
+so armour coloured per part (`ITEM_APPR_TYPE_ARMOR_COLOR` indices 6-119, the tailor's per-part
+mode) comes back wearing one part's colours everywhere, usually the whole-piece defaults.
+Whole-piece colours are the same on every part and survive. Re-sending the appearance does not
+help: the client only reloads a part whose variation differs from the one it has, which is also
+why a player's own re-equip (parts go naked, then come back) does. So the hook on
+`CNWSMessage::WriteGameObjUpdate_UpdateObject` appends two extra appearance blocks to the first
+update after the removal, the one already carrying the VFX delete: the chest item gone and every
+part as 0, then the chest item back and the real values, which is what a real re-equip sends over
+two ticks (the chest-delete branch wipes the client's per-part colours and the chest-add branch
+re-reads them from the item; parts alone re-tint only some of them). The client processes a whole
+message before it renders, so nothing flickers.
+
 ### UseItemInstant
 
 `NWNX_Risenholm_UseItemInstant(oCreature, oItem, oTarget)` uses a single-use Cast Spell property
