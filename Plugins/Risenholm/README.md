@@ -175,3 +175,15 @@ that character's UUID, and it is not equipped, the name is sent with a second li
 swapped only for the length of the call, so everyone else -- a searcher, a barter partner -- gets the
 real name. Unidentified items show their base name on the client whatever is sent, so they do not
 show the line.
+
+### SetDamageBonusLimit
+
+`NWNX_Risenholm_SetDamageBonusLimit(nLimit)` sets the damage bonus limit for the running module past
+the 255 that the NWScript `SetDamageBonusLimit` allows. The engine clamps the physical damage bonus
+from effects, summed across all of them, to this limit in `CNWSCreatureStats::GetDamageRoll`
+(`GetTotalEffectBonus` with `bElementalDamage` off returns `min(increases, limit) - min(decreases,
+limit)`); elemental types go through `ResolveElementalDamage` and are never clamped. The script
+command runs its value through the `DamageBonusLimit` server setting's 0-255 constraint; this calls
+`CServerExoApp::SetDamageBonusLimit` with `isModuleOverride` directly, which writes the same override
+without it. `GetDamageRoll` carries the total in a short, so keep it under 32767. `pw_mod_load.nss`
+calls it, because the threat system's Elite Solo creatures carry physical bonuses near 300.

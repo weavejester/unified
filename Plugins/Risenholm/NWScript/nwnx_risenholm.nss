@@ -200,6 +200,14 @@ void NWNX_Risenholm_ClearConcealedItems(object oViewer);
 /// @return TRUE if registered, FALSE otherwise -- including on a plugin build without concealment.
 int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem);
 
+/// @brief Set the damage bonus limit for the running module, past the 255 SetDamageBonusLimit allows.
+/// @note The engine clamps the PHYSICAL damage bonus from effects to this limit, summed across
+/// every effect (CNWSCreatureStats::GetDamageRoll); elemental types are never clamped. The script
+/// command only accepts 0-255, the range of the DamageBonusLimit server setting; this writes the same
+/// module override the engine reads, without that range check. Lasts until the module unloads.
+/// @param nLimit The new limit, 0 or more.
+void NWNX_Risenholm_SetDamageBonusLimit(int nLimit);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -404,4 +412,10 @@ int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem)
     NWNXPushObject(oViewer);
     NWNXCall(NWNX_Risenholm, "GetIsItemConcealedFrom");
     return NWNXPopInt();
+}
+
+void NWNX_Risenholm_SetDamageBonusLimit(int nLimit)
+{
+    NWNXPushInt(nLimit);
+    NWNXCall(NWNX_Risenholm, "SetDamageBonusLimit");
 }

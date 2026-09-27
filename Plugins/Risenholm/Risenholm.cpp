@@ -3447,3 +3447,35 @@ static Hooks::Hook s_HiddenNameExamineItemHook = Hooks::HookFunction(&CNWSMessag
         HiddenItemNameScope scope(pPlayer, Utils::AsNWSItem(Utils::GetGameObject(oidItem)));
         return s_HiddenNameExamineItemHook->CallOriginal<int32_t>(pThis, pPlayer, oidItem);
     }, Hooks::Order::Latest);
+
+// ---------------------------------------------------------------------------
+// Damage bonus limit
+// ---------------------------------------------------------------------------
+//
+// CNWSCreatureStats::GetDamageRoll adds the PHYSICAL damage bonus from effects
+// to the weapon roll, and takes it from CNWSCreature::GetTotalEffectBonus with
+// bElementalDamage off, which returns min(increases, limit) - min(decreases,
+// limit) where limit is CServerExoApp::GetDamageBonusLimit() -- 100 by
+// default. Elemental types go through ResolveElementalDamage instead, which
+// adds each one straight onto the attack and never meets the limit (it skips
+// damage indices 0-2, bludgeoning/piercing/slashing, so the physical ones are
+// only ever counted in GetDamageRoll). Read from the 8193.37 disassembly.
+//
+// The module's threat system gives an Elite Solo creature a physical bonus of
+// nearly 300, so every one of them was quietly hitting for +100.
+//
+// SetDamageBonusLimit the NWScript command can only go to 255: it passes the
+// value through the DamageBonusLimit server setting's constraints before
+// storing it. The engine setter itself takes any int, and with
+// isModuleOverride writes the override that GetDamageBonusLimit returns
+// whenever it is not negative. GetDamageRoll carries the total in a short, so
+// anything up to 32767 survives the trip. Nothing else reads the limit.
+NWNX_EXPORT ArgumentStack SetDamageBonusLimit(ArgumentStack&& args)
+{
+    const auto nLimit = args.extract<int32_t>();
+    ASSERT_OR_THROW(nLimit >= 0);
+
+    Globals::AppManager()->m_pServerExoApp->SetDamageBonusLimit(nLimit, true);
+
+    return {};
+}
