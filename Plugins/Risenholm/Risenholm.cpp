@@ -418,6 +418,129 @@ static Hooks::Hook s_ItemAIUpdateHook = Hooks::HookFunction(Functions::_ZN8CNWSI
 
 
 // ---------------------------------------------------------------------------
+// NWNX_RISENHOLM_ON_REPOSITORY_MOVE_BEFORE/_AFTER: an item dragged into or
+// within a bag
+//
+// BEFORE is signalled when an item is dragged into an item container, or from
+// one slot of it to another, before the engine does anything, with the same
+// OBJECT_SELF and ITEM as AFTER below. NWNX_Events_SkipEvent refuses the move
+// the way the engine refuses one itself -- it tells the client the move is
+// cancelled, which puts the item back where it was dragged from, and fails
+// the action -- so nothing has been taken from anywhere yet and nothing can be
+// lost. This is the safe place to keep an item out of a bag. Skipping
+// NWNX_ON_INVENTORY_ADD_ITEM_BEFORE is not: CNWSItem::AcquireItem removes the
+// item from where it was before it calls AddItem, and if that fails it just
+// returns, leaving the item in neither place. The Scroll Case uses this to
+// refuse anything that is not a scroll (pw_inc_scrlcase.nss).
+//
+// The cancel's BOOL says which inventory panel the client restores the item
+// to: FALSE the player's own, TRUE the other-inventory panel of whatever else
+// it came from, such as a chest being looted. The engine's own refusals (the
+// feedback 0xf6 path, 0x4a4a4c) set it the same way: TRUE when the item's
+// owner is neither the mover nor nothing.
+//
+// Dragging an item from one slot of a bag to another is
+// CNWSCreature::AIActionRepositoryMove, which calls CItemRepository::MoveItem
+// and nothing else -- no AddItem, no RemoveItem -- so the Events plugin's
+// NWNX_ON_INVENTORY_ADD/REMOVE_ITEM never fire for it, and neither does any
+// script event. The Scroll Case window (pw_inc_scrlcase.nss) mirrors its
+// case's layout slot for slot, and needs to hear of it.
+//
+// So after the action, if the item ended up inside an item container, this
+// signals NWNX_RISENHOLM_ON_REPOSITORY_MOVE_AFTER through the Events plugin,
+// for a script subscribed with NWNX_Events_SubscribeEvent:
+//
+//     OBJECT_SELF = the container
+//     ITEM        = the item moved (event data, an object id string)
+//
+// The same action also carries an item from the creature's own inventory
+// into a bag (through AddItem, which the Events plugin does see), so that
+// signals here too. So does dropping an item onto a matching stack in the
+// bag, which merges it in and destroys it -- the item is gone by the time
+// this looks, but the stack it joined has grown. A move the engine refused
+// leaves the item where it was, outside the container, and a move out to
+// the creature's own inventory has no container, so neither signals.
+//
+// The action's parameters, read from the disassembly (nwserver 8193.37): 0 is
+// the item, 1 the container it goes into (INVALID for the creature's own
+// inventory), 2 and 3 its x and y. They are read before the original runs:
+// the node belongs to the action queue.
+// ---------------------------------------------------------------------------
+
+static_assert(offsetof(CNWSObjectActionNode, m_pParameter) == 0x38, "CNWSObjectActionNode layout changed");
+
+// CNWSObject::ACTION_FAILED, read from the binary's .rodata (0xb42038, 8193.37):
+// ACTION_IN_PROGRESS is 1, ACTION_COMPLETE 2, ACTION_FAILED 3. NWNXLib does
+// not declare them.
+static constexpr uint32_t ACTION_FAILED = 3;
+
+// Set by the Events plugin's NWNX_EVENT_SIGNAL_EVENT_SKIPPED broadcast, which
+// it sends synchronously at the end of every signal, before the broadcast
+// that signalled it returns.
+static bool s_bRepositoryMoveSkipped = false;
+
+static auto s_idRepositoryMoveSkipped = MessageBus::Subscribe("NWNX_EVENT_SIGNAL_EVENT_SKIPPED",
+    [](const std::vector<std::string> &message)
+    {
+        if (message.size() == 2 && message[0] == "NWNX_RISENHOLM_ON_REPOSITORY_MOVE_BEFORE")
+            s_bRepositoryMoveSkipped = message[1] == "1";
+    });
+
+static Hooks::Hook s_RepositoryMoveHook = Hooks::HookFunction(&CNWSCreature::AIActionRepositoryMove,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        auto oidItem      = static_cast<ObjectID>(pNode->m_pParameter[0]);
+        auto oidContainer = static_cast<ObjectID>(pNode->m_pParameter[1]);
+
+        auto *pServer = Globals::AppManager()->m_pServerExoApp;
+
+        {
+            auto *pItem      = pServer->GetItemByGameObjectID(oidItem);
+            auto *pContainer = pServer->GetItemByGameObjectID(oidContainer);
+
+            if (pItem && pContainer && pContainer->m_pItemRepository)
+            {
+                s_bRepositoryMoveSkipped = false;
+
+                MessageBus::Broadcast("NWNX_EVENT_PUSH_EVENT_DATA", {"ITEM", Utils::ObjectIDToString(oidItem)});
+                MessageBus::Broadcast("NWNX_EVENT_SIGNAL_EVENT", {"NWNX_RISENHOLM_ON_REPOSITORY_MOVE_BEFORE", Utils::ObjectIDToString(oidContainer)});
+
+                if (s_bRepositoryMoveSkipped)
+                {
+                    // The item's top-level owner: its possessor, or the
+                    // possessor of the bag it is in.
+                    ObjectID oidOwner = pItem->m_oidPossessor;
+
+                    if (auto *pOwnerItem = pServer->GetItemByGameObjectID(oidOwner))
+                        oidOwner = pOwnerItem->m_oidPossessor;
+
+                    if (auto *pPlayer = pServer->GetClientObjectByObjectId(pCreature->m_idSelf))
+                    {
+                        pServer->GetNWSMessage()->SendServerToPlayerInventory_RepositoryMoveCancel(pPlayer->m_nPlayerID, oidItem,
+                            oidOwner != pCreature->m_idSelf && oidOwner != Constants::OBJECT_INVALID);
+                    }
+
+                    return ACTION_FAILED;
+                }
+            }
+        }
+
+        auto nResult = s_RepositoryMoveHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        auto *pItem      = pServer->GetItemByGameObjectID(oidItem);
+        auto *pContainer = pServer->GetItemByGameObjectID(oidContainer);
+
+        if (pContainer && pContainer->m_pItemRepository && (!pItem || pItem->m_oidPossessor == oidContainer))
+        {
+            MessageBus::Broadcast("NWNX_EVENT_PUSH_EVENT_DATA", {"ITEM", Utils::ObjectIDToString(oidItem)});
+            MessageBus::Broadcast("NWNX_EVENT_SIGNAL_EVENT", {"NWNX_RISENHOLM_ON_REPOSITORY_MOVE_AFTER", Utils::ObjectIDToString(oidContainer)});
+        }
+
+        return nResult;
+    });
+
+
+// ---------------------------------------------------------------------------
 // RunScript ON_REMOVED when the host creature is destroyed
 // ---------------------------------------------------------------------------
 //

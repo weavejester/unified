@@ -5,6 +5,24 @@
 
 const string NWNX_Risenholm = "NWNX_Risenholm"; ///< @private
 
+/// @brief Signalled through the Events plugin after an item is moved within a
+/// bag -- from one slot to another, or merged onto a stack there -- or carried
+/// into one from its owner's inventory. Subscribe with NWNX_Events_SubscribeEvent.
+/// A move within a bag fires no NWNX_ON_INVENTORY_* event, so this is the only
+/// way to hear of it.
+///
+/// OBJECT_SELF is the bag. Event data ITEM is the item moved (StringToObject);
+/// it is no longer valid if it was merged onto a stack.
+const string NWNX_RISENHOLM_ON_REPOSITORY_MOVE_AFTER = "NWNX_RISENHOLM_ON_REPOSITORY_MOVE_AFTER";
+
+/// @brief Signalled through the Events plugin when an item is dragged into a bag,
+/// or from one slot of it to another, before the engine moves it. Same OBJECT_SELF
+/// and ITEM as NWNX_RISENHOLM_ON_REPOSITORY_MOVE_AFTER. NWNX_Events_SkipEvent
+/// refuses the move: the client is told it is cancelled and puts the item back
+/// where it was dragged from, and nothing is lost. This is the safe way to keep
+/// an item out of a bag; skipping NWNX_ON_INVENTORY_ADD_ITEM_BEFORE is not.
+const string NWNX_RISENHOLM_ON_REPOSITORY_MOVE_BEFORE = "NWNX_RISENHOLM_ON_REPOSITORY_MOVE_BEFORE";
+
 /// @brief Set a PC like/dislike status on the player list without changing their hostility.
 /// @param oSourcePC The source PC.
 /// @param oTargetPC The target PC.
