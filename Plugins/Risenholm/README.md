@@ -142,6 +142,17 @@ creature that has stopped being their familiar therefore gets that NPC written o
 the same way and refuses, with a warning naming the player and the creature, to write anything
 that is not a player character. The player keeps their last good file.
 
+### Unpossess refusal guard
+
+Not an export: a hook on `CNWSCreature::UnpossessFamiliar`. The engine (8193.37) refuses to
+unpossess, changing nothing, when the possessor or its familiar has no area, e.g. while the
+possessed creature is mid-jump and its client loads the destination. `NWNX_Player`'s own hook on the
+same function cuts the familiar link afterwards regardless, which left a player driving a creature
+that was no longer their familiar and could never be unpossessed (production, 2026-09-27). The hook
+applies the engine's own test first and, when it would refuse, returns before the engine and
+`NWNX_Player` run, keeping the link so a later unpossess can succeed. It is here rather than in
+`Plugins/Player` so that an upstream merge cannot lose it.
+
 ### Read-only inventories of other creatures
 
 Not a switch: hooks on `CNWSMessage::HandlePlayerToServerInventoryMessage`, `...InputMessage`,

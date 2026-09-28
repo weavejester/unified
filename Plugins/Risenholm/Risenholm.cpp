@@ -2335,6 +2335,43 @@ static Hooks::Hook s_SaveServerCharacterHook = Hooks::HookFunction(&CNWSPlayer::
         return s_SaveServerCharacterHook->CallOriginal<int32_t>(pPlayer, bBackupPlayer);
     }, Hooks::Order::Earliest);
 
+// CNWSCreature::UnpossessFamiliar (8193.37) refuses, doing nothing at all but
+// log "Unable to unpossess familiar. Player has no valid area.", when its
+// first familiar exists but either the possessor or that familiar has no
+// area -- e.g. the possessed creature is mid-jump while its client loads the
+// destination. NWNX_Player's own hook on it, which PossessCreature installs,
+// calls the engine and then cuts the associate link and restores the
+// creature's old associate type WITHOUT checking whether the unpossess
+// happened. After a refusal the player was left driving a creature that was
+// no longer their familiar, which nothing could unpossess afterwards: the
+// orphaned Intruder of 2026-09-27.
+//
+// When the engine is going to refuse, return before the hook chain, so
+// neither the engine nor NWNX_Player's bookkeeping runs and the link survives
+// for a later unpossess to succeed. The test is the engine's own, read from
+// the 8193.37 decompile: the creature behind GetAssociateId(FAMILIAR, 1), then
+// GetArea on it and on the possessor. Earliest, so this runs before
+// NWNX_Player's Early hook however late that one is installed -- NWNX keeps
+// hooks sorted by order, not by when they were made.
+//
+// This lives here rather than as a fix inside Plugins/Player, which comes from
+// upstream and would lose the change at the next merge.
+static Hooks::Hook s_UnpossessFamiliarHook = Hooks::HookFunction(&CNWSCreature::UnpossessFamiliar,
+    +[](CNWSCreature *pPossessor) -> void
+    {
+        auto *pServer   = Globals::AppManager()->m_pServerExoApp;
+        auto *pFamiliar = pServer->GetCreatureByGameObjectID(pPossessor->GetAssociateId(Constants::AssociateType::Familiar, 1));
+
+        if (pFamiliar && (!pPossessor->GetArea() || !pFamiliar->GetArea()))
+        {
+            LOG_WARNING("UnpossessFamiliar: %x or its familiar %x has no area, so the engine would refuse; "
+                        "keeping the familiar link for a later unpossess", pPossessor->m_idSelf, pFamiliar->m_idSelf);
+            return;
+        }
+
+        s_UnpossessFamiliarHook->CallOriginal<void>(pPossessor);
+    }, Hooks::Order::Earliest);
+
 NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 {
     auto oidCreature = args.extract<ObjectID>();
