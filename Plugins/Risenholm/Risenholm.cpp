@@ -41,6 +41,7 @@
 #include <vector>
 #include <unordered_set>
 #include "API/CNWSMessage.hpp"
+#include "API/CVirtualMachine.hpp"
 #include "API/CNWSPlayerInventoryGUI.hpp"
 #include "API/CExoLinkedListNode.hpp"
 #include "API/CNWSObjectActionNode.hpp"
@@ -3797,3 +3798,141 @@ NWNX_EXPORT ArgumentStack SetDamageBonusLimit(ArgumentStack&& args)
 
     return {};
 }
+
+
+
+// ---------------------------------------------------------------------------
+// NUI window logging
+// ---------------------------------------------------------------------------
+//
+// A window whose JSON the client cannot read -- the wrong shape in the layout
+// or in a bind, e.g. an array where a colour object belongs -- is replaced on
+// the client by an error box reading "[json.exception.type_error.304] cannot
+// use at() with ...". The server does not validate NUI JSON, so nothing about
+// it reaches the server log, and a player's report ("I got a json error while
+// opening seeds") gives no way of telling which window it was: NuiCreate and
+// NuiSetGroupLayout log nothing, and the engine's own NUI messages ("bind not
+// found", "window does not exist") name no player. Reported 2026-09-28 on
+// seed-cracking at an anvil, where the hammer swap rebuilds several windows
+// at once, with no way to say which one failed.
+//
+// This logs every window the server sends a client, and every group layout
+// it replaces, naming the character, the account, the window id and token,
+// and the script that asked. Matching a report's time and character against
+// these lines names the window.
+//
+// Hooked by symbol: SendServerToPlayerNui_Create and _SetLayout take an
+// nlohmann::json, so the API headers leave them commented out. The json is
+// passed through untouched as an opaque pointer. The window id is a
+// std::string taken BY VALUE, which the Itanium ABI passes as a pointer to a
+// caller-owned temporary; the caller also destroys it, so the pointer is
+// forwarded as it came.
+//
+// Switch: NWNX_RISENHOLM_LOG_NUI (bool, default false).
+
+static bool GetLogNui()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("LOG_NUI", false);
+        LOG_INFO("NUI window logging: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bLogNuiLogged = (GetLogNui(), true);
+
+// The innermost running script, or "(engine)" when none is -- a window can be
+// sent from a DelayCommand closure, which runs under its originating script's
+// name, but never from outside the VM.
+static std::string GetNuiCallingScript()
+{
+    auto *pVM = Globals::VirtualMachine();
+
+    if (pVM && pVM->m_nRecursionLevel >= 0 && pVM->m_nRecursionLevel < 8)
+    {
+        auto &script = pVM->m_pVirtualMachineScript[pVM->m_nRecursionLevel];
+
+        if (!script.m_sScriptName.IsEmpty())
+            return script.m_sScriptName.CStr();
+    }
+
+    return "(engine)";
+}
+
+// "Character (account)". The character is the PC, not whatever creature the
+// player is driving, since NUI belongs to the client and a possessed creature's
+// windows are the player's own.
+static std::string GetNuiPlayerLabel(CNWSPlayer *pPlayer)
+{
+    std::string sAccount = pPlayer->GetPlayerName().CStr();
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(pPlayer->m_oidPCObject));
+
+    if (pCreature && pCreature->m_pStats)
+        return std::string(pCreature->m_pStats->GetFullName().CStr()) + " (" + sAccount + ")";
+
+    return "(" + sAccount + ")";
+}
+
+static Hooks::Hook s_NuiCreateHook;
+static Hooks::Hook s_NuiSetLayoutHook;
+
+static Hooks::Hook HookNuiByName(const char *sSymbol, void *pHandler)
+{
+    void *pTarget = dlsym(RTLD_DEFAULT, sSymbol);
+
+    if (!pTarget)
+    {
+        LOG_ERROR("%s not found; NUI window logging is incomplete", sSymbol);
+        return nullptr;
+    }
+
+    return Hooks::HookFunction(pTarget, pHandler, Hooks::Order::Earliest);
+}
+
+static const bool s_bLogNuiHooked = []() -> bool
+{
+    if (!GetLogNui())
+        return false;
+
+    s_NuiCreateHook = HookNuiByName(
+        "_ZN11CNWSMessage28SendServerToPlayerNui_CreateEP10CNWSPlayeriNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERKN8nlohmann10basic_jsonISt3mapSt6vectorS7_blmdSaNS8_14adl_serializerESB_IhSaIhEEEE",
+        (void*)+[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, int32_t nToken, const std::string *pId, const void *pJson) -> int32_t
+        {
+            if (pPlayer)
+            {
+                LOG_INFO("NUI create: %s window '%s' token %d from %s",
+                    GetNuiPlayerLabel(pPlayer).c_str(), pId ? pId->c_str() : "", nToken, GetNuiCallingScript().c_str());
+            }
+
+            return s_NuiCreateHook->CallOriginal<int32_t>(pMessage, pPlayer, nToken, pId, pJson);
+        });
+
+    s_NuiSetLayoutHook = HookNuiByName(
+        "_ZN11CNWSMessage31SendServerToPlayerNui_SetLayoutEP10CNWSPlayeriRK10CExoStringRKN8nlohmann10basic_jsonISt3mapSt6vectorNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEblmdSaNS5_14adl_serializerES8_IhSaIhEEEE",
+        (void*)+[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, int32_t nToken, const CExoString *pElement, const void *pJson) -> int32_t
+        {
+            if (pPlayer)
+            {
+                // The token is all the engine passes; its window id is in the
+                // player's NUI state, which the layout command has just looked
+                // the token up in, so it is there.
+                std::string sId;
+                auto &windows = pPlayer->m_cNuiState.m_windows;
+                auto it = windows.find(nToken);
+
+                if (it != windows.end())
+                    sId = it->second.m_id;
+
+                LOG_INFO("NUI layout: %s window '%s' token %d element '%s' from %s",
+                    GetNuiPlayerLabel(pPlayer).c_str(), sId.c_str(), nToken,
+                    pElement ? pElement->CStr() : "", GetNuiCallingScript().c_str());
+            }
+
+            return s_NuiSetLayoutHook->CallOriginal<int32_t>(pMessage, pPlayer, nToken, pElement, pJson);
+        });
+
+    return true;
+}();
