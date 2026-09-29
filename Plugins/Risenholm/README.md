@@ -153,6 +153,20 @@ applies the engine's own test first and, when it would refuse, returns before th
 `NWNX_Player` run, keeping the link so a later unpossess can succeed. It is here rather than in
 `Plugins/Player` so that an upstream merge cannot lose it.
 
+### TURD crossover guard
+
+Not an export: a hook on `CNWSPlayer::DropTURD`. The engine (8193.37) makes a TURD for a leaving
+player only when the creature has an area, or a desired area that still exists, and a fresh login
+has neither until the client asks for the module, which is after OnClientEnter. So a player booted
+in OnClientEnter (a ban, say), or who drops in that window, leaves no TURD. NWNXLib's own
+`POS.cpp` hook on the same function copies the leaver's NWNX_Object variables onto the head of the
+TURD list regardless, which is then the TURD of whoever left last, and `EatTURD` hands them to that
+character at their next login (production, 2026-09-28: a banned player's retries landed her
+variables on two other characters, and the module's PC_UUID check locked one of them out until a
+restart). The hook applies the engine's own test first and, when no TURD will be made, hides the
+list head from the POS hook for the duration of the call, logging a warning naming the player. It
+is here rather than in `NWNXLib/POS.cpp` so that an upstream merge cannot lose it.
+
 ### Read-only inventories of other creatures
 
 Not a switch: hooks on `CNWSMessage::HandlePlayerToServerInventoryMessage`, `...InputMessage`,

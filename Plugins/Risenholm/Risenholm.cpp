@@ -2372,6 +2372,83 @@ static Hooks::Hook s_UnpossessFamiliarHook = Hooks::HookFunction(&CNWSCreature::
         s_UnpossessFamiliarHook->CallOriginal<void>(pPossessor);
     }, Hooks::Order::Earliest);
 
+// CNWSPlayer::DropTURD (8193.37) makes a TURD for a leaving player only when
+// the creature has an area, or failing that a desired area that still exists.
+// Otherwise it deletes the TURD it just built and never adds it to the list.
+// A login with no TURD to resume has neither: OnClientEnter is queued in
+// LoadCharacterFinish, and m_oidDesiredArea is only set in
+// InitiateModuleForPlayer, when the client's module message arrives later. So
+// a player booted in OnClientEnter (a ban, a refused login), or who drops in
+// that window, leaves no TURD at all. NWNXLib's POS hook on the same function runs
+// after the engine and copies the leaver's NWNX_Object variables onto the TURD
+// at the HEAD of the module's list, assuming it is the one just added. With no
+// TURD added it is someone else's -- whoever left last -- and that character's
+// variables are replaced wholesale by the leaver's. EatTURD restores them over
+// the ones loaded from the .bic at that character's next login, so the next
+// save writes another character's variables into their file.
+//
+// Production, 2026-09-28: Syclya Xao'se, banned and booted in OnClientEnter,
+// twice, and Gers Fryar's and then Kitiara Vance's TURDs took her variables.
+// The module's PC_UUID check (pw_inc_player) caught Kitiara holding Syclya's
+// UUID and refused the login, and every refusal fed the same TURD back, so
+// she was locked out until a restart. Before that check existed, the
+// crossover would have been saved silently.
+//
+// When the engine is going to add no TURD, hide the list head from the POS
+// hook for the duration of the call, so it has nothing to copy onto. The test
+// is the engine's own, read from the 8193.37 disassembly: the driven creature
+// (its master for a possessed familiar), then GetArea, then m_oidDesiredArea
+// through GetAreaByGameObjectID. The engine does not touch the list on that
+// path, so the head can go back afterwards unchanged. Earliest, so it wraps
+// the POS hook (VeryEarly). A fix belongs upstream in NWNXLib/POS.cpp; this is
+// here until then, because an upstream merge would lose an edit there.
+static Hooks::Hook s_DropTURDHook = Hooks::HookFunction(&CNWSPlayer::DropTURD,
+    +[](CNWSPlayer *pPlayer) -> void
+    {
+        auto *pServer   = Globals::AppManager()->m_pServerExoApp;
+        auto *pObject   = pPlayer->GetGameObject();
+        auto *pCreature = pObject ? pObject->AsNWSCreature() : nullptr;
+
+        // No game object: the POS hook finds no source either, so nothing to guard.
+        if (!pObject)
+        {
+            s_DropTURDHook->CallOriginal<void>(pPlayer);
+            return;
+        }
+
+        if (pCreature && pCreature->GetIsPossessedFamiliar())
+        {
+            if (auto *pMaster = pServer->GetCreatureByGameObjectID(pCreature->m_oidMaster))
+                pCreature = pMaster;
+        }
+
+        bool bAddsTURD = pCreature &&
+            (pCreature->GetArea() ||
+             (pCreature->m_oidDesiredArea != Constants::OBJECT_INVALID &&
+              pServer->GetAreaByGameObjectID(pCreature->m_oidDesiredArea)));
+
+        auto *pList = Utils::GetModule()->m_lstTURDList.m_pcExoLinkedListInternal;
+
+        if (bAddsTURD || !pList || !pList->pHead)
+        {
+            s_DropTURDHook->CallOriginal<void>(pPlayer);
+            return;
+        }
+
+        auto *pInfo = pServer->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID);
+
+        LOG_WARNING("DropTURD: %x ('%s', player '%s') leaves no TURD (no area, desired area %x); "
+                    "hiding the TURD list from NWNX's POS copy so it cannot land on another character's",
+                    pObject->m_idSelf, pCreature ? pCreature->m_pStats->GetFullName().CStr() : "?",
+                    pInfo ? pInfo->m_sPlayerName.CStr() : "?",
+                    pCreature ? pCreature->m_oidDesiredArea : Constants::OBJECT_INVALID);
+
+        auto pHead = pList->pHead;
+        pList->pHead = nullptr;
+        s_DropTURDHook->CallOriginal<void>(pPlayer);
+        pList->pHead = pHead;
+    }, Hooks::Order::Earliest);
+
 NWNX_EXPORT ArgumentStack ForceUpdateMageArmorStats(ArgumentStack&& args)
 {
     auto oidCreature = args.extract<ObjectID>();
