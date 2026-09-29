@@ -623,17 +623,40 @@ static void RemoveRunScriptEffectsBeforeDestroy(CNWSCreature *pCreature)
     // remove other effects, and RemoveEffectById on an id that is already gone
     // finds nothing and does nothing. Linked effects share an id, so one call
     // takes the whole link, as a script RemoveEffect would.
-    std::vector<uint64_t> ids;
+    //
+    // A removal script may also APPLY effects to the creature it is leaving.
+    // pw_mod_aoemanage runs its AoE script on ON_REMOVED, and pw_aoem_provoke
+    // used to answer by putting a fresh Provoke on the dying host, whose
+    // ON_APPLIED hung a new beam on the player. A single pass never saw that
+    // effect, so ~CNWSObject freed it without a handler and the beam stayed on
+    // the player for good: the stuck Provoke beams on production (2026-09-29,
+    // reproduced on dev). So sweep again until a pass finds nothing new, with
+    // a cap against a script that re-applies on every removal.
+    std::unordered_set<uint64_t> seen;
     auto &effects = pCreature->m_appliedEffects;
 
-    for (int32_t i = 0; i < effects.num; i++)
+    for (int nPass = 0; nPass < 8; nPass++)
     {
-        if (effects.element[i] && effects.element[i]->m_nType == Constants::EffectTrueType::RunScript)
-            ids.push_back(effects.element[i]->m_nID);
+        std::vector<uint64_t> ids;
+
+        for (int32_t i = 0; i < effects.num; i++)
+        {
+            auto *pEffect = effects.element[i];
+            if (pEffect && pEffect->m_nType == Constants::EffectTrueType::RunScript && !seen.count(pEffect->m_nID))
+                ids.push_back(pEffect->m_nID);
+        }
+
+        if (ids.empty())
+            return;
+
+        for (uint64_t id : ids)
+        {
+            seen.insert(id);
+            pCreature->RemoveEffectById(id);
+        }
     }
 
-    for (uint64_t id : ids)
-        pCreature->RemoveEffectById(id);
+    LOG_WARNING("RunScript effects kept reappearing on %x while it was destroyed; gave up after 8 passes", pCreature->m_idSelf);
 }
 
 // None of these are in NWNX's function table, so the addresses come from the
