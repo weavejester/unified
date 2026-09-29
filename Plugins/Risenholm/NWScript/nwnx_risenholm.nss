@@ -237,6 +237,27 @@ int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem);
 /// @param nLimit The new limit, 0 or more.
 void NWNX_Risenholm_SetDamageBonusLimit(int nLimit);
 
+/// @brief Copy out every level oCreature has taken, as the engine stores them, for RestoreLevelHistory.
+/// @note Take this BEFORE deleveling: LevelDown deletes each level's record, and the .bic only ever
+/// holds the levels a character currently has. The result is
+/// {"levels": [{class, hitdie, ability, epic, skillpoints, skills[], feats[], known[10][], unknown[10][]}, ...],
+///  "classes": [{class, domain1, domain2, school}, ...]}, level 1 first.
+/// @param oCreature The creature.
+/// @return The history, with empty arrays for an invalid creature.
+json NWNX_Risenholm_GetLevelHistory(object oCreature);
+
+/// @brief Give oCreature back the levels in jHistory above its current one, with no level-up dialog.
+/// @note Each level is re-applied exactly as stored, including everything OnPlayerLevelUp did to it,
+/// and OnPlayerLevelUp does NOT fire again. XP is set to nXP without feedback, and levels are restored
+/// only as far as nXP pays for (and the module's level cap allows), so the client is never offered a
+/// level-up for them. Refuses, changing nothing, if the levels oCreature still has are not the
+/// history's own class for class, or if the history is malformed.
+/// @param oCreature The creature.
+/// @param jHistory A result of NWNX_Risenholm_GetLevelHistory.
+/// @param nXP The creature's XP afterwards.
+/// @return The number of levels restored, or -1 if refused.
+int NWNX_Risenholm_RestoreLevelHistory(object oCreature, json jHistory, int nXP);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -453,4 +474,20 @@ void NWNX_Risenholm_SetDamageBonusLimit(int nLimit)
 {
     NWNXPushInt(nLimit);
     NWNXCall(NWNX_Risenholm, "SetDamageBonusLimit");
+}
+
+json NWNX_Risenholm_GetLevelHistory(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "GetLevelHistory");
+    return NWNXPopJson();
+}
+
+int NWNX_Risenholm_RestoreLevelHistory(object oCreature, json jHistory, int nXP)
+{
+    NWNXPushInt(nXP);
+    NWNXPushJson(jHistory);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "RestoreLevelHistory");
+    return NWNXPopInt();
 }

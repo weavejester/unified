@@ -47,8 +47,11 @@
 #include "API/CNWSObjectActionNode.hpp"
 #include "API/CLastUpdateObject.hpp"
 #include "API/C2DA.hpp"
+#include "API/CNWLevelStats.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <memory>
 
 
 using namespace NWNXLib;
@@ -3911,6 +3914,263 @@ NWNX_EXPORT ArgumentStack SetDamageBonusLimit(ArgumentStack&& args)
     Globals::AppManager()->m_pServerExoApp->SetDamageBonusLimit(nLimit, true);
 
     return {};
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Level history: delevel for low-level content, relevel without the dialog
+// ---------------------------------------------------------------------------
+//
+// Giving a PC back the XP it lost makes the client offer the level-up dialog,
+// but the client never decides that for itself: it reads a flag the server
+// computes as CNWSCreatureStats::CanLevelUp() when it writes the periodic
+// player update (CNWCMessage::HandleServerToPlayerUpdate_PlayerInfo passes
+// that BOOL straight to CGuiInGame::SetLevelUpMode). So if the levels are
+// back before the next update goes out, the client never sees the flag.
+//
+// Each level's choices live in m_lstLevelStats, one CNWLevelStats per level:
+// class, hit die, ability gain, skill rank changes, feats, and known spells
+// added and removed. The engine already knows how to replay one --
+// SetExperience, on an XP gain, runs LevelUp() on every entry the list holds
+// past the current level -- but nothing is ever left there to replay:
+// LevelDown removes the entry and deletes it, SaveClassInfo writes only
+// GetLevel() entries, and ReadStatsFromGff reads only that many back. All
+// read from the 8193.37 disassembly.
+//
+// GetLevelHistory copies the list out as JSON for the module to keep, and
+// RestoreLevelHistory puts levels back from it with LevelUp(), the call
+// SetExperience's replay and ValidateLevelUp both end in. The entries are
+// replayed as stored, deliberately without ValidateLevelUp: the module's
+// OnPlayerLevelUp rewrites each level after the engine applies it (feats by
+// level, auto-levelled skill ranks, redistributed hit points, the ability
+// gain revoked), so a stored entry is the finished level, not something a
+// client could have submitted, and validating it would reject it. For the
+// same reason no OnPlayerLevelUp fires; ValidateLevelUp is what queues it.
+
+namespace
+{
+
+// A feat in a level's record that the creature no longer has was taken away
+// after the level, and is left out. NWNX_Creature_RemoveFeat removes a feat
+// from the creature's list only, never from the level that granted it, and
+// the module relies on that in all 37 archetype scripts (pw_at_arch*): they
+// add the archetype's feats by level but remove the placeholder
+// FEAT_ARCHETYPE_SELECTION_* with plain RemoveFeat. Replaying the record
+// as-is gave a Barbarian Agitator the selection feat back, and at the next
+// level EnforceArchetypeSelection saw it and pushed him back down (seen
+// 2026-09-29). m_lstFeats rather than HasFeat, which also counts
+// m_lstBonusFeats, so a feat an item grants cannot keep a removed one here.
+json LevelStatsToJson(CNWLevelStats *pLevelStats, CExoArrayList<uint16_t> &creatureFeats)
+{
+    json jSkills = json::array();
+    for (uint16_t nSkill = 0; nSkill < Globals::Rules()->m_nNumSkills; nSkill++)
+        jSkills.push_back((int32_t)pLevelStats->GetSkillRankChange(nSkill));
+
+    json jFeats = json::array();
+    for (int32_t i = 0; i < pLevelStats->m_lstFeats.num; i++)
+    {
+        const uint16_t nFeat = pLevelStats->m_lstFeats.element[i];
+        if (creatureFeats.Contains(nFeat))
+            jFeats.push_back(nFeat);
+    }
+
+    json jAdded = json::array();
+    json jRemoved = json::array();
+    for (int32_t nSpellLevel = 0; nSpellLevel < 10; nSpellLevel++)
+    {
+        json jAddedAtLevel = json::array();
+        auto &added = pLevelStats->m_pAddedKnownSpellList[nSpellLevel];
+        for (int32_t i = 0; i < added.num; i++)
+            jAddedAtLevel.push_back(added.element[i]);
+        jAdded.push_back(jAddedAtLevel);
+
+        json jRemovedAtLevel = json::array();
+        auto &removed = pLevelStats->m_pRemovedKnownSpellList[nSpellLevel];
+        for (int32_t i = 0; i < removed.num; i++)
+            jRemovedAtLevel.push_back(removed.element[i]);
+        jRemoved.push_back(jRemovedAtLevel);
+    }
+
+    return {
+        {"class",       pLevelStats->m_nClass},
+        {"hitdie",      pLevelStats->m_nHitDie},
+        {"ability",     pLevelStats->m_nAbilityGain},
+        {"epic",        pLevelStats->m_bEpic ? 1 : 0},
+        {"skillpoints", pLevelStats->m_nSkillPointsRemaining},
+        {"skills",      jSkills},
+        {"feats",       jFeats},
+        {"known",       jAdded},
+        {"unknown",     jRemoved},
+    };
+}
+
+// Throws on a malformed entry; the caller owns the result.
+CNWLevelStats *LevelStatsFromJson(const json &jLevel)
+{
+    auto pLevelStats = std::make_unique<CNWLevelStats>();
+
+    pLevelStats->m_nClass = jLevel.at("class").get<uint8_t>();
+    pLevelStats->m_nHitDie = jLevel.at("hitdie").get<uint8_t>();
+    pLevelStats->m_nAbilityGain = jLevel.at("ability").get<uint8_t>();
+    pLevelStats->m_bEpic = jLevel.at("epic").get<int32_t>();
+    pLevelStats->m_nSkillPointsRemaining = jLevel.at("skillpoints").get<uint16_t>();
+
+    const auto &jSkills = jLevel.at("skills");
+    for (uint16_t nSkill = 0; nSkill < jSkills.size() && nSkill < Globals::Rules()->m_nNumSkills; nSkill++)
+        pLevelStats->SetSkillRankChange(nSkill, (char)jSkills.at(nSkill).get<int32_t>());
+
+    for (const auto &jFeat : jLevel.at("feats"))
+        pLevelStats->AddFeat(jFeat.get<uint16_t>());
+
+    const auto &jAdded = jLevel.at("known");
+    const auto &jRemoved = jLevel.at("unknown");
+    for (int32_t nSpellLevel = 0; nSpellLevel < 10; nSpellLevel++)
+    {
+        for (const auto &jSpell : jAdded.at(nSpellLevel))
+            pLevelStats->m_pAddedKnownSpellList[nSpellLevel].Add(jSpell.get<uint32_t>());
+        for (const auto &jSpell : jRemoved.at(nSpellLevel))
+            pLevelStats->m_pRemovedKnownSpellList[nSpellLevel].Add(jSpell.get<uint32_t>());
+    }
+
+    return pLevelStats.release();
+}
+
+}
+
+NWNX_EXPORT ArgumentStack GetLevelHistory(ArgumentStack&& args)
+{
+    json jLevels = json::array();
+    json jClasses = json::array();
+
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        auto *pStats = pCreature->m_pStats;
+        const int32_t nLevel = std::min<int32_t>(pStats->GetLevel(false), pStats->m_lstLevelStats.num);
+
+        for (int32_t i = 0; i < nLevel; i++)
+            jLevels.push_back(LevelStatsToJson(pStats->m_lstLevelStats.element[i], pStats->m_lstFeats));
+
+        // LevelUp only sets domains and school when it adds a class the
+        // creature does not have yet, so they have to be kept alongside the
+        // levels for a class that deleveling removes entirely.
+        for (uint8_t nMultiClass = 0; nMultiClass < pStats->m_nNumMultiClasses; nMultiClass++)
+        {
+            const auto &classInfo = pStats->m_ClassInfo[nMultiClass];
+            jClasses.push_back({
+                {"class",   classInfo.m_nClass},
+                {"domain1", classInfo.m_nDomain[0]},
+                {"domain2", classInfo.m_nDomain[1]},
+                {"school",  classInfo.m_nSchool},
+            });
+        }
+    }
+
+    return JsonEngineStructure(json{{"levels", jLevels}, {"classes", jClasses}}, CExoString(""));
+}
+
+NWNX_EXPORT ArgumentStack RestoreLevelHistory(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::PopCreature(args);
+    const auto history = args.extract<JsonEngineStructure>();
+    const auto nXP = args.extract<int32_t>();
+    ASSERT_OR_THROW(nXP >= 0);
+
+    if (!pCreature)
+        return -1;
+
+    auto *pStats = pCreature->m_pStats;
+    const uint8_t nLevel = pStats->GetLevel(false);
+
+    if (pStats->GetIsDM())
+        return -1;
+
+    // A list out of step with the level would have LevelUp replay the wrong
+    // entries; a PC's never is, so refuse rather than guess.
+    if (pStats->m_lstLevelStats.num != nLevel)
+    {
+        LOG_WARNING("RestoreLevelHistory: %x has %d level stats for level %d; refusing.",
+            pCreature->m_idSelf, pStats->m_lstLevelStats.num, nLevel);
+        return -1;
+    }
+
+    std::vector<std::unique_ptr<CNWLevelStats>> pending;
+    std::unordered_map<uint8_t, json> classes;
+
+    try
+    {
+        const auto &jHistory = history.m_shared->m_json;
+        const auto &jLevels = jHistory.at("levels");
+
+        // The levels the creature still has must be the history's own, class
+        // for class, or this history belongs to someone else or to a build
+        // that has since been changed by hand.
+        if (jLevels.size() < nLevel)
+        {
+            LOG_WARNING("RestoreLevelHistory: %x is level %d but the history holds %d levels; refusing.",
+                pCreature->m_idSelf, nLevel, (int32_t)jLevels.size());
+            return -1;
+        }
+
+        for (uint8_t i = 0; i < nLevel; i++)
+        {
+            if (jLevels.at(i).at("class").get<uint8_t>() != pStats->m_lstLevelStats.element[i]->m_nClass)
+            {
+                LOG_WARNING("RestoreLevelHistory: %x level %d is not the history's class; refusing.",
+                    pCreature->m_idSelf, i + 1);
+                return -1;
+            }
+        }
+
+        // Build every entry before applying any, so a malformed one leaves
+        // the creature untouched.
+        for (size_t i = nLevel; i < jLevels.size(); i++)
+            pending.emplace_back(LevelStatsFromJson(jLevels.at(i)));
+
+        for (const auto &jClass : jHistory.at("classes"))
+            classes[jClass.at("class").get<uint8_t>()] = jClass;
+    }
+    catch (const std::exception &e)
+    {
+        LOG_ERROR("RestoreLevelHistory: malformed history for %x: %s", pCreature->m_idSelf, e.what());
+        return -1;
+    }
+
+    // Written straight to the field rather than through SetExperience, which
+    // would send "XP gained" and "you can level up" feedback and, on a gain,
+    // run its own replay. CanLevelUp then gives the same stopping point as
+    // that replay: the next level's XP, the module's level cap, and 40.
+    pStats->m_nExperience = nXP;
+
+    int32_t nApplied = 0;
+
+    for (auto &pLevelStats : pending)
+    {
+        if (!pStats->CanLevelUp())
+            break;
+
+        uint8_t nDomain1 = 0, nDomain2 = 0, nSchool = 0;
+        auto it = classes.find(pLevelStats->m_nClass);
+
+        if (it != classes.end())
+        {
+            nDomain1 = it->second.value("domain1", 0);
+            nDomain2 = it->second.value("domain2", 0);
+            nSchool = it->second.value("school", 0);
+        }
+
+        // bAddStatsToList: the list takes ownership, as it does for a level
+        // the client submits; LevelDown deletes it again.
+        pStats->LevelUp(pLevelStats.release(), nDomain1, nDomain2, nSchool, true);
+        nApplied++;
+    }
+
+    // What ValidateLevelUp does after LevelUp, plus the spell slot recount
+    // LevelUpAutomatic does before it; LevelUp itself does neither.
+    pStats->UpdateCombatInformation();
+    pStats->UpdateNumberMemorizedSpellSlots();
+
+    return nApplied;
 }
 
 
