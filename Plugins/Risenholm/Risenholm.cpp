@@ -1860,7 +1860,17 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(&CNWSC
                 int32_t nArmorCheckPenalty = 0;
 
                 pArmorTable->GetINTEntry(nACArmor, "ARCANEFAILURE%", &nArcaneSpellFailure);
-                pArmorTable->GetINTEntry(nACArmor, "ACCHECK", &nArmorCheckPenalty);
+
+                // RISENHOLM MODIFICATION: The check penalty follows the armour actually worn, not
+                // nACArmor. Under Mage Armor, ComputeArmorClass floors the armour at base AC 5
+                // (s_ItemComputeArmorClassHook), and row 5's ACCHECK is -5, so a robe cost its
+                // wearer a chainmail coat's penalty. The spell grants base AC 5 and caps Dex at
+                // +5; it was never meant to cost skills. Read from the chest part the same way
+                // the item hook does, before its floor.
+                float fWornAC = 0.0f;
+                Globals::Rules()->m_p2DArrays->GetPartsChest()->GetFLOATEntry(pItemToEquip->m_nArmorModelPart[7], "ACBonus", &fWornAC);
+                pArmorTable->GetINTEntry((int32_t)fWornAC, "ACCHECK", &nArmorCheckPenalty);
+                // END RISENHOLM MODIFICATION
 
                 // NOTE: Monk/Ranger Too High Armor AC Warning Messages would go here.
 
@@ -1880,13 +1890,13 @@ static Hooks::Hook s_CreatureComputeArmourClassHook = Hooks::HookFunction(&CNWSC
             {
                 int32_t nACArmor = 5;
                 int32_t nArcaneSpellFailure = 0;
-                int32_t nArmorCheckPenalty = 0;
 
                 pArmorTable->GetINTEntry(nACArmor, "ARCANEFAILURE%", &nArcaneSpellFailure);
-                pArmorTable->GetINTEntry(nACArmor, "ACCHECK", &nArmorCheckPenalty);
 
+                // No ACCHECK read: an unarmoured Mage Armor wearer has no check penalty. Taking
+                // row 5's gave every such caster -5 (see the chest-item branch above).
                 pStats->m_nBaseArmorArcaneSpellFailure = nArcaneSpellFailure;
-                pStats->m_nArmorCheckPenalty = nArmorCheckPenalty;
+                pStats->m_nArmorCheckPenalty = 0;
                 pStats->m_nACArmorBase = nACArmor;
             }
             else
