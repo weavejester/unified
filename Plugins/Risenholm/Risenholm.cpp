@@ -1440,6 +1440,37 @@ static Hooks::Hook s_ResolveAmmunitionHook = Hooks::HookFunction(&CNWSCreature::
     }, Hooks::Order::Final);
 
 
+// Thrown weapons get every attack of the round. ResolveRangedAttack asks
+// GetAmmunitionAvailable how many of an attack action's attacks it may fire,
+// and for a dart, shuriken, or throwing axe the engine answers with the
+// equipped stack size. The module's throwing weapons do not stack
+// (baseitems.2da Stacking 1), so each of the round's three attack actions
+// fired one attack and every thrower had 3 APR. The Unlimited Ammunition
+// property is the first thing the engine checks and would lift that, but it
+// cannot be put on a thrown weapon: CNWSEffectListHandler::OnApplyItemProperty
+// drops any property itemprops.2da forbids for the base item, and row 61's
+// 2_Thrown cell is ****, so AddItemProperty of it silently did nothing, on
+// equip and on a blueprint alike (8193.37, read from the disassembly
+// 2026-09-29). Answering here needs no property and no 2da edit. Launchers get
+// the engine's answer, and thrown weapons are never consumed either way: the
+// ResolveAmmunition hook above only ever decrements arrows, bolts, and bullets.
+static Hooks::Hook s_GetAmmunitionAvailableHook = Hooks::HookFunction(&CNWSCreature::GetAmmunitionAvailable,
+    +[](CNWSCreature *pCreature, int32_t nNumAttacks) -> int32_t
+    {
+        if (auto *pItem = pCreature->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::RightHand))
+        {
+            if (pItem->m_nBaseItem == Constants::BaseItem::Dart ||
+                pItem->m_nBaseItem == Constants::BaseItem::Shuriken ||
+                pItem->m_nBaseItem == Constants::BaseItem::ThrowingAxe)
+            {
+                return nNumAttacks;
+            }
+        }
+
+        return s_GetAmmunitionAvailableHook->CallOriginal<int32_t>(pCreature, nNumAttacks);
+    }, Hooks::Order::Early);
+
+
 static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(&CNWSCreature::ResolvePostRangedDamage,
     +[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
     {

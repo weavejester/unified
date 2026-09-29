@@ -52,6 +52,18 @@ properties only (the temporary ones were never held back, so applying them again
 then `ComputeArmourClass` and `UpdateCombatInformation`, the steps `CNWSCreature::EquipItem` takes
 around putting an item in its slot.
 
+### Thrown weapons
+
+Darts, shuriken, and throwing axes are never used up, and they fire every attack of the round.
+The plugin replaces `CNWSCreature::ResolveAmmunition`, which only ever consumes arrows, bolts, and
+bullets, and hooks `CNWSCreature::GetAmmunitionAvailable` to answer with the attacks asked for
+whenever the main hand holds one of the three thrown base items. Without the second hook the engine
+answers with the equipped stack size, and a weapon that does not stack fires one attack per attack
+action, three a round. The Unlimited Ammunition property would do the same, but the engine refuses
+it on a thrown weapon (`itemprops.2da` row 61 has `****` in the `2_Thrown` column, and
+`CNWSEffectListHandler::OnApplyItemProperty` drops what that table forbids), so no property is
+involved. Launchers keep the engine's own answer.
+
 ### CreateAfterimage
 
 `NWNX_Risenholm_PrepareAfterimage(oCreature)` serialises a creature once for a batch of clones and `NWNX_Risenholm_ReleaseAfterimage()` drops that snapshot; `NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)` clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals, with `VFX_DUR_INVISIBILITY`, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed `fAnimationSpeed` already applied. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.
