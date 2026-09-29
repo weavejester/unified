@@ -52,6 +52,20 @@ properties only (the temporary ones were never held back, so applying them again
 then `ComputeArmourClass` and `UpdateCombatInformation`, the steps `CNWSCreature::EquipItem` takes
 around putting an item in its slot.
 
+### Equipped weight
+
+A hook on `CNWSCreature::UpdateEncumbranceState` first rebuilds `m_nEquippedWeight` from the
+equipment slots (`ComputeTotalEquippedWeight`). The engine keeps that field as a running total,
+added to by `EquipItem` and subtracted from by `UnequipItem`, and never recomputes it, so a worn
+item whose weight changes leaves the total wrong by the difference. The module changes worn
+items' weight routinely: Magic Vestment's weight reduction and the mirrored Base Item Weight
+Reduction on an off-hand both go on from OnPlayerEquipItem, which the engine queues to run after
+the weight was added, and come off from OnPlayerUnEquipItem, whose `RemoveItemProperty` is
+queued to run after the weight was subtracted. Each swap leaked the difference, and a character's
+weight crept up (8193.37, 2026-09-29). The engine calls `UpdateEncumbranceState` after every
+equip, unequip, pack change, and weight-property change, and it is the only writer of the total
+the client is sent, so rebuilding there keeps the figure right and heals a leak already carried.
+
 ### Thrown weapons
 
 Darts, shuriken, and throwing axes are never used up, and they fire every attack of the round.

@@ -2089,6 +2089,59 @@ NWNX_EXPORT ArgumentStack ApplyItemProperties(ArgumentStack&& args)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Equipped weight
+// ---------------------------------------------------------------------------
+//
+// The engine keeps a creature's equipped weight as a running total,
+// CNWSCreature::m_nEquippedWeight: EquipItem adds the item's weight once it is
+// in its slot, UnequipItem subtracts it once it is out, and nothing recomputes
+// it. ComputeTotalWeightCarried is that total plus a fresh sum of the pack
+// (CItemRepository::CalculateContentsWeight walks the pack every time), and
+// UpdateEncumbranceState stores the result in m_nTotalWeightCarried, which is
+// the figure CNWSMessage sends the client.
+//
+// So a worn item whose weight changes leaves the total wrong by the
+// difference: EquipItem added one weight and UnequipItem subtracts another.
+// The item's own weight stays right throughout -- CNWSItem::ComputeWeight
+// rebuilds it from its base item and its Base Item Weight Reduction, Weight
+// Increase, and Enhanced Container properties (types 11, 81, and 32) whenever
+// one is added or removed -- but the running total is never told.
+//
+// The module does exactly this on every equip. OnPlayerEquipItem is queued as
+// a CScriptEvent from EquipItem and runs after the weight went on; pw_mod_equ
+// then adds Magic Vestment's 80% weight reduction to the armour and mirrors a
+// main hand's Base Item Weight Reduction onto the off-hand. pw_mod_unequ
+// removes them again, but OnPlayerUnEquipItem runs synchronously at the top of
+// UnequipItem and RemoveItemProperty is queued (CServerAIMaster::
+// AddEventDeltaTime), so the property is still on when UnequipItem subtracts
+// the reduced weight. Every cycle leaked the difference upward -- 80% of the
+// armour's weight per swap under Magic Vestment. Reported 2026-09-29 as weight
+// going up on unequipping and re-equipping.
+//
+// Rather than chase every path that changes a worn item's weight, stop
+// trusting the running total: rebuild it from the slots before every
+// UpdateEncumbranceState. ComputeTotalEquippedWeight is the engine's own sum
+// over the fourteen equipment slots, and MergeItem already assigns it to the
+// same field. The engine calls UpdateEncumbranceState after every equip,
+// unequip, pack change, and weight-property change, so the total is right
+// whenever anyone looks, and a character carrying a leak from before heals on
+// their next update. Fourteen slot lookups per call; it is on no per-frame
+// path.
+//
+// Read from the 8193.37 decompilation and disassembly, 2026-09-29: EquipItem,
+// UnequipItem, ComputeTotalWeightCarried, UpdateEncumbranceState,
+// ExecuteCommandRemoveItemProperty, and CNWSEffectListHandler's item property
+// apply and remove, which recompute the item and call UpdateEncumbranceState
+// but never touch m_nEquippedWeight.
+static Hooks::Hook s_UpdateEncumbranceStateHook = Hooks::HookFunction(&CNWSCreature::UpdateEncumbranceState,
+    +[](CNWSCreature *pThis, BOOL bDisplayFeedback) -> void
+    {
+        pThis->m_nEquippedWeight = pThis->ComputeTotalEquippedWeight();
+
+        s_UpdateEncumbranceStateHook->CallOriginal<void>(pThis, bDisplayFeedback);
+    }, Hooks::Order::Early);
+
 static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(&CNWSCreature::AddItemCastSpellActions,
     +[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
