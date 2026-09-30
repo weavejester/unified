@@ -4293,6 +4293,129 @@ NWNX_EXPORT ArgumentStack RestoreLevelHistory(ArgumentStack&& args)
 
 
 // ---------------------------------------------------------------------------
+// Item bonus spell slots only for spell levels the class can reach
+// ---------------------------------------------------------------------------
+//
+// The engine keeps two kinds of bonus slot and gates only one of them.
+// Ability bonus slots are worked out inside GetSpellGainWithBonus, which
+// returns 0 whenever the class's spell gain table has **** in that column,
+// so a high WIS never opens a level the class cannot cast yet. A Bonus Spell
+// Slot item property instead bumps a per-class counter
+// (CNWSCreatureStats_ClassInfo::m_nBonusSpellsList, via ModifyNumberBonusSpells)
+// that three consumers add flat on top of the gated value, with no check at
+// all (Ghidra decompilation of 8193.37, nwserver-re/export/game/
+// CNWSCreatureStats.c):
+//
+//   UpdateNumberMemorizedSpellSlots  gain + bonus -> SetNumberMemorizedSpellSlots
+//   ModifyNumberBonusSpells          the same, for the one level, on equip/unequip
+//   AdjustSpellUsesPerDay            gain + bonus -> SetMaxSpellsPerDayLeft
+//   ResetSpellsPerDayLeft            gain + bonus -> SpellsPerDayLeft, at rest
+//
+// So a level 3 cleric wearing a Cleric 4 slot item gets 0 + 1 = 1 slot at
+// level 4, prepares a spell in it, and casts it. The module's own tooling
+// (quickcast, metamagic restore) derives the castable ceiling from class
+// level and never saw the slot, which is how it was noticed (2026-09-30).
+//
+// Each consumer is hooked and the result clamped to 0 for any level above 0
+// whose GetSpellGainWithBonus is 0. That is the engine's own test for the
+// ability slots, and it is exact for this module: every spell gain table it
+// uses has a positive base count in every reachable column, so 0 means ****
+// (the stock paladin and ranger tables have a 0 at class level 4, but the
+// module ships its own with a 1 there). The item counter itself is left
+// alone, so the slot appears by itself on the recount that follows the
+// level-up that makes the level reachable, with no re-equip needed. Spells
+// prepared in a slot that goes away are dropped with it.
+//
+// The two computing callers are hooked rather than SetNumberMemorizedSpellSlots
+// beneath them: the setter is also how the slot lists are sized while a
+// character loads, and clamping there would have to trust the class and
+// ability fields being populated already. The client needs nothing -- its
+// spellbook shows the count the server sends (CNWCCreatureStats::
+// GetNumberMemorizedSpellSlots is a plain field read).
+
+static bool IsUnreachableSpellLevel(CNWSCreatureStats *pStats, uint8_t nMultiClass, uint8_t nSpellLevel)
+{
+    return nSpellLevel > 0 && nSpellLevel < 10
+        && nMultiClass < pStats->m_nNumMultiClasses
+        && pStats->GetSpellGainWithBonus(nMultiClass, nSpellLevel) == 0;
+}
+
+static void ClearUnreachableMemorizedSlots(CNWSCreatureStats *pStats)
+{
+    for (uint8_t nMultiClass = 0; nMultiClass < pStats->m_nNumMultiClasses; nMultiClass++)
+    {
+        for (uint8_t nSpellLevel = 1; nSpellLevel < 10; nSpellLevel++)
+        {
+            if (pStats->GetNumberMemorizedSpellSlots(nMultiClass, nSpellLevel)
+                && IsUnreachableSpellLevel(pStats, nMultiClass, nSpellLevel))
+            {
+                pStats->SetNumberMemorizedSpellSlots(nMultiClass, nSpellLevel, 0);
+            }
+        }
+    }
+}
+
+static void ClearUnreachableSpellsPerDay(CNWSCreatureStats *pStats, uint8_t nMultiClass, uint8_t nSpellLevel)
+{
+    if (!IsUnreachableSpellLevel(pStats, nMultiClass, nSpellLevel))
+        return;
+
+    auto &classInfo = pStats->m_ClassInfo[nMultiClass];
+
+    if (classInfo.GetMaxSpellsPerDayLeft(nSpellLevel) || classInfo.GetSpellsPerDayLeft(nSpellLevel))
+    {
+        classInfo.SetMaxSpellsPerDayLeft(nSpellLevel, 0);
+        classInfo.SetSpellsPerDayLeft(nSpellLevel, 0);
+    }
+}
+
+// Memorising classes: level-up, class and ability changes, and the plugin's
+// own LevelUp replay above all recount through here.
+static Hooks::Hook s_UpdateNumberMemorizedSpellSlotsHook = Hooks::HookFunction(&CNWSCreatureStats::UpdateNumberMemorizedSpellSlots,
+    +[](CNWSCreatureStats *pStats) -> void
+    {
+        s_UpdateNumberMemorizedSpellSlotsHook->CallOriginal<void>(pStats);
+        ClearUnreachableMemorizedSlots(pStats);
+    }, Hooks::Order::Late);
+
+// Memorising classes: equipping or removing the item, which includes the
+// equipped items being applied as a character loads.
+static Hooks::Hook s_ModifyNumberBonusSpellsHook = Hooks::HookFunction(&CNWSCreatureStats::ModifyNumberBonusSpells,
+    +[](CNWSCreatureStats *pStats, uint8_t nMultiClass, uint8_t nSpellLevel, int32_t nDelta) -> void
+    {
+        s_ModifyNumberBonusSpellsHook->CallOriginal<void>(pStats, nMultiClass, nSpellLevel, nDelta);
+
+        if (nMultiClass < pStats->m_nNumMultiClasses && nSpellLevel < 10
+            && pStats->GetNumberMemorizedSpellSlots(nMultiClass, nSpellLevel)
+            && IsUnreachableSpellLevel(pStats, nMultiClass, nSpellLevel))
+        {
+            pStats->SetNumberMemorizedSpellSlots(nMultiClass, nSpellLevel, 0);
+        }
+    }, Hooks::Order::Late);
+
+// Spontaneous classes: the recount after an equip, unequip, or ability change.
+static Hooks::Hook s_AdjustSpellUsesPerDayHook = Hooks::HookFunction(&CNWSCreatureStats::AdjustSpellUsesPerDay,
+    +[](CNWSCreatureStats *pStats) -> void
+    {
+        s_AdjustSpellUsesPerDayHook->CallOriginal<void>(pStats);
+
+        for (uint8_t nMultiClass = 0; nMultiClass < pStats->m_nNumMultiClasses; nMultiClass++)
+            for (uint8_t nSpellLevel = 1; nSpellLevel < 10; nSpellLevel++)
+                ClearUnreachableSpellsPerDay(pStats, nMultiClass, nSpellLevel);
+    }, Hooks::Order::Late);
+
+// Spontaneous classes: the reset at rest (ReadySpellLevel) and from the
+// NWScript restore commands.
+static Hooks::Hook s_ResetSpellsPerDayLeftHook = Hooks::HookFunction(&CNWSCreatureStats::ResetSpellsPerDayLeft,
+    +[](CNWSCreatureStats *pStats, uint8_t nMultiClass, uint8_t nSpellLevel) -> void
+    {
+        s_ResetSpellsPerDayLeftHook->CallOriginal<void>(pStats, nMultiClass, nSpellLevel);
+        ClearUnreachableSpellsPerDay(pStats, nMultiClass, nSpellLevel);
+    }, Hooks::Order::Late);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //

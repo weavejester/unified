@@ -261,3 +261,19 @@ command runs its value through the `DamageBonusLimit` server setting's 0-255 con
 `CServerExoApp::SetDamageBonusLimit` with `isModuleOverride` directly, which writes the same override
 without it. `GetDamageRoll` carries the total in a short, so keep it under 32767. `pw_mod_load.nss`
 calls it, because the threat system's Elite Solo creatures carry physical bonuses near 300.
+
+### Item bonus spell slots only for reachable spell levels
+
+The engine gates ability bonus slots but not item ones. `GetSpellGainWithBonus` returns 0 for
+any spell level whose column in the class's spell gain table is `****`, so a high WIS never opens
+a level the class cannot cast yet. A Bonus Spell Slot item property instead bumps a per-class
+counter that four consumers add flat on top of that gated value with no check
+(`UpdateNumberMemorizedSpellSlots`, `ModifyNumberBonusSpells`, `AdjustSpellUsesPerDay`,
+`ResetSpellsPerDayLeft`), so a level 3 cleric wearing a Cleric 4 slot item got a level 4 slot,
+prepared a spell in it, and cast it (8193.37, 2026-09-30). Hooks on those four clamp the slot
+count, and the spontaneous casters' per-day counts, to 0 for any level above 0 whose
+`GetSpellGainWithBonus` is 0. That test is exact for this module because every spell gain table
+it ships has a positive base count in every reachable column. The item counter is left alone, so
+the slot appears on its own at the level-up that makes the level reachable. Spells prepared in a
+slot that goes away are dropped with it. The client shows whatever count the server sends, so it
+needs nothing.
