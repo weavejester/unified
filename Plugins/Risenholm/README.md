@@ -26,6 +26,7 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `SNEAK_ATTACK_IMMUNE` | int | Placeable | 1 = Immune to SneakAttacks |
 | `DISABLE_COMBAT_SHUFFLE` | int | Creature | 1 = Disable Combat Shuffle |
 | `LOADOUT_DORMANT` | int | Item | 1 = Dormant: none of its properties reach its wearer (see below) |
+| `NO_BUDGE` | int | Creature | 1 = Never moved by the engine's door and placeable budge (see below) |
 
 ### Dormant equipment
 
@@ -277,3 +278,24 @@ it ships has a positive base count in every reachable column. The item counter i
 the slot appears on its own at the level-up that makes the level reachable. Spells prepared in a
 slot that goes away are dropped with it. The client shows whatever count the server sends, so it
 needs nothing.
+
+### Budge exemption
+
+`CNWSArea::BudgeCreatures` runs on every door open and close (`CNWSDoor::SetOpenState`) and
+whenever a placeable is added to an area (`CNWSPlaceable::AddToArea`). Any creature within 5m of
+the object's bounding box whose own position fails `TestSafeLocationPoint` is moved with
+`SetPosition` to a `ComputeSafeLocation` result up to 10m from the object. That is meant for a
+creature caught in a closing doorway, but it also catches a creature the module has stood on
+unwalkable ground on purpose: a prisoner in the Stocks stands on the placeable's origin, inside
+its walkmesh, and was thrown out each time the door beside the stocks was used (8193.37,
+2026-09-30).
+
+A hook on `BudgeCreatures` leaves a creature carrying the `NO_BUDGE` local where it is. The
+engine's loop has no test to skip a creature by, so for the length of the call each exempt
+creature inside the box has `m_vPosition.y` set far outside it, then put back. It is a write to
+the field, not `SetPosition`, so no trigger, area of effect, or client sees it, and the area's
+object list is sorted by X. Every other creature is budged as before. The hook's scan uses the
+engine's own start index and stop, so it adds one pass of the same length as the original's.
+
+The module sets the local for as long as it holds a creature in place and must clear it on
+release: see `SeatInStocks` and `ReleaseFromStocks` in `pw_inc_stocks.nss`.

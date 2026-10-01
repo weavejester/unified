@@ -4416,6 +4416,110 @@ static Hooks::Hook s_ResetSpellsPerDayLeftHook = Hooks::HookFunction(&CNWSCreatu
 
 
 // ---------------------------------------------------------------------------
+// Budge exemption
+// ---------------------------------------------------------------------------
+//
+// CNWSArea::BudgeCreatures runs whenever a door opens or closes
+// (CNWSDoor::SetOpenState) and whenever a placeable is added to an area
+// (CNWSPlaceable::AddToArea). It walks the creatures within 5m of the object's
+// bounding box, and any whose own position fails TestSafeLocationPoint is
+// moved with SetPosition to a ComputeSafeLocation result up to 10m from the
+// object -- the engine's way of getting a creature out of a doorway that has
+// just closed on it.
+//
+// The module stands some creatures on unwalkable ground on purpose. A prisoner
+// in the Stocks is put on the placeable's origin, inside its own walkmesh,
+// because the pose only lines up there (pw_inc_stocks.nss). To the engine that
+// is a creature stuck in something, and the next door to move nearby threw
+// them out: on 2026-09-30 every prisoner locked in was gone within about a
+// minute, each time the tailor's door beside the stocks was used, and the
+// module then read the jump as a DM moving them and ended the sentence.
+//
+// A creature carrying the NO_BUDGE local is left where it is. The engine's
+// loop offers nothing to skip one by -- its only tests are the box and the
+// safe-point check -- so each exempt creature inside the box has its Y moved
+// far outside the box for the length of the call and put back after. That is
+// a write to the field, not SetPosition, so nothing else sees it: no trigger
+// or area-of-effect crossing, no client update, and the area's object list is
+// sorted by X, which is not touched. Every other creature in the box is budged
+// exactly as before.
+//
+// The scan here is the engine's own, with the same start index and the same
+// stop, so it costs what the original loop costs and no more. That matters
+// because AddToArea calls this for every placeable as an area loads.
+//
+// Read from the 8193.37 disassembly, 2026-10-01: BudgeCreatures and its two
+// callers. The start index really is taken from vPosition.x - vBBMin.x - 5,
+// odd as that looks beside the absolute box tests that follow; it is copied
+// as it stands so the two loops visit the same creatures.
+static_assert(offsetof(CNWSArea, m_aGameObjects) == 0x228, "CNWSArea layout changed");
+
+static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCreatures,
+    +[](CNWSArea *pThis, const Vector *pvPosition, const Vector *pvBBMin, const Vector *pvBBMax,
+            ObjectID oidNewObject, BOOL bBumpToActionPoint) -> void
+    {
+        // The three vectors are references in the engine's signature. They are
+        // taken as pointers here because CallOriginal deduces its argument
+        // types, and would hand a reference on BY VALUE -- the original then
+        // reads a Vector's floats as an address (crashed at module load,
+        // 2026-10-01).
+        const Vector &vPosition = *pvPosition;
+        const Vector &vBBMin    = *pvBBMin;
+        const Vector &vBBMax    = *pvBBMax;
+
+        static CExoString sVarName = "NO_BUDGE";
+
+        const float fMargin     = 5.0f;     // the engine's own, around the box
+        const float fHideOffset = 1000.0f;  // well past any area's edge
+
+        struct Exempt { ObjectID oidCreature; float fY; };
+        std::vector<Exempt> exempt;
+
+        auto *pServer = Globals::AppManager()->m_pServerExoApp;
+
+        int32_t nIndex = 0;
+        pThis->GetFirstObjectIndiceByX(&nIndex, vPosition.x - vBBMin.x - fMargin);
+        if (nIndex < 0)
+            nIndex = 0;
+
+        for (; nIndex < pThis->m_aGameObjects.num; nIndex++)
+        {
+            auto *pCreature = pServer->GetCreatureByGameObjectID(pThis->m_aGameObjects.element[nIndex]);
+            if (!pCreature)
+                continue;
+
+            const Vector vCreature = pCreature->m_vPosition;
+
+            if (vCreature.x >= vBBMax.x + fMargin)
+                break;
+
+            if (vCreature.x <= vBBMin.x - fMargin ||
+                vCreature.y <= vBBMin.y - fMargin ||
+                vCreature.y >= vBBMax.y + fMargin)
+                continue;
+
+            if (!Utils::GetScriptVarTable(pCreature)->GetInt(sVarName))
+                continue;
+
+            exempt.push_back({pCreature->m_idSelf, vCreature.y});
+            pCreature->m_vPosition.y = vBBMax.y + fMargin + fHideOffset;
+        }
+
+        s_BudgeCreaturesHook->CallOriginal<void>(pThis, pvPosition, pvBBMin, pvBBMax, oidNewObject, bBumpToActionPoint);
+
+        // By id, not by pointer: nothing in the original should destroy a
+        // creature, but a pointer held across engine code is not worth
+        // trusting for the sake of one lookup.
+        for (const auto &e : exempt)
+        {
+            if (auto *pCreature = pServer->GetCreatureByGameObjectID(e.oidCreature))
+                pCreature->m_vPosition.y = e.fY;
+        }
+    }, Hooks::Order::Early);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //
