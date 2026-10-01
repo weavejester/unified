@@ -2755,6 +2755,24 @@ static bool IsTextureReplaceVfx(int32_t nRow)
     return bReplace;
 }
 
+// Whether a texture replace is on the creature right now. The effect whose
+// removal queued a refresh is already out of the list by the time the update
+// hook asks.
+static bool HasTextureReplaceVfx(CNWSCreature *pCreature)
+{
+    auto &effects = pCreature->m_appliedEffects;
+
+    for (int32_t i = 0; i < effects.num; i++)
+    {
+        if (effects.element[i]
+            && effects.element[i]->m_nType == Constants::EffectTrueType::VisualEffect
+            && IsTextureReplaceVfx(effects.element[i]->GetInteger(0)))
+            return true;
+    }
+
+    return false;
+}
+
 // Queue the refresh for every player currently tracking the creature.
 // bForceUpdate poisons each player's cached part list so the next tick sends
 // an update even when nothing else changed; the script export needs that,
@@ -2819,6 +2837,19 @@ static Hooks::Hook s_WriteGameObjUpdate_UpdateObjectHook = Hooks::HookFunction(&
         s_PendingPartRefresh.erase(it);
 
         if (!bFresh || !pCreature)
+            return;
+
+        // Not while another texture replace is still on the creature: the
+        // reload would pull the parts out from under a replace the client has
+        // live. The skin spells each flash VFX_DUR_PROT_STONESKIN for 3.0s, and
+        // a hasted caster lands two spells exactly 3.0s apart, so Ironskin's
+        // flash ends in the tick Stoneskin's begins. On production (2026-09-30)
+        // a caster and the party member beside her both stopped answering the
+        // server in that very second, twice in six minutes, and not when the
+        // same two spells landed 4s apart unhasted. Not yet reproduced on a
+        // client. Nothing is lost by waiting: the replace that is still up
+        // queues a refresh of its own when it ends.
+        if (HasTextureReplaceVfx(pCreature))
             return;
 
         // Written into the update carrying the removal, i.e. right behind the
