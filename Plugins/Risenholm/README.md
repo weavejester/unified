@@ -79,6 +79,22 @@ it on a thrown weapon (`itemprops.2da` row 61 has `****` in the `2_Thrown` colum
 `CNWSEffectListHandler::OnApplyItemProperty` drops what that table forbids), so no property is
 involved. Launchers keep the engine's own answer.
 
+### Item uses
+
+A hook on `CNWSCreature::AIActionItemCastSpell` makes an item use cast once and keeps a charged
+item from being used up. The engine casts, and consumes, on every call of that action that finds
+the creature's `m_bLastSpellCast` clear once the conjure time is up, and checks the uses left only
+before it. `NWNX_Creature_AddCastSpellActions` clears that flag for an instant cast added to the
+front of the queue, and an instant cast that fails never sets it again, so an item use still in
+its tail fired a second time: a free cast, a second consumption, and for a charged item left at 0
+charges the item destroyed (`NWNX_TWEAKS_PRESERVE_DEPLETED_ITEMS` only covers a call entered with
+1 to 5 charges). A ring was lost this way on production (8193.37, 2026-10-01). The hook remembers
+a use that has cast and sets the flag again if that use comes round with it clear, and holds the
+item plot for any call that uses a charges-per-use property. Read from the disassembly and
+reproduced on the dev server with an NPC: an instant cast queued in front of a ring use, at a
+target destroyed before it ran, cast the ring twice and destroyed it without the hook, and once,
+ring kept, with it.
+
 ### CreateAfterimage
 
 `NWNX_Risenholm_PrepareAfterimage(oCreature)` serialises a creature once for a batch of clones and `NWNX_Risenholm_ReleaseAfterimage()` drops that snapshot; `NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)` clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals, with `VFX_DUR_INVISIBILITY`, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed `fAnimationSpeed` already applied. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.

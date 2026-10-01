@@ -2165,6 +2165,134 @@ static Hooks::Hook s_UpdateEncumbranceStateHook = Hooks::HookFunction(&CNWSCreat
         s_UpdateEncumbranceStateHook->CallOriginal<void>(pThis, bDisplayFeedback);
     }, Hooks::Order::Early);
 
+// ---------------------------------------------------------------------------
+// Item uses fire once, and a charged item is never used up
+// ---------------------------------------------------------------------------
+//
+// CNWSCreature::AIActionItemCastSpell (0x499f60, 8193.37) runs in two phases,
+// told apart by the time since the action started, which it keeps in the
+// node's parameters 7 and 8. Until the conjure time is up (500ms, 2500 for
+// some base items) it checks GetUsedActivePropertyUsesLeft, fails the action
+// if there are none, and clears m_bLastSpellCast. From then on, EVERY call
+// that finds m_bLastSpellCast clear casts -- SpellCastAndImpact, which sets
+// the flag -- and then runs the consumption switch, with no second look at
+// the uses left. The action stays in the queue until its whole duration is
+// up, so the flag is all that stops the cast repeating through that tail.
+//
+// The flag belongs to the creature, not to the action, and it gets cleared
+// under a running item use: NWNX_Creature_AddCastSpellActions clears it for
+// an instant cast added to the front of the queue (it has to: RunActions
+// times a spell action from the object's action timer, which the item use
+// already started, so the spell action skips the start that would clear it).
+// The instant cast sets it again when it goes off, but AIActionCastSpell has
+// a dozen exits before that, and after any of them the item use resumes with
+// the flag clear. It then casts a second time for nothing and consumes a
+// second time: another one off a stack, another use of the day, or, for a
+// charged item now at 0 charges, a spent property on an item that is not
+// plot, which the engine destroys 500ms after the projectile time.
+// NWNX_TWEAKS_PRESERVE_DEPLETED_ITEMS does not catch that: it holds the item
+// plot only for a call entered with 1 to 5 charges.
+//
+// A Prayer ring was lost this way on production (2026-10-01): 3 charges and 3
+// a use, used in a fight, and gone. It had survived the same use twice before
+// with the same charges and properties, which is what ruled out the item
+// itself. Which instant cast cut in on that player was not established. The
+// engine half above is read from the disassembly and was reproduced on the
+// dev server the same day, with an NPC wearing a ring of 3 charges: an
+// instant cast queued in front 1s into the use, at a target destroyed before
+// it could run, had Prayer cast a second time at 0 charges and the ring gone
+// within the second. An instant cast that went off did nothing of the kind,
+// and nor did a use left alone.
+//
+// Two things here, then. A use that has cast is remembered, by its node, its
+// item, and its start time, and if it comes round again with the flag clear
+// the flag is set before the engine looks, so the tail runs out as it would
+// have. Whatever cleared it has had its turn by then: RunActions always runs
+// the head of the queue, so a cast queued in front has finished or failed
+// before the item use is called again. And a use of a charges-per-use
+// property (cost table values 2 to 6) holds the item plot for the call
+// whatever its charges, so no path through the consumption switch can
+// destroy a charged item. The module never wants one destroyed: it recharges
+// them at rest and on kills. With the hook, the dev server case above casts
+// once and keeps the ring.
+//
+// The node's parameters are read before the original runs and the node is
+// not touched after it: a script run from the cast can clear the queue.
+struct FiredItemCast
+{
+    CNWSObjectActionNode *pNode;
+    ObjectID oidItem;
+    intptr_t nStartDay;
+    intptr_t nStartTime;
+};
+
+static std::unordered_map<ObjectID, FiredItemCast> s_FiredItemCasts;
+
+static constexpr uint32_t ACTION_IN_PROGRESS = 1;
+
+static Hooks::Hook s_AIActionItemCastSpellHook = Hooks::HookFunction(&CNWSCreature::AIActionItemCastSpell,
+    +[](CNWSCreature *pThis, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        const ObjectID oidSelf = pThis->m_idSelf;
+        const FiredItemCast thisCast = { pNode, (ObjectID)(uintptr_t)pNode->m_pParameter[0],
+                                         pNode->m_pParameter[7], pNode->m_pParameter[8] };
+        const auto nPropertyIndex = (int32_t)pNode->m_pParameter[1];
+
+        bool bFired = false;
+        auto it = s_FiredItemCasts.find(oidSelf);
+
+        if (it != s_FiredItemCasts.end())
+        {
+            bFired = it->second.pNode == thisCast.pNode && it->second.oidItem == thisCast.oidItem &&
+                     it->second.nStartDay == thisCast.nStartDay && it->second.nStartTime == thisCast.nStartTime;
+
+            // A different use: the one remembered ended without this hook
+            // seeing it, cleared out of the queue.
+            if (!bFired)
+                s_FiredItemCasts.erase(it);
+        }
+
+        if (bFired && !pThis->m_bLastSpellCast)
+            pThis->m_bLastSpellCast = true;
+
+        auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(thisCast.oidItem));
+        BOOL bPlot = false;
+        bool bHoldPlot = false;
+
+        if (pItem)
+        {
+            auto *pProperty = pItem->GetActiveProperty(nPropertyIndex);
+
+            if (pProperty && pProperty->m_nPropertyName == Constants::ItemProperty::CastSpell &&
+                pProperty->m_nCostTableValue >= 2 && pProperty->m_nCostTableValue <= 6)
+            {
+                bPlot = pItem->m_bPlotObject;
+                pItem->m_bPlotObject = true;
+                bHoldPlot = true;
+            }
+        }
+
+        const BOOL bCastBefore = pThis->m_bLastSpellCast;
+
+        auto retVal = s_AIActionItemCastSpellHook->CallOriginal<uint32_t>(pThis, pNode);
+
+        // Still there: the engine destroys an item through a queued event.
+        if (bHoldPlot)
+            pItem->m_bPlotObject = bPlot;
+
+        if (retVal != ACTION_IN_PROGRESS)
+            s_FiredItemCasts.erase(oidSelf);
+        // Entered with the flag clear, a call either starts the use, which
+        // writes m_bLastItemCastSpell 0, or casts, which writes it 1. That
+        // tells them apart where m_bLastSpellCast afterwards would not: a
+        // script run from the cast can queue an instant cast of its own and
+        // have the flag cleared again before the original returns.
+        else if (!bFired && !bCastBefore && pThis->m_bLastItemCastSpell && (thisCast.nStartDay || thisCast.nStartTime))
+            s_FiredItemCasts[oidSelf] = thisCast;
+
+        return retVal;
+    }, Hooks::Order::Early);
+
 static Hooks::Hook s_AddItemCastSpellActionsHook = Hooks::HookFunction(&CNWSCreature::AddItemCastSpellActions,
     +[](CNWSCreature *thisPtr, ObjectID oidItemUsed, int32_t nActivePropertyIndex, int32_t nSubPropertyIndex,
             Vector vTargetLocation, ObjectID oidTarget, int32_t bAreaTarget, int32_t bDecrementCharges) -> int32_t
