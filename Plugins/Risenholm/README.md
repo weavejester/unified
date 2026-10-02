@@ -336,6 +336,17 @@ hand stays blocked and gets no attacks, but the engine's 1.5x Strength damage, w
 difference of exactly 1, does not apply. On the module side, `GetWieldsTwoHandedMeleeWeapon` in
 `pw_inc_itemslot.nss` counts it as two-handed.
 
+### Player characters are always Medium
+
+`CNWSCreature::UpdateAppearanceDependantInfo` sets the creature's size from the `SIZECATEGORY`
+of its appearance. It runs at every login, from `SetCreatureAppearanceType`, and from `Polymorph`
+and `UnPolymorph`, so a PC given a Large appearance became a Large creature, a greatsword was
+one-handed to them, and they could dual-wield a pair. A hook puts every player character
+(`CNWSCreatureStats::m_bIsPC`) back to Medium after each call. This covers everything size
+affects, not only weapons: the size modifiers to AC, attack, and Hide, the knockdown size checks,
+unarmed damage, and `GetCreatureSize`. A creature a player only possesses keeps its own size.
+`NWNX_Creature_SetSize` still works on a PC until its next appearance change.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)

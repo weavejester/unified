@@ -4792,6 +4792,42 @@ static Hooks::Hook s_CanUseItemHook = Hooks::HookFunction(&CNWSCreature::CanUseI
 
 
 // ---------------------------------------------------------------------------
+// Player characters are always Medium
+// ---------------------------------------------------------------------------
+//
+// CNWSCreature::UpdateAppearanceDependantInfo sets m_nCreatureSize from the
+// SIZECATEGORY column of appearance.2da. It runs on every appearance change:
+// at load (PostProcess, so on every login, whatever CreatureSize the .bic
+// holds), from SetCreatureAppearanceType, and from Polymorph and UnPolymorph.
+// A PC given a Large appearance so became a Large creature, a greatsword was
+// a one-handed weapon to them, and they could dual-wield a pair.
+//
+// Risenholm does not use size categories, so a player character is put back
+// to Medium after each of those calls. That reaches everything the engine
+// reads the size for, not only weapons: the size modifiers to AC, attack,
+// and Hide, the knockdown size checks, unarmed damage, and GetCreatureSize in
+// scripts. pw_mod_1st_login already set new characters Medium (a 2021 fix for
+// druid wildshape), but the next appearance change or login undid it.
+//
+// A PC is CNWSCreatureStats::m_bIsPC, read from the character file's IsPC
+// field before PostProcess, which copies it to m_bPlayerCharacter after this
+// has run. A creature a player only possesses keeps the size of its own
+// appearance. NWNX_Creature_SetSize still works on a PC until the next
+// appearance change.
+//
+// Read from the 8193.37 decompilation and disassembly, 2026-10-02.
+static Hooks::Hook s_UpdateAppearanceDependantInfoHook = Hooks::HookFunction(&CNWSCreature::UpdateAppearanceDependantInfo,
+    +[](CNWSCreature *pThis) -> void
+    {
+        s_UpdateAppearanceDependantInfoHook->CallOriginal<void>(pThis);
+
+        if (pThis->m_pStats && pThis->m_pStats->m_bIsPC)
+            pThis->m_nCreatureSize = 3; // CREATURE_SIZE_MEDIUM
+    }, Hooks::Order::Early);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //
