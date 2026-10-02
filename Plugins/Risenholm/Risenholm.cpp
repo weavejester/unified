@@ -4856,13 +4856,39 @@ static const bool s_bLogNuiHooked = []() -> bool
 // The listener's worker threads never touch the engine. They parse HTTP, queue
 // the task, and block on its future.
 //
-// Keep-alive is off (one request per connection). The pool is two threads, and
-// an idle kept-alive connection would hold one of them for its whole timeout.
+// Keep-alive is off (one request per connection). The pool is four threads,
+// and an idle kept-alive connection would hold one of them for its whole
+// timeout.
+//
+// What it is and is not protected against. It is plain HTTP with a shared
+// secret, for a loopback or a private container network on one host; it must
+// never be published. Within that:
+//
+// - The secret is checked BEFORE the body is read (a pre-routing handler), so
+//   a sender without it gets nothing buffered on its behalf but its headers.
+//   The first version checked in the route handler, by which time the library
+//   had read the whole body, and an attack on the dev server on 2026-10-02
+//   showed what that was worth: cpp-httplib 0.16.2 took a 64 MiB chunked body
+//   from an unauthenticated sender straight past the 64 KiB payload limit, and
+//   200,000 header lines likewise, the process growing to match. External/
+//   httplib.h is now 0.57.1, which caps a request at 100 header lines of 8 KiB
+//   and applies the payload limit to chunked bodies too.
+// - A rejected request is logged with its sender's address, at most once
+//   every ten seconds, so that probing shows up in the server log without
+//   being able to flood it.
+// - Anything that can connect can still DENY the listener: each silent
+//   connection holds a worker until its two-second read timeout, and there are
+//   four workers. The queue behind them is capped, so such a flood is turned
+//   away rather than stored. It costs the game itself nothing, because no
+//   worker touches the main thread until a request has authenticated.
+// - A sender WITH the secret can spend main-thread time: every request runs a
+//   script. Keep the secret to the one service that needs it.
 //
 // Switches (all NWNX_RISENHOLM_*):
 //   RPC_PORT    port to listen on. Unset or 0: no listener at all.
-//   RPC_SECRET  shared secret. Required: with a port and no secret the
-//               listener refuses to start rather than run open.
+//   RPC_SECRET  shared secret, at least 16 characters. Required: with a port
+//               and no secret, or a short one, the listener refuses to start
+//               rather than run open. Generate one: openssl rand -hex 32
 //   RPC_BIND    address to bind [127.0.0.1]. In Docker this must be 0.0.0.0
 //               for another container to reach it; do NOT publish the port.
 //   RPC_SCRIPT  script to run [pw_rpc].
@@ -4903,9 +4929,12 @@ static const bool s_bRpcListening = []() -> bool
 
     std::string sSecret = Config::Get<std::string>("RPC_SECRET", "");
 
-    if (sSecret.empty())
+    // Guessing is the one attack the secret has to stand up to on its own, and
+    // a short one does not. Its length is all that is ever logged of it.
+    if (sSecret.size() < 16)
     {
-        LOG_ERROR("RPC listener: NWNX_RISENHOLM_RPC_PORT is set but NWNX_RISENHOLM_RPC_SECRET is not; not listening");
+        LOG_ERROR("RPC listener: NWNX_RISENHOLM_RPC_PORT is set but NWNX_RISENHOLM_RPC_SECRET is %s; not listening",
+            sSecret.empty() ? "not" : "shorter than 16 characters");
         return false;
     }
 
@@ -4917,21 +4946,45 @@ static const bool s_bRpcListening = []() -> bool
     // a crash waiting for the wrong moment.
     auto *pServer = new httplib::Server();
 
-    pServer->new_task_queue = [] { return new httplib::ThreadPool(2); };
+    // Four workers and no more, with at most 32 connections waiting for one:
+    // past that a new connection is closed at once instead of queued.
+    pServer->new_task_queue = [] { return new httplib::ThreadPool(4, 4, 32); };
     pServer->set_keep_alive_max_count(1);
     pServer->set_payload_max_length(64 * 1024);
-    pServer->set_read_timeout(5, 0);
+    pServer->set_read_timeout(2, 0);
     pServer->set_write_timeout(5, 0);
 
-    pServer->Post("/rpc", [sSecret, sScript](const httplib::Request &req, httplib::Response &res)
+    // Runs once the headers are in and before any of the body is read, which
+    // is the point of doing it here rather than in the route.
+    pServer->set_pre_routing_handler([sSecret](const httplib::Request &req, httplib::Response &res)
     {
-        if (!RpcSecretMatches(req.get_header_value("Authorization"), "Bearer " + sSecret))
+        if (RpcSecretMatches(req.get_header_value("Authorization"), "Bearer " + sSecret))
+            return httplib::Server::HandlerResponse::Unhandled;
+
+        static std::atomic<int64_t> s_nLastLogged { 0 };
+        static std::atomic<uint32_t> s_nUnlogged { 0 };
+
+        int64_t nNow = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        int64_t nLast = s_nLastLogged.load();
+
+        if (nNow - nLast >= 10 && s_nLastLogged.compare_exchange_strong(nLast, nNow))
         {
-            res.status = 401;
-            res.set_content("{\"error\":\"Unauthorised.\"}", "application/json");
-            return;
+            LOG_WARNING("RPC listener: rejected a request from %s with a wrong or missing secret (%u more since the last such line)",
+                req.remote_addr.c_str(), s_nUnlogged.exchange(0));
+        }
+        else
+        {
+            s_nUnlogged++;
         }
 
+        res.status = 401;
+        res.set_content("{\"error\":\"Unauthorised.\"}", "application/json");
+        return httplib::Server::HandlerResponse::Handled;
+    });
+
+    pServer->Post("/rpc", [sScript](const httplib::Request &req, httplib::Response &res)
+    {
         auto pCall = std::make_shared<RpcCall>();
         pCall->sRequest = req.body;
         auto done = pCall->done.get_future();

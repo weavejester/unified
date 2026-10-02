@@ -16,7 +16,7 @@
 | `NWNX_RISENHOLM_STACK_ITEM_ABILITIES` | true/false | Makes every ability bonus on one item count, and every ability penalty. The engine counts only the largest of an item's effects on each ability, so +5 and +1 Strength on one item gave +5; with this on it gives +6. Spell effects keep the stock rule (only the largest of each spell's counts), and the totals are still capped by `SetAbilityBonusLimit` and `SetAbilityPenaltyLimit`. Replaces the Ability branch of `CNWSCreature::GetTotalEffectBonus`; every other bonus type is untouched. |
 | `NWNX_RISENHOLM_LOG_NUI` | true/false | Logs every NUI window the server sends a client (`NUI create:`) and every group layout it replaces (`NUI layout:`), with the character, account, window id, token, and calling script. A window with malformed JSON fails only on the client, as an error box reading `json.exception.type_error...`, and the server logs nothing, so these lines are the way to tell which window a player hit. Hooks `CNWSMessage::SendServerToPlayerNui_Create` and `_SetLayout` by symbol. |
 | `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
-| `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry. Required: with a port and no secret the listener refuses to start. |
+| `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry, at least 16 characters (`openssl rand -hex 32`). Required: with a port and no secret, or a short one, the listener refuses to start. |
 | `NWNX_RISENHOLM_RPC_BIND` | address | Address the RPC listener binds. Default `127.0.0.1`. In Docker set `0.0.0.0` so another container can reach it, and do not publish the port. |
 | `NWNX_RISENHOLM_RPC_SCRIPT` | resref | Script the RPC listener runs for each request. Default `pw_rpc`. |
 
@@ -349,10 +349,38 @@ an action nobody is waiting for any more must not land late. The mark is checked
 turn comes, so a script already running when the wait ends still finishes.
 
 The worker threads never touch the engine; they parse HTTP, queue the request, and wait. There are
-two of them, and keep-alive is off so that an idle connection cannot hold one. Bodies over 64 KiB
-are refused. The listener binds `127.0.0.1` unless `NWNX_RISENHOLM_RPC_BIND` says otherwise, and
-the secret is compared in constant time. It is plain HTTP, meant for a loopback or a private
-container network: never publish the port.
+four of them, and keep-alive is off so that an idle connection cannot hold one.
+
+#### Security
+
+It is plain HTTP with a shared secret, meant for a loopback or a private container network on one
+host. Nothing is encrypted, the secret included, so **never publish the port** and never run it
+across a network you do not control. It binds `127.0.0.1` unless `NWNX_RISENHOLM_RPC_BIND` says
+otherwise.
+
+- The secret is compared in constant time, and checked in a pre-routing handler, which runs once the
+  headers are in and **before any of the body is read**. A sender without it costs the server its
+  headers and nothing more.
+- A request is at most 100 header lines of 8 KiB and a 64 KiB body, chunked or not.
+- A rejected request is logged with its sender's address, at most once every ten seconds, with a
+  count of the ones in between.
+- The secret is never logged.
+
+These were found by attacking the first version on the dev server (2026-10-02). It checked the
+secret in the route handler, after the library had read the body, and it used cpp-httplib 0.16.2,
+which took a 64 MiB chunked body from an unauthenticated sender straight past the payload limit and
+200,000 header lines likewise, the process growing to match. `External/httplib.h` is 0.57.1 for
+that reason; do not swap it back for the 0.16.2 copies in `Plugins/HTTPClient` or `Plugins/WebHook`.
+The same attack now changes the process's memory by nothing.
+
+Two things it does not defend against, both by design:
+
+- **Anything that can connect can deny the listener.** A connection that says nothing holds a worker
+  until its two-second read timeout, and there are four. At most 32 connections wait behind them;
+  more are closed at once. This costs the game nothing, since no worker reaches the main thread
+  before its request has authenticated, but RPC callers time out while it lasts.
+- **Anything with the secret can spend main-thread time**, since every request runs a script. Give
+  the secret only to the service that needs it.
 
 Send the body as ASCII, with anything else `\u`-escaped, and answer with `JsonDump`, which is
 ASCII too. Checked on 8193.37 (2026-10-02): an escaped `ë` reaches the script as the one byte
