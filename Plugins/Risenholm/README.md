@@ -18,7 +18,7 @@
 | `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
 | `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry, at least 16 characters (`openssl rand -hex 32`). Required: with a port and no secret, or a short one, the listener refuses to start. |
 | `NWNX_RISENHOLM_RPC_BIND` | address | Address the RPC listener binds. Default `127.0.0.1`. In Docker set `0.0.0.0` so another container can reach it, and do not publish the port. |
-| `NWNX_RISENHOLM_RPC_SCRIPT` | resref | Script the RPC listener runs for each request. Default `pw_rpc`. |
+| `NWNX_RISENHOLM_RPC_SCRIPT_PREFIX` | string | What every script the RPC listener may run is named with. Default `pw_rpc_`. Must not be empty. |
 
 Each switch is logged at plugin load. Measured together on the dev module (2026-09-21, idle): objects visited per frame 53,835 -> 7,579, `AIMasterUpdateState` 367 -> 240 ms per second. Call `NWNX_Risenholm_TrimAILists()` once from OnModuleLoad to sweep objects created by routes the hooks do not see.
 
@@ -326,10 +326,17 @@ A small HTTP listener inside the server process, so that something outside the g
 can ask it a question and get the answer back in the same request, instead of writing a row to
 MySQL for a script to find on its next poll. Off unless `NWNX_RISENHOLM_RPC_PORT` is set.
 
-    POST /rpc
+    POST /rpc/<name>
     Authorization: Bearer <NWNX_RISENHOLM_RPC_SECRET>
 
-The request's body is handed to the RPC script (`pw_rpc` by default) on the main thread at the top
+The path names the script: `/rpc/teleport` runs `pw_rpc_teleport`. The module keeps one script for
+each thing the outside world may ask of it, all named with `NWNX_RISENHOLM_RPC_SCRIPT_PREFIX`
+(`pw_rpc_` by default), and the listener puts `<name>` after that prefix and runs nothing else. So
+holding the secret is leave to call the scripts the module wrote to be called this way, not to run
+any script it has. A name is lower-case letters, digits, and underscores, short enough for the
+whole to be a 16-character resref.
+
+The request's body is handed to that script on the main thread at the top
 of the next server frame: the listener's worker thread queues it with `Tasks::QueueOnMainThread`,
 which Core drains in its `MainLoop` hook, and blocks until the script has run. The script runs with
 the module as `OBJECT_SELF`, reads the body with `NWNX_Risenholm_GetRpcRequest()`, and answers with
@@ -340,7 +347,8 @@ dev server (2026-10-02), a round trip is 3 to 8 ms.
 | :----: | ------- |
 | 200 | The script's answer. |
 | 401 | Wrong or missing secret. |
-| 500 | The script ran and set no answer, or does not exist. |
+| 404 | No script of that name, or a name that could not be one. |
+| 500 | The script ran and set no answer. |
 | 503 | No module is loaded yet. |
 | 504 | The main thread did not reach the request within 5 seconds. |
 

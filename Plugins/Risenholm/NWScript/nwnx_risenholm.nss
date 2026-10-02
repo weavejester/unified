@@ -259,8 +259,8 @@ json NWNX_Risenholm_GetLevelHistory(object oCreature);
 int NWNX_Risenholm_RestoreLevelHistory(object oCreature, json jHistory, int nXP);
 
 /// @brief The body of the request the RPC listener is running this script for.
-/// @note The plugin's listener (NWNX_RISENHOLM_RPC_PORT) runs the RPC script
-/// (pw_rpc) once per request, with the module as OBJECT_SELF, at the top of the
+/// @note The plugin's listener (NWNX_RISENHOLM_RPC_PORT) runs pw_rpc_<name> for
+/// a request to /rpc/<name>, with the module as OBJECT_SELF, at the top of the
 /// next server frame. See "RPC" in Risenholm.cpp and the plugin README.
 /// @return The body as it was sent, or "" when no request is being handled.
 string NWNX_Risenholm_GetRpcRequest();

@@ -53,6 +53,8 @@
 #include <cstring>
 #include <memory>
 #include "External/httplib.h"
+#include "API/CExoResMan.hpp"
+#include "API/CResRef.hpp"
 #include <atomic>
 #include <future>
 #include <thread>
@@ -4834,13 +4836,22 @@ static const bool s_bLogNuiHooked = []() -> bool
 // reply. A round trip is one frame, about 16ms on an idle server, and nothing
 // runs at all between requests.
 //
-//   POST /rpc    Authorization: Bearer <NWNX_RISENHOLM_RPC_SECRET>
-//   body         anything; the module's script takes a JSON object
+//   POST /rpc/<name>   Authorization: Bearer <NWNX_RISENHOLM_RPC_SECRET>
+//   body         anything; the module's scripts take a JSON object
 //   200          the script's answer, sent as application/json
 //   401          wrong or missing secret
-//   500          the script ran and set no answer (or does not exist)
+//   404          no such script
+//   500          the script ran and set no answer
 //   503          no module is loaded yet
 //   504          the main thread did not get to it within 5 seconds
+//
+// The path names the script: /rpc/teleport runs pw_rpc_teleport. The module
+// keeps one script for each thing the outside world may ask of it, all under
+// that prefix, and the prefix is the boundary. <name> is put after it and
+// nothing else is ever run, so that holding the secret is leave to call what
+// the module wrote to be called this way, not to run any script it has
+// (pw_mod_load, a DM tool). A name is lower-case letters, digits, and
+// underscores, and short enough for the whole to be a resref.
 //
 // The script runs with the module as OBJECT_SELF and reads the body with
 // GetRpcRequest. Only one runs at a time, since they all run on the main
@@ -4891,7 +4902,8 @@ static const bool s_bLogNuiHooked = []() -> bool
 //               rather than run open. Generate one: openssl rand -hex 32
 //   RPC_BIND    address to bind [127.0.0.1]. In Docker this must be 0.0.0.0
 //               for another container to reach it; do NOT publish the port.
-//   RPC_SCRIPT  script to run [pw_rpc].
+//   RPC_SCRIPT_PREFIX  what every RPC script's name starts with [pw_rpc_].
+//               Must not be empty, which would make every script callable.
 
 struct RpcCall
 {
@@ -4917,6 +4929,20 @@ static bool RpcSecretMatches(const std::string &sGiven, const std::string &sExpe
     return nDiff == 0;
 }
 
+// Whether a string is made only of what a script's name may be. Upper case is
+// left out on purpose: resrefs are lower case, and one name per script keeps
+// the log readable.
+static bool RpcIsResRefText(const std::string &s)
+{
+    for (char c : s)
+    {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+            return false;
+    }
+
+    return true;
+}
+
 static const bool s_bRpcListening = []() -> bool
 {
     int nPort = Config::Get<int>("RPC_PORT", 0);
@@ -4939,7 +4965,16 @@ static const bool s_bRpcListening = []() -> bool
     }
 
     std::string sBind   = Config::Get<std::string>("RPC_BIND", "127.0.0.1");
-    std::string sScript = Config::Get<std::string>("RPC_SCRIPT", "pw_rpc");
+    std::string sPrefix = Config::Get<std::string>("RPC_SCRIPT_PREFIX", "pw_rpc_");
+
+    // The prefix is what keeps a request to the scripts written for it. An
+    // empty one would make every script in the module callable, and one that
+    // leaves no room for a name makes none.
+    if (sPrefix.empty() || sPrefix.size() >= 16 || !RpcIsResRefText(sPrefix))
+    {
+        LOG_ERROR("RPC listener: NWNX_RISENHOLM_RPC_SCRIPT_PREFIX '%s' is not 1 to 15 of a-z, 0-9, and _; not listening", sPrefix.c_str());
+        return false;
+    }
 
     // Never freed: its thread is detached and runs until the process exits,
     // and tearing a listening server down from a static destructor at exit is
@@ -4983,23 +5018,49 @@ static const bool s_bRpcListening = []() -> bool
         return httplib::Server::HandlerResponse::Handled;
     });
 
-    pServer->Post("/rpc", [sScript](const httplib::Request &req, httplib::Response &res)
+    pServer->Post("/rpc/:name", [sPrefix](const httplib::Request &req, httplib::Response &res)
     {
+        // Checked here, on the worker, so that a name that could not be a
+        // script never costs the main thread anything.
+        auto name = req.path_params.find("name");
+        std::string sScript = sPrefix + (name != req.path_params.end() ? name->second : "");
+
+        if (sScript.size() <= sPrefix.size() || sScript.size() > 16 || !RpcIsResRefText(sScript))
+        {
+            res.status = 404;
+            res.set_content("{\"error\":\"No such RPC script.\"}", "application/json");
+            return;
+        }
+
         auto pCall = std::make_shared<RpcCall>();
         pCall->sRequest = req.body;
         auto done = pCall->done.get_future();
-        auto pLoaded = std::make_shared<bool>(false);
 
-        Tasks::QueueOnMainThread([pCall, pLoaded, sScript]()
+        // How far the main thread got: written there, read here once `done`
+        // is ready.
+        enum { NoModule, NoScript, Ran };
+        auto pReached = std::make_shared<int>(NoModule);
+
+        Tasks::QueueOnMainThread([pCall, pReached, sScript]()
         {
             if (!pCall->bAbandoned.load())
             {
                 if (auto *pModule = Utils::GetModule())
                 {
-                    *pLoaded = true;
-                    s_pRpcCall = pCall.get();
-                    Utils::ExecuteScript(sScript, pModule->m_idSelf);
-                    s_pRpcCall = nullptr;
+                    // Asked rather than found out by running it: a script
+                    // that is not there and one that set no answer would
+                    // otherwise look the same.
+                    if (Globals::ExoResMan()->Exists(CResRef(sScript.c_str()), Constants::ResRefType::NCS, nullptr))
+                    {
+                        *pReached = Ran;
+                        s_pRpcCall = pCall.get();
+                        Utils::ExecuteScript(sScript, pModule->m_idSelf);
+                        s_pRpcCall = nullptr;
+                    }
+                    else
+                    {
+                        *pReached = NoScript;
+                    }
                 }
             }
 
@@ -5014,10 +5075,17 @@ static const bool s_bRpcListening = []() -> bool
             return;
         }
 
-        if (!*pLoaded)
+        if (*pReached == NoModule)
         {
             res.status = 503;
             res.set_content("{\"error\":\"The module is not loaded yet.\"}", "application/json");
+            return;
+        }
+
+        if (*pReached == NoScript)
+        {
+            res.status = 404;
+            res.set_content("{\"error\":\"No such RPC script.\"}", "application/json");
             return;
         }
 
@@ -5040,7 +5108,7 @@ static const bool s_bRpcListening = []() -> bool
 
     std::thread([pServer]() { pServer->listen_after_bind(); }).detach();
 
-    LOG_INFO("RPC listener: %s:%d, script '%s'", sBind.c_str(), nPort, sScript.c_str());
+    LOG_INFO("RPC listener: %s:%d, scripts '%s*'", sBind.c_str(), nPort, sPrefix.c_str());
     return true;
 }();
 
