@@ -4685,6 +4685,113 @@ static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCr
 
 
 // ---------------------------------------------------------------------------
+// No size limits on equipping
+// ---------------------------------------------------------------------------
+//
+// The engine refuses a weapon whose size is more than one category above the
+// creature's ("You are too small to equip that weapon", feedback 0x78) or more
+// than two below it (feedback 0x104), and refuses a tower shield to a Tiny or
+// Small creature. Risenholm does not use size categories, so none of these
+// should ever stop an equip.
+//
+// Three engine functions carry the tests, each against m_nCreatureSize:
+// CanEquipWeapon (the base item's WeaponSize minus the creature's size must
+// be in -2..1), CanEquipShield (tower shield, creature size 3 or more), and
+// CanUseItem (both of the same tests, for a creature using the item).
+//
+// CanEquipWeapon and CanUseItem are hooked to move m_nCreatureSize for the
+// length of the call just far enough to pass, then put it back. Nothing else
+// reads the field during those calls, and no message goes to the client for
+// it. CanEquipShield is different: after the tower shield test it checks the
+// weapon in the right hand against the creature's size, and a raised size
+// would let a Small creature add a shield to a weapon it holds two-handed.
+// So there the shield itself is passed off as a large shield for the call
+// (its base item is read by the tower test and by nothing after it), and the
+// size is left alone. CanUseItem cannot take that route, since it checks the
+// tower shield proficiency.
+//
+// Clamping to weapon size - 1 rather than to the weapon's own size means an
+// oversized weapon is passed as two-handed (a difference of exactly 1), so it
+// takes both hands, the same as a greatsword in a Medium creature's.
+// Afterwards, outside the hook, the difference is the real one: 2 for a Small
+// creature holding a Large weapon. CanEquipShield and CanEquipWeapon test a
+// held weapon with "difference above 0", so the off hand stays blocked, and
+// CalculateOffHandAttacks gives no off-hand attacks. The engine's 1.5x
+// Strength damage (GetMeleeDamageBonus, GetDamageBonus) tests "exactly 1", so
+// it does not apply in that case.
+//
+// Read from the 8193.37 decompilation, 2026-10-02: CanEquipWeapon,
+// CanEquipShield, CanUseItem, and the other readers of m_nCreatureSize.
+static int32_t GetSizeToEquip(CNWSCreature *pCreature, CNWSItem *pItem)
+{
+    int32_t nSize = pCreature->m_nCreatureSize;
+    if (!pItem)
+        return nSize;
+
+    // CanUseItem only; CanEquipShield takes the base item route above.
+    if (pItem->m_nBaseItem == Constants::BaseItem::TowerShield)
+        nSize = std::max(nSize, 3); // Medium
+
+    // WeaponSize 0 is an item that is not a weapon (shields among them),
+    // which CanEquipWeapon and CanUseItem never put to the weapon test.
+    if (auto *pBaseItem = Globals::Rules()->m_pBaseItemArray->GetBaseItem(pItem->m_nBaseItem))
+    {
+        const int32_t nWeaponSize = pBaseItem->m_nWeaponSize;
+        if (nWeaponSize > 0)
+            nSize = std::clamp(nSize, nWeaponSize - 1, nWeaponSize + 2);
+    }
+
+    return nSize;
+}
+
+struct ScopedSizeToEquip
+{
+    CNWSCreature *pCreature;
+    int32_t nSaved;
+
+    ScopedSizeToEquip(CNWSCreature *pCreature, CNWSItem *pItem)
+        : pCreature(pCreature), nSaved(pCreature->m_nCreatureSize)
+    {
+        pCreature->m_nCreatureSize = GetSizeToEquip(pCreature, pItem);
+    }
+
+    ~ScopedSizeToEquip()
+    {
+        pCreature->m_nCreatureSize = nSaved;
+    }
+};
+
+static Hooks::Hook s_CanEquipWeaponHook = Hooks::HookFunction(&CNWSCreature::CanEquipWeapon,
+    +[](CNWSCreature *pThis, CNWSItem *pItem, uint32_t *pnEquipToSlot, BOOL bEquipping,
+            BOOL bDisplayFeedback, CNWSPlayer *pFeedbackPlayer) -> uint8_t
+    {
+        ScopedSizeToEquip size(pThis, pItem);
+        return s_CanEquipWeaponHook->CallOriginal<uint8_t>(pThis, pItem, pnEquipToSlot, bEquipping,
+                                                           bDisplayFeedback, pFeedbackPlayer);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_CanEquipShieldHook = Hooks::HookFunction(&CNWSCreature::CanEquipShield,
+    +[](CNWSCreature *pThis, CNWSItem *pItem, BOOL bEquipping, BOOL bDisplayFeedback) -> uint8_t
+    {
+        if (!pItem || pItem->m_nBaseItem != Constants::BaseItem::TowerShield)
+            return s_CanEquipShieldHook->CallOriginal<uint8_t>(pThis, pItem, bEquipping, bDisplayFeedback);
+
+        pItem->m_nBaseItem = Constants::BaseItem::LargeShield;
+        const uint8_t nResult = s_CanEquipShieldHook->CallOriginal<uint8_t>(pThis, pItem, bEquipping, bDisplayFeedback);
+        pItem->m_nBaseItem = Constants::BaseItem::TowerShield;
+        return nResult;
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_CanUseItemHook = Hooks::HookFunction(&CNWSCreature::CanUseItem,
+    +[](CNWSCreature *pThis, CNWSItem *pItem, BOOL bIgnoreIdentifiedFlag) -> BOOL
+    {
+        ScopedSizeToEquip size(pThis, pItem);
+        return s_CanUseItemHook->CallOriginal<BOOL>(pThis, pItem, bIgnoreIdentifiedFlag);
+    }, Hooks::Order::Early);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //

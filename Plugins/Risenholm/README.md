@@ -320,6 +320,22 @@ engine's own start index and stop, so it adds one pass of the same length as the
 The module sets the local for as long as it holds a creature in place and must clear it on
 release: see `SeatInStocks` and `ReleaseFromStocks` in `pw_inc_stocks.nss`.
 
+### No size limits on equipping
+
+The engine refuses a weapon more than one size category above the creature ("You are too small to
+equip that weapon") or more than two below it, and refuses a tower shield to a Tiny or Small
+creature. Risenholm does not use size categories, so hooks on `CNWSCreature::CanEquipWeapon`,
+`CanEquipShield`, and `CanUseItem` lift all three. The first and last move `m_nCreatureSize` for
+the length of the call just far enough to pass, then put it back. `CanEquipShield` checks the
+right-hand weapon against the creature's size after its tower shield test, so there the shield is
+passed off as a large shield for the call and the size is left alone.
+
+An oversized weapon is passed as two-handed, so it takes both hands. Outside the hooks the engine
+sees the real size difference, which for a Small creature holding a Large weapon is 2: the off
+hand stays blocked and gets no attacks, but the engine's 1.5x Strength damage, which tests for a
+difference of exactly 1, does not apply. On the module side, `GetWieldsTwoHandedMeleeWeapon` in
+`pw_inc_itemslot.nss` counts it as two-handed.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)
