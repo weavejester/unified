@@ -52,6 +52,10 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include "External/httplib.h"
+#include <atomic>
+#include <future>
+#include <thread>
 
 
 using namespace NWNXLib;
@@ -4813,3 +4817,194 @@ static const bool s_bLogNuiHooked = []() -> bool
 
     return true;
 }();
+
+// ---------------------------------------------------------------------------
+// RPC: run a script for a request from outside the game, and send back its answer
+// ---------------------------------------------------------------------------
+//
+// Wellkeeper (the DMs' web tool) reached the game only through MySQL: it wrote
+// a row, and a script polling that table on a DelayCommand picked it up some
+// seconds later. That is slow, costs a query per poll with nothing to find,
+// and cannot answer -- "where is this character standing" has no row to read.
+//
+// This is a small HTTP listener inside the server process. A request's body is
+// handed to a script on the main thread at the top of the next server frame
+// (Tasks::QueueOnMainThread, drained by Core's MainLoop hook before the frame
+// runs), and whatever the script passes to SetRpcResponse goes back as the
+// reply. A round trip is one frame, about 16ms on an idle server, and nothing
+// runs at all between requests.
+//
+//   POST /rpc    Authorization: Bearer <NWNX_RISENHOLM_RPC_SECRET>
+//   body         anything; the module's script takes a JSON object
+//   200          the script's answer, sent as application/json
+//   401          wrong or missing secret
+//   500          the script ran and set no answer (or does not exist)
+//   503          no module is loaded yet
+//   504          the main thread did not get to it within 5 seconds
+//
+// The script runs with the module as OBJECT_SELF and reads the body with
+// GetRpcRequest. Only one runs at a time, since they all run on the main
+// thread, so "the current request" is a single pointer.
+//
+// A request that timed out is marked abandoned and is NOT run when the main
+// thread finally reaches it: an action nobody is waiting on any more (a
+// teleport, say) must not land half a minute late, after its sender has been
+// told it failed and has maybe tried something else. The mark is checked as
+// the task starts, so a script already running when the wait ends still
+// finishes; its sender is told 504 regardless.
+//
+// The listener's worker threads never touch the engine. They parse HTTP, queue
+// the task, and block on its future.
+//
+// Keep-alive is off (one request per connection). The pool is two threads, and
+// an idle kept-alive connection would hold one of them for its whole timeout.
+//
+// Switches (all NWNX_RISENHOLM_*):
+//   RPC_PORT    port to listen on. Unset or 0: no listener at all.
+//   RPC_SECRET  shared secret. Required: with a port and no secret the
+//               listener refuses to start rather than run open.
+//   RPC_BIND    address to bind [127.0.0.1]. In Docker this must be 0.0.0.0
+//               for another container to reach it; do NOT publish the port.
+//   RPC_SCRIPT  script to run [pw_rpc].
+
+struct RpcCall
+{
+    std::string sRequest;
+    std::string sResponse;
+    bool bAnswered = false;
+    std::atomic<bool> bAbandoned { false };
+    std::promise<void> done;
+};
+
+// The call whose script is running. Main thread only.
+static RpcCall *s_pRpcCall = nullptr;
+
+// Constant time in the length of the secret, so that a wrong guess's timing
+// says nothing about how much of it was right.
+static bool RpcSecretMatches(const std::string &sGiven, const std::string &sExpected)
+{
+    unsigned char nDiff = sGiven.size() == sExpected.size() ? 0 : 1;
+
+    for (size_t i = 0; i < sExpected.size(); i++)
+        nDiff |= (unsigned char)(i < sGiven.size() ? sGiven[i] : 0) ^ (unsigned char)sExpected[i];
+
+    return nDiff == 0;
+}
+
+static const bool s_bRpcListening = []() -> bool
+{
+    int nPort = Config::Get<int>("RPC_PORT", 0);
+
+    if (nPort <= 0)
+    {
+        LOG_INFO("RPC listener: off");
+        return false;
+    }
+
+    std::string sSecret = Config::Get<std::string>("RPC_SECRET", "");
+
+    if (sSecret.empty())
+    {
+        LOG_ERROR("RPC listener: NWNX_RISENHOLM_RPC_PORT is set but NWNX_RISENHOLM_RPC_SECRET is not; not listening");
+        return false;
+    }
+
+    std::string sBind   = Config::Get<std::string>("RPC_BIND", "127.0.0.1");
+    std::string sScript = Config::Get<std::string>("RPC_SCRIPT", "pw_rpc");
+
+    // Never freed: its thread is detached and runs until the process exits,
+    // and tearing a listening server down from a static destructor at exit is
+    // a crash waiting for the wrong moment.
+    auto *pServer = new httplib::Server();
+
+    pServer->new_task_queue = [] { return new httplib::ThreadPool(2); };
+    pServer->set_keep_alive_max_count(1);
+    pServer->set_payload_max_length(64 * 1024);
+    pServer->set_read_timeout(5, 0);
+    pServer->set_write_timeout(5, 0);
+
+    pServer->Post("/rpc", [sSecret, sScript](const httplib::Request &req, httplib::Response &res)
+    {
+        if (!RpcSecretMatches(req.get_header_value("Authorization"), "Bearer " + sSecret))
+        {
+            res.status = 401;
+            res.set_content("{\"error\":\"Unauthorised.\"}", "application/json");
+            return;
+        }
+
+        auto pCall = std::make_shared<RpcCall>();
+        pCall->sRequest = req.body;
+        auto done = pCall->done.get_future();
+        auto pLoaded = std::make_shared<bool>(false);
+
+        Tasks::QueueOnMainThread([pCall, pLoaded, sScript]()
+        {
+            if (!pCall->bAbandoned.load())
+            {
+                if (auto *pModule = Utils::GetModule())
+                {
+                    *pLoaded = true;
+                    s_pRpcCall = pCall.get();
+                    Utils::ExecuteScript(sScript, pModule->m_idSelf);
+                    s_pRpcCall = nullptr;
+                }
+            }
+
+            pCall->done.set_value();
+        });
+
+        if (done.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+        {
+            pCall->bAbandoned.store(true);
+            res.status = 504;
+            res.set_content("{\"error\":\"The game server did not answer in time.\"}", "application/json");
+            return;
+        }
+
+        if (!*pLoaded)
+        {
+            res.status = 503;
+            res.set_content("{\"error\":\"The module is not loaded yet.\"}", "application/json");
+            return;
+        }
+
+        if (!pCall->bAnswered)
+        {
+            res.status = 500;
+            res.set_content("{\"error\":\"The game's RPC script gave no answer.\"}", "application/json");
+            return;
+        }
+
+        res.set_content(pCall->sResponse, "application/json");
+    });
+
+    if (!pServer->bind_to_port(sBind, nPort))
+    {
+        LOG_ERROR("RPC listener: could not bind %s:%d; not listening", sBind.c_str(), nPort);
+        delete pServer;
+        return false;
+    }
+
+    std::thread([pServer]() { pServer->listen_after_bind(); }).detach();
+
+    LOG_INFO("RPC listener: %s:%d, script '%s'", sBind.c_str(), nPort, sScript.c_str());
+    return true;
+}();
+
+NWNX_EXPORT ArgumentStack GetRpcRequest(ArgumentStack&&)
+{
+    return s_pRpcCall ? s_pRpcCall->sRequest : std::string();
+}
+
+NWNX_EXPORT ArgumentStack SetRpcResponse(ArgumentStack&& args)
+{
+    auto sResponse = args.extract<std::string>();
+
+    if (s_pRpcCall)
+    {
+        s_pRpcCall->sResponse = std::move(sResponse);
+        s_pRpcCall->bAnswered = true;
+    }
+
+    return {};
+}

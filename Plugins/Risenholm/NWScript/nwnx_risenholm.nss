@@ -258,6 +258,21 @@ json NWNX_Risenholm_GetLevelHistory(object oCreature);
 /// @return The number of levels restored, or -1 if refused.
 int NWNX_Risenholm_RestoreLevelHistory(object oCreature, json jHistory, int nXP);
 
+/// @brief The body of the request the RPC listener is running this script for.
+/// @note The plugin's listener (NWNX_RISENHOLM_RPC_PORT) runs the RPC script
+/// (pw_rpc) once per request, with the module as OBJECT_SELF, at the top of the
+/// next server frame. See "RPC" in Risenholm.cpp and the plugin README.
+/// @return The body as it was sent, or "" when no request is being handled.
+string NWNX_Risenholm_GetRpcRequest();
+
+/// @brief Set the answer to the request this script is running for. The
+/// listener sends it back as the reply's body, as application/json.
+/// @note A request whose script sets no answer is replied to with a 500. Does
+/// nothing outside an RPC script.
+/// @param sResponse The reply body. Pass JsonDump output: it is pure ASCII,
+/// whatever the strings inside hold.
+void NWNX_Risenholm_SetRpcResponse(string sResponse);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -490,4 +505,16 @@ int NWNX_Risenholm_RestoreLevelHistory(object oCreature, json jHistory, int nXP)
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "RestoreLevelHistory");
     return NWNXPopInt();
+}
+
+string NWNX_Risenholm_GetRpcRequest()
+{
+    NWNXCall(NWNX_Risenholm, "GetRpcRequest");
+    return NWNXPopString();
+}
+
+void NWNX_Risenholm_SetRpcResponse(string sResponse)
+{
+    NWNXPushString(sResponse);
+    NWNXCall(NWNX_Risenholm, "SetRpcResponse");
 }

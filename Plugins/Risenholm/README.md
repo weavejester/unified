@@ -15,6 +15,10 @@
 | `NWNX_RISENHOLM_RUNSCRIPT_REMOVE_ON_DESTROY` | true/false | Runs the ON_REMOVED script of every `EffectRunScript` on a non-player creature when the creature is destroyed. The engine frees a destroyed object's effects without their removal handlers, so without this any cleanup done in ON_REMOVED silently never happens for DestroyObject, corpse decay, or the spawn sweep. The script runs just before deletion with a valid OBJECT_SELF; anything it queues on the creature itself is lost with it. Player characters are skipped, because their effects persist in the .bic and the engine does not run ON_APPLIED when reloading them. |
 | `NWNX_RISENHOLM_STACK_ITEM_ABILITIES` | true/false | Makes every ability bonus on one item count, and every ability penalty. The engine counts only the largest of an item's effects on each ability, so +5 and +1 Strength on one item gave +5; with this on it gives +6. Spell effects keep the stock rule (only the largest of each spell's counts), and the totals are still capped by `SetAbilityBonusLimit` and `SetAbilityPenaltyLimit`. Replaces the Ability branch of `CNWSCreature::GetTotalEffectBonus`; every other bonus type is untouched. |
 | `NWNX_RISENHOLM_LOG_NUI` | true/false | Logs every NUI window the server sends a client (`NUI create:`) and every group layout it replaces (`NUI layout:`), with the character, account, window id, token, and calling script. A window with malformed JSON fails only on the client, as an error box reading `json.exception.type_error...`, and the server logs nothing, so these lines are the way to tell which window a player hit. Hooks `CNWSMessage::SendServerToPlayerNui_Create` and `_SetLayout` by symbol. |
+| `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
+| `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry. Required: with a port and no secret the listener refuses to start. |
+| `NWNX_RISENHOLM_RPC_BIND` | address | Address the RPC listener binds. Default `127.0.0.1`. In Docker set `0.0.0.0` so another container can reach it, and do not publish the port. |
+| `NWNX_RISENHOLM_RPC_SCRIPT` | resref | Script the RPC listener runs for each request. Default `pw_rpc`. |
 
 Each switch is logged at plugin load. Measured together on the dev module (2026-09-21, idle): objects visited per frame 53,835 -> 7,579, `AIMasterUpdateState` 367 -> 240 ms per second. Call `NWNX_Risenholm_TrimAILists()` once from OnModuleLoad to sweep objects created by routes the hooks do not see.
 
@@ -315,3 +319,43 @@ engine's own start index and stop, so it adds one pass of the same length as the
 
 The module sets the local for as long as it holds a creature in place and must clear it on
 release: see `SeatInStocks` and `ReleaseFromStocks` in `pw_inc_stocks.nss`.
+
+### RPC listener
+
+A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)
+can ask it a question and get the answer back in the same request, instead of writing a row to
+MySQL for a script to find on its next poll. Off unless `NWNX_RISENHOLM_RPC_PORT` is set.
+
+    POST /rpc
+    Authorization: Bearer <NWNX_RISENHOLM_RPC_SECRET>
+
+The request's body is handed to the RPC script (`pw_rpc` by default) on the main thread at the top
+of the next server frame: the listener's worker thread queues it with `Tasks::QueueOnMainThread`,
+which Core drains in its `MainLoop` hook, and blocks until the script has run. The script runs with
+the module as `OBJECT_SELF`, reads the body with `NWNX_Risenholm_GetRpcRequest()`, and answers with
+`NWNX_Risenholm_SetRpcResponse(sJson)`, which is sent back as `application/json`. Measured on the
+dev server (2026-10-02), a round trip is 3 to 8 ms.
+
+| Status | Meaning |
+| :----: | ------- |
+| 200 | The script's answer. |
+| 401 | Wrong or missing secret. |
+| 500 | The script ran and set no answer, or does not exist. |
+| 503 | No module is loaded yet. |
+| 504 | The main thread did not reach the request within 5 seconds. |
+
+A request that times out is marked abandoned, and is not run when the main thread does reach it:
+an action nobody is waiting for any more must not land late. The mark is checked as the request's
+turn comes, so a script already running when the wait ends still finishes.
+
+The worker threads never touch the engine; they parse HTTP, queue the request, and wait. There are
+two of them, and keep-alive is off so that an idle connection cannot hold one. Bodies over 64 KiB
+are refused. The listener binds `127.0.0.1` unless `NWNX_RISENHOLM_RPC_BIND` says otherwise, and
+the secret is compared in constant time. It is plain HTTP, meant for a loopback or a private
+container network: never publish the port.
+
+Send the body as ASCII, with anything else `\u`-escaped, and answer with `JsonDump`, which is
+ASCII too. Checked on 8193.37 (2026-10-02): an escaped `ë` reaches the script as the one byte
+0xEB and goes back out as `ë`, but the same character sent as raw UTF-8 is read a byte at a
+time and arrives as two characters. Anything outside Latin-1, a curly quote included, reaches the
+script as `?`.
