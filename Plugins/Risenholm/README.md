@@ -347,6 +347,15 @@ affects, not only weapons: the size modifiers to AC, attack, and Hide, the knock
 unarmed damage, and `GetCreatureSize`. A creature a player only possesses keeps its own size.
 `NWNX_Creature_SetSize` still works on a PC until its next appearance change.
 
+### A split stack keeps its local variables
+
+When a player splits a stack, `CNWSItem::SplitItem` makes the new stack with
+`CopyItem(this, FALSE)`, and that `FALSE` means no local variables are copied. The module keeps
+item behaviour in locals, so a meal split off a stack lost `IS_MEAL` and `BEFORE_USE_SCRIPT` and
+was eaten as a snack with no cooldown, and a split snack lost `FOOD_SCRIPT`. A hook copies the
+original's locals onto the new stack before it reaches the inventory. The half left behind is the
+original object and always kept them.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)

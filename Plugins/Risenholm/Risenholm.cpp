@@ -4828,6 +4828,38 @@ static Hooks::Hook s_UpdateAppearanceDependantInfoHook = Hooks::HookFunction(&CN
 
 
 // ---------------------------------------------------------------------------
+// A split stack keeps its local variables
+// ---------------------------------------------------------------------------
+//
+// CNWSItem::SplitItem makes the split-off stack with CopyItem(this, FALSE),
+// and CopyItem's second argument is the only thing that decides whether it
+// calls CopyScriptVars. So the new stack came out with no locals at all, and
+// the module keeps item behaviour in them: a meal split off a stack lost
+// IS_MEAL and BEFORE_USE_SCRIPT, so it skipped the meal cooldown and the
+// town-or-campfire check and was eaten as a snack, and a snack lost
+// FOOD_SCRIPT, so eating it cleared the eater's food buff instead of setting
+// one. The half left behind is the original object and always kept them.
+//
+// The two halves of a stack are the same thing, so the new one gets a copy of
+// the original's locals. CNWSCreature::SplitItem, the player's inventory
+// split, is SplitItem's only caller, and it adds the new stack to an inventory
+// only after this returns, so the locals are in place before anything sees it.
+//
+// Read from the 8193.37 disassembly, 2026-10-04.
+static Hooks::Hook s_SplitItemHook = Hooks::HookFunction(&CNWSItem::SplitItem,
+    +[](CNWSItem *pThis, int32_t nNumberToSplitOff) -> CNWSItem*
+    {
+        auto *pNewItem = s_SplitItemHook->CallOriginal<CNWSItem*>(pThis, nNumberToSplitOff);
+
+        if (pNewItem)
+            pNewItem->CopyScriptVars(&pThis->m_ScriptVars);
+
+        return pNewItem;
+    }, Hooks::Order::Early);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //
