@@ -347,6 +347,19 @@ affects, not only weapons: the size modifiers to AC, attack, and Hide, the knock
 unarmed damage, and `GetCreatureSize`. A creature a player only possesses keeps its own size.
 `NWNX_Creature_SetSize` still works on a PC until its next appearance change.
 
+### An attack of opportunity keeps the attacker's target
+
+An attack of opportunity is queued as a swing at its own target, and when the engine makes that
+swing at someone other than the creature's current target it sets the creature's attempted attack
+target to the victim and never sets it back. The real target is kept and later swings go there,
+but `GetAttemptedAttackTarget()` reports the victim until the creature next changes target. The
+module's maneuvers and its NPC AI choose their target that way, so a Shield Fighting AoO sent the
+next Knockdown to whoever had just hit the shield-bearer. A hook on
+`CNWSCreature::AIActionAttackObject` puts the attempted target back after the swing. This covers
+every such swing: `NWNX_Risenholm_AddAttackOfOpportunity`, the engine's own AoOs, Parry ripostes,
+and Whirlwind Attack. `GetAttackTarget()` still names the victim for the length of the AoO, as it
+names whatever is being swung at, and the next ordinary swing sets it back.
+
 ### A split stack keeps its local variables
 
 When a player splits a stack, `CNWSItem::SplitItem` makes the new stack with

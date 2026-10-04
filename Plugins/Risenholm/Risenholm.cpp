@@ -3108,6 +3108,59 @@ NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
     return {};
 } 
 
+// RISENHOLM MODIFICATION: an attack of opportunity does not change the attacker's target.
+//
+// AddAttackOfOpportunity queues a combat round action of type 1 (attack) aimed at
+// its own target with m_bActionRetargettable = 0 (disassembled at 0x651d10), as
+// AddParryAttack and AddWhirlwindAttack also do. When AIActionAttackObject
+// reaches such an action and its target is not the ATTACKOBJECT node's target,
+// it does
+//
+//     m_oidAttemptedAttackTarget = action.m_oidTarget;
+//
+// before swinging (nwscreatureaicombat.cpp, AIActionAttackObject case 1), and
+// nothing ever sets it back: the only other writers are ChangeAttackTarget, the
+// INVALID -> node target fill-in at the top of the same function, and
+// RunActions clearing it when the action queue empties. The node keeps the real
+// target and later swings go there, but GetAttemptedAttackTarget() reports
+// the AoO victim until the creature next changes target. That is how the
+// maneuvers (pw_sp_mv_*), Action Surge, Shockwave, and the NPC AI pick their
+// target, so a Shield Fighting AoO sent the next Knockdown to whoever had just
+// hit the shield-bearer. It also hits the engine's own movement AoOs, Parry
+// ripostes, and Whirlwind Attack, which go through the same code.
+//
+// The node's target is mirrored in m_oidCurrentActionTarget (RunActions sets it
+// from m_pParameter[0], ChangeAttackTarget alongside the node), so a call that
+// moves the attempted target without moving that is the case above, and it is
+// put back. The node itself is not read after the call: the swing runs the
+// attack event script, which can clear the action queue under us.
+//
+// m_oidAttackTarget (GetAttackTarget) and the facing lock are left alone. They
+// follow whatever is being swung at, the AoO victim during the AoO, and the
+// next ordinary swing sets them back to the node's target.
+static_assert(offsetof(CNWSObject, m_oidCurrentActionTarget) == 0x94, "CNWSObject layout changed");
+static_assert(offsetof(CNWSCreature, m_oidAttemptedAttackTarget) == 0x720, "CNWSCreature layout changed");
+
+static Hooks::Hook s_AIActionAttackObjectHook = Hooks::HookFunction(&CNWSCreature::AIActionAttackObject,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        const ObjectID oidNodeTarget  = pCreature->m_oidCurrentActionTarget;
+        const ObjectID oidAttemptedIn = pCreature->m_oidAttemptedAttackTarget;
+
+        auto retVal = s_AIActionAttackObjectHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        if (oidNodeTarget != Constants::OBJECT_INVALID &&
+            pCreature->m_oidCurrentActionTarget == oidNodeTarget &&
+            pCreature->m_oidAttemptedAttackTarget != oidAttemptedIn &&
+            pCreature->m_oidAttemptedAttackTarget != oidNodeTarget &&
+            pCreature->m_oidAttemptedAttackTarget != Constants::OBJECT_INVALID)
+        {
+            pCreature->m_oidAttemptedAttackTarget = oidNodeTarget;
+        }
+
+        return retVal;
+    }, Hooks::Order::Early);
+
 // RISENHOLM MODIFICATION: use a single-use Cast Spell item at once.
 //
 // The item counterpart of NWNX_Creature_AddCastSpellActions's bInstant, which
