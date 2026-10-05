@@ -55,6 +55,7 @@
 #include "External/httplib.h"
 #include "API/CExoResMan.hpp"
 #include "API/CResRef.hpp"
+#include "API/CNWVisibilityNode.hpp"
 #include <atomic>
 #include <future>
 #include <thread>
@@ -3159,6 +3160,56 @@ static Hooks::Hook s_AIActionAttackObjectHook = Hooks::HookFunction(&CNWSCreatur
         }
 
         return retVal;
+    }, Hooks::Order::Early);
+
+// RISENHOLM MODIFICATION: no damage message about a creature the reader cannot perceive.
+//
+// CNWSEffectListHandler::OnApplyDamage builds the damage message with the
+// damager in object slot 0 and the target in slot 1, and hands it to
+// CNWSCreature::BroadcastDamageDataToParty, which sends it as combat message
+// minor 3 to every player within 30m whose faction is the target's or the
+// damager's (DMs too). Nothing there asks whether the reader can see the
+// target. So a PC who drops an AoE such as Condemnation on empty ground gets
+// "X damages Someone" in the log for every stealthed or invisible creature it
+// caught, and so does the PC's party. Players were using this to find hidden
+// characters.
+//
+// Minor 3 has no other sender (every SendServerToPlayerCCMessage call site in
+// the 8193.37 disassembly was listed: Broadcast{Attack,Death,Floaty,SavingThrow,
+// Skill}Data and the rest use other minors), so slot 1 is always the damaged
+// object. Each recipient is tested the way CNWSMessage::TestObjectVisible
+// decides whether a client is told about a creature at all: the node for the
+// target in the reader's perception VisibleList must be seen or heard.
+// Without either the client has never been told the creature exists, and the
+// message would be the only thing telling it. DMs, the target itself, and
+// damage to placeables and doors (which are not perceived this way) are left
+// alone. Saving throw messages need nothing: BroadcastSavingThrowData sends
+// only to the creature that saved and its master.
+//
+// The message data belongs to OnApplyDamage, which frees it after the
+// broadcast, so dropping one send leaks nothing.
+static Hooks::Hook s_DamageMessageHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerCCMessage,
+    +[](CNWSMessage *pMessage, uint32_t nPlayerId, uint8_t nMinor, CNWCCMessageData *pMessageData,
+        CNWSCombatAttackData *pAttackData) -> int32_t
+    {
+        constexpr uint8_t CC_MESSAGE_DAMAGE = 3;
+
+        if (nMinor == CC_MESSAGE_DAMAGE && pMessageData && pMessageData->m_oidParamObjectID.num > 1)
+        {
+            const ObjectID oidTarget = pMessageData->GetObjectID(1);
+            auto *pPlayer = Globals::AppManager()->m_pServerExoApp->GetClientObjectByPlayerId(nPlayerId);
+            auto *pReader = pPlayer ? Utils::AsNWSCreature(pPlayer->GetGameObject()) : nullptr;
+
+            if (pReader && pReader->m_idSelf != oidTarget && !pPlayer->GetIsDM() &&
+                Utils::AsNWSCreature(Utils::GetGameObject(oidTarget)))
+            {
+                auto *pNode = pReader->GetVisibleListElement(oidTarget);
+                if (!pNode || !(pNode->m_bSeen || pNode->m_bHeard))
+                    return false;
+            }
+        }
+
+        return s_DamageMessageHook->CallOriginal<int32_t>(pMessage, nPlayerId, nMinor, pMessageData, pAttackData);
     }, Hooks::Order::Early);
 
 // RISENHOLM MODIFICATION: use a single-use Cast Spell item at once.

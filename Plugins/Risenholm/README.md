@@ -369,6 +369,18 @@ was eaten as a snack with no cooldown, and a split snack lost `FOOD_SCRIPT`. A h
 original's locals onto the new stack before it reaches the inventory. The half left behind is the
 original object and always kept them.
 
+### No damage message about a creature the reader cannot perceive
+
+The engine sends the damage line ("X damages Y: 12 (12 Divine)") to every player near the target
+or the damager in either one's faction, without asking whether that player can see the target. So
+an AoE dropped on empty ground, such as Condemnation, named every stealthed or invisible creature it
+hit in the caster's combat log, and in the party's. Players were using it to find hidden
+characters. A hook on `CNWSMessage::SendServerToPlayerCCMessage` now drops the damage message
+(minor 3) for any reader whose perception list neither sees nor hears the damaged creature. That
+is the same test the engine uses to decide whether a client is told about a creature at all. DMs
+always get it, as does the damaged creature itself, and damage to placeables and doors is
+unaffected. Attack rolls, deaths, and saving throws are separate messages and are not changed.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)
