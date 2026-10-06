@@ -152,6 +152,38 @@ two ticks (the chest-delete branch wipes the client's per-part colours and the c
 re-reads them from the item; parts alone re-tint only some of them). The client processes a whole
 message before it renders, so nothing flickers.
 
+### FlushObjectUpdates
+
+`NWNX_Risenholm_FlushObjectUpdates(oPlayer)` sends that player's pending game object updates at
+once, rather than on the server's next update cycle, by calling
+`CServerExoAppInternal::UpdateClientGameObjectsForPlayer` with `bForce` set and no time, the
+engine's own "send now" branch.
+
+The server sends each player at most one object update every `game-obj-update-interval` (200 ms by
+default), and times the next from when the last went out, not on a fixed beat. So a script's change
+reaches the client anything up to 200 ms later, and the wait drifts from one send to the next.
+Motion chained from one-second visual-transform lerps, the Dredgers' sea and rocks
+(`pw_inc_dredgrock.nss`), shows that drift as a hitch: a leg that waits longer than the one before
+lands after the last lerp has finished, and everything stands still until it does. Halving the
+interval made the hitches smaller and more frequent, not gone (2026-10-06). The voyage tick calls
+this for everyone aboard straight after each leg, so every leg leaves at once. It costs one extra
+update message to each of those players per call, and restarts the player's own update cycle from
+that moment.
+
+### SetObjectUpdateMessageLimit
+
+`NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the
+server writes into one message to a player (`settings.tml`'s `server.tweaks.message-limit`,
+`m_nGameObjectUpdateMessageLimit`, 400 by default) and returns the previous value. Once a message
+reaches the limit, `CNWSMessage::ComputeGameObjectUpdateForCategory` stops, and everything else
+that changed waits for that player's next update, a cycle later. 400 bytes does not hold one leg of
+the Dredgers' sea, where every rock and sheet rewrites its transform each second, so parts of each
+leg arrived a cycle late even when flushed: rocks and sea hitched every few seconds, and once a
+handover's hide of the old sheet landed without its show of the new one, leaving the seabed bare
+for a frame (2026-10-06). The limit caps one message only, so raising it sends nothing more in
+total. `pw_mod_load.nss` sets it at module load, as it does the damage bonus limit; the loading
+limit is left alone.
+
 ### UseItemInstant
 
 `NWNX_Risenholm_UseItemInstant(oCreature, oItem, oTarget)` uses a single-use Cast Spell property

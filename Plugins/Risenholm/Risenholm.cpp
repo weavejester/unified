@@ -3028,6 +3028,52 @@ NWNX_EXPORT ArgumentStack RefreshBodyParts(ArgumentStack&& args)
     return {};
 }
 
+// Send a player's pending game object updates now, instead of on the server's
+// own cycle. The server sends each player at most one object update every
+// game-obj-update-interval (200 ms by default), timed from the last send rather
+// than on a fixed beat (CServerExoAppInternal::UpdateClientGameObjectsForPlayer),
+// so a change made by a script reaches the client anything up to 200 ms later,
+// and the wait drifts from one send to the next. Scripted motion chained from
+// one-second lerps -- the Dredgers' sea and rocks (pw_inc_dredgrock) -- shows
+// that drift as a hitch: a leg that waits longer than the one before arrives
+// after the last lerp has finished, and everything stands still until it does.
+// Halving the interval only made the hitches smaller and more frequent
+// (2026-10-06). Called straight after each leg is set, every leg goes out at
+// once; the forced send also resets the player's own cycle to that moment.
+// bForce with no time takes the engine's own "now" branch, as a player
+// joining does.
+NWNX_EXPORT ArgumentStack FlushObjectUpdates(ArgumentStack&& args)
+{
+    if (auto *pPlayer = FindPlayerForCreature(args.extract<ObjectID>()))
+        Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal->UpdateClientGameObjectsForPlayer(pPlayer, true, 0);
+
+    return {};
+}
+
+// The most bytes of game object updates the server writes into one message to a
+// player (settings.tml server.tweaks.message-limit, m_nGameObjectUpdateMessageLimit;
+// 400 by default). Once a message reaches it, the rest of what changed waits for
+// that player's next update, a cycle later
+// (CNWSMessage::ComputeGameObjectUpdateForCategory stops at PeekAtWriteMessageSize
+// >= the limit). 400 bytes does not hold one second of the Dredgers' sea -- every
+// rock and sheet rewrites its transform each leg -- so part of each leg arrived a
+// cycle late: rocks and sea hitched every few seconds, and once a handover's
+// "hide the old sheet" landed without its "show the new one", leaving the seabed
+// bare for a frame (2026-10-06). The limit only caps one message; it sends no
+// more in total. The loading limit is left alone. Returns the previous limit, and
+// leaves it as it was for a limit of 0 or less.
+NWNX_EXPORT ArgumentStack SetObjectUpdateMessageLimit(ArgumentStack&& args)
+{
+    auto nLimit     = args.extract<int32_t>();
+    auto *pInternal = Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal;
+    int32_t nOld    = pInternal->m_nGameObjectUpdateMessageLimit;
+
+    if (nLimit > 0)
+        pInternal->SetGameObjectUpdateMessageLimit(nLimit);
+
+    return nOld;
+}
+
 NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
 {
     auto cmdPath = args.extract<std::string>();

@@ -59,6 +59,24 @@ void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdat
 /// @param oCreature The creature whose body parts should be reloaded.
 void NWNX_Risenholm_RefreshBodyParts(object oCreature);
 
+/// @brief Send oPlayer's pending game object updates now, instead of on the server's next update cycle.
+/// @note The server sends each player object updates at most every game-obj-update-interval
+/// (200 ms by default), timed from the last send, so a script's change reaches the client a
+/// varying fraction of a second later. Call this straight after setting a step of scripted
+/// motion that chains one lerp onto the next, so every step leaves at once and no lerp runs out
+/// before its successor arrives (the Dredgers' sea, pw_inc_dredgrock). One extra update message
+/// to that player; it also restarts the player's own update cycle from this moment.
+/// @param oPlayer The player character (or the creature the player controls).
+void NWNX_Risenholm_FlushObjectUpdates(object oPlayer);
+
+/// @brief Set the most bytes of game object updates the server puts in one message to a player.
+/// @note settings.tml's server.tweaks.message-limit, 400 by default. What does not fit waits for
+/// the player's next update, a cycle later, so scripted motion that changes many objects at once
+/// arrives in pieces. It caps one message only; nothing more is sent in total.
+/// @param nLimit The limit in bytes; 0 or less leaves it as it is.
+/// @return The previous limit.
+int NWNX_Risenholm_SetObjectUpdateMessageLimit(int nLimit);
+
 /// @brief Executes an external command in a child process and returns STDOUT as a string.
 /// @note Use only when necessary, keep user-alterable data to a minimum, or ideally zero.
 /// @param sCmd The path of the command to execute
@@ -340,6 +358,19 @@ void NWNX_Risenholm_RefreshBodyParts(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "RefreshBodyParts");
+}
+
+void NWNX_Risenholm_FlushObjectUpdates(object oPlayer)
+{
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "FlushObjectUpdates");
+}
+
+int NWNX_Risenholm_SetObjectUpdateMessageLimit(int nLimit)
+{
+    NWNXPushInt(nLimit);
+    NWNXCall(NWNX_Risenholm, "SetObjectUpdateMessageLimit");
+    return NWNXPopInt();
 }
 
 string NWNX_Risenholm_ExecuteCommand(string sCmd, string sArg1="", string sArg2="", string sArg3="", string sArg4="", string sArg5="", string sArg6="")
