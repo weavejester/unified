@@ -4731,7 +4731,7 @@ static Hooks::Hook s_ResetSpellsPerDayLeftHook = Hooks::HookFunction(&CNWSCreatu
 
 
 // ---------------------------------------------------------------------------
-// Budge exemption
+// Budging creatures out of doors and placeables
 // ---------------------------------------------------------------------------
 //
 // CNWSArea::BudgeCreatures runs whenever a door opens or closes
@@ -4739,34 +4739,55 @@ static Hooks::Hook s_ResetSpellsPerDayLeftHook = Hooks::HookFunction(&CNWSCreatu
 // (CNWSPlaceable::AddToArea). It walks the creatures within 5m of the object's
 // bounding box, and any whose own position fails TestSafeLocationPoint is
 // moved with SetPosition to a ComputeSafeLocation result up to 10m from the
-// object -- the engine's way of getting a creature out of a doorway that has
-// just closed on it.
+// object's nearest action point -- the engine's way of getting a creature out
+// of a doorway that has just closed on it. This replaces it outright, for
+// three reasons, each of which has trapped players:
 //
-// The module stands some creatures on unwalkable ground on purpose. A prisoner
-// in the Stocks is put on the placeable's origin, inside its own walkmesh,
-// because the pose only lines up there (pw_inc_stocks.nss). To the engine that
-// is a creature stuck in something, and the next door to move nearby threw
-// them out: on 2026-09-30 every prisoner locked in was gone within about a
-// minute, each time the tailor's door beside the stocks was used, and the
-// module then read the jump as a DM moving them and ended the sentence.
+// 1. TestSafeLocationPoint fails for a creature that merely stands close to
+//    another one: it ends in NoCreaturesOnLine (vtable slot 2 of CNWSArea).
+//    So two players side by side near a door, a player beside their familiar,
+//    or anyone in a crowd at a doorway was thrown across the room whenever
+//    the door was used -- not only when it closed on them, but when it
+//    opened. Seen on dev 2026-10-08: two creatures 0.3m apart on open floor
+//    3m from the Prize's hatch, both moved the moment it opened. Here only a
+//    creature stuck in the WORLD is budged: the test is made with every other
+//    creature nearby lifted out of the way, so a crowd is left as it stands.
 //
-// A creature carrying the NO_BUDGE local is left where it is. The engine's
-// loop offers nothing to skip one by -- its only tests are the box and the
-// safe-point check -- so each exempt creature inside the box has its Y moved
-// far outside the box for the length of the call and put back after. That is
-// a write to the field, not SetPosition, so nothing else sees it: no trigger
-// or area-of-effect crossing, no client update, and the area's object list is
-// sorted by X, which is not touched. Every other creature in the box is budged
-// exactly as before.
+// 2. The engine's search passes bWalkStraightLineRequired = FALSE, so the
+//    spot it finds need not connect to anything: it takes the first clear
+//    point of a square spiral around the action point, which can be the far
+//    side of a wall, a sealed pocket between crates, or the next room. Here
+//    the search requires a straight walkable line back to the action point,
+//    the one on the creature's own side, so wherever they land they can walk
+//    back. ComputeSafeLocation quietly drops that requirement when its start
+//    point is not itself walkable, so the same test is made first, and an
+//    action point that fails it is not used.
 //
-// The scan here is the engine's own, with the same start index and the same
-// stop, so it costs what the original loop costs and no more. That matters
-// because AddToArea calls this for every placeable as an area loads.
+// 3. A creature carrying the NO_BUDGE local is never moved. The module stands
+//    some creatures on unwalkable ground on purpose: a prisoner in the Stocks
+//    is put on the placeable's origin, inside its own walkmesh, because the
+//    pose only lines up there (pw_inc_stocks.nss). On 2026-09-30 every
+//    prisoner was thrown out within about a minute by the tailor's door
+//    beside the stocks, and the module then read the jump as a DM moving them
+//    and ended the sentence.
 //
-// Read from the 8193.37 disassembly, 2026-10-01: BudgeCreatures and its two
-// callers. The start index really is taken from vPosition.x - vBBMin.x - 5,
-// odd as that looks beside the absolute box tests that follow; it is copied
-// as it stands so the two loops visit the same creatures.
+// A creature that is stuck but has nowhere connected to go is left where it
+// is, with a warning in the log, rather than teleported somewhere it may not
+// get out of. Inside a closed door it can open the door again.
+//
+// "Lifted out of the way" is a write to m_vPosition.y, far outside the area,
+// for the length of one test and put straight back -- not SetPosition, so
+// nothing else sees it: no trigger or area-of-effect crossing, no client
+// update, and the area's object list is sorted by X, which is not touched.
+//
+// The scan is the engine's own, with the same start index and the same stop,
+// so it visits the same creatures. That matters because AddToArea calls this
+// for every placeable as an area loads. The extra cost is only for creatures
+// inside the box, which is almost never more than a handful. Read from the
+// 8193.37 decompile and disassembly, 2026-10-01 and 2026-10-08: BudgeCreatures,
+// TestSafeLocationPoint, ComputeSafeLocation, and the two callers. The start
+// index really is taken from vPosition.x - vBBMin.x - 5, odd as that looks
+// beside the absolute box tests that follow; it is copied as it stands.
 static_assert(offsetof(CNWSArea, m_aGameObjects) == 0x228, "CNWSArea layout changed");
 
 static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCreatures,
@@ -4774,9 +4795,9 @@ static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCr
             ObjectID oidNewObject, BOOL bBumpToActionPoint) -> void
     {
         // The three vectors are references in the engine's signature. They are
-        // taken as pointers here because CallOriginal deduces its argument
-        // types, and would hand a reference on BY VALUE -- the original then
-        // reads a Vector's floats as an address (crashed at module load,
+        // taken as pointers here because the hook's argument types are
+        // deduced, and a reference would be handed on BY VALUE -- the original
+        // then read a Vector's floats as an address (crashed at module load,
         // 2026-10-01).
         const Vector &vPosition = *pvPosition;
         const Vector &vBBMin    = *pvBBMin;
@@ -4785,15 +4806,19 @@ static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCr
         static CExoString sVarName = "NO_BUDGE";
 
         const float fMargin     = 5.0f;     // the engine's own, around the box
-        const float fHideOffset = 1000.0f;  // well past any area's edge
-
-        struct Exempt { ObjectID oidCreature; float fY; };
-        std::vector<Exempt> exempt;
+        const float fNeighbours = 5.0f;     // further out, creatures that could touch one in it
+        const float fRadius     = 10.0f;    // the engine's own search radius
+        const float fHideOffset = 10000.0f; // well past any area's edge
 
         auto *pServer = Globals::AppManager()->m_pServerExoApp;
 
+        // Every creature near enough to matter: the ones in the box are the
+        // candidates, the rest only stand in their way.
+        std::vector<CNWSCreature*> nearby;
+        std::vector<CNWSCreature*> candidates;
+
         int32_t nIndex = 0;
-        pThis->GetFirstObjectIndiceByX(&nIndex, vPosition.x - vBBMin.x - fMargin);
+        pThis->GetFirstObjectIndiceByX(&nIndex, vPosition.x - vBBMin.x - fMargin - fNeighbours);
         if (nIndex < 0)
             nIndex = 0;
 
@@ -4803,32 +4828,89 @@ static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCr
             if (!pCreature)
                 continue;
 
-            const Vector vCreature = pCreature->m_vPosition;
+            const Vector &v = pCreature->m_vPosition;
 
-            if (vCreature.x >= vBBMax.x + fMargin)
+            if (v.x >= vBBMax.x + fMargin + fNeighbours)
                 break;
 
-            if (vCreature.x <= vBBMin.x - fMargin ||
-                vCreature.y <= vBBMin.y - fMargin ||
-                vCreature.y >= vBBMax.y + fMargin)
+            if (v.x <= vBBMin.x - fMargin - fNeighbours ||
+                v.y <= vBBMin.y - fMargin - fNeighbours ||
+                v.y >= vBBMax.y + fMargin + fNeighbours)
                 continue;
 
-            if (!Utils::GetScriptVarTable(pCreature)->GetInt(sVarName))
-                continue;
+            nearby.push_back(pCreature);
 
-            exempt.push_back({pCreature->m_idSelf, vCreature.y});
-            pCreature->m_vPosition.y = vBBMax.y + fMargin + fHideOffset;
+            if (v.x > vBBMin.x - fMargin && v.x < vBBMax.x + fMargin &&
+                v.y > vBBMin.y - fMargin && v.y < vBBMax.y + fMargin)
+                candidates.push_back(pCreature);
         }
 
-        s_BudgeCreaturesHook->CallOriginal<void>(pThis, pvPosition, pvBBMin, pvBBMax, oidNewObject, bBumpToActionPoint);
-
-        // By id, not by pointer: nothing in the original should destroy a
-        // creature, but a pointer held across engine code is not worth
-        // trusting for the sake of one lookup.
-        for (const auto &e : exempt)
+        for (auto *pCreature : candidates)
         {
-            if (auto *pCreature = pServer->GetCreatureByGameObjectID(e.oidCreature))
-                pCreature->m_vPosition.y = e.fY;
+            auto *pInfo = pCreature->m_pcPathfindInformation;
+            if (!pInfo || Utils::GetScriptVarTable(pCreature)->GetInt(sVarName))
+                continue;
+
+            // Stuck in the world, or only in a crowd? (1)
+            for (auto *pOther : nearby)
+                if (pOther != pCreature)
+                    pOther->m_vPosition.y += fHideOffset;
+
+            const BOOL bSafe = pThis->TestSafeLocationPoint(pCreature->m_vPosition, pInfo);
+
+            for (auto *pOther : nearby)
+                if (pOther != pCreature)
+                    pOther->m_vPosition.y -= fHideOffset;
+
+            if (bSafe)
+                continue;
+
+            // Where the engine would start looking: the object's action point
+            // nearest the creature, or a metre further from the object.
+            const Vector vFrom = pCreature->m_vPosition;
+            Vector vAnchor = vFrom;
+
+            if (!bBumpToActionPoint)
+            {
+                Vector vAway = { vFrom.x - vPosition.x, vFrom.y - vPosition.y, vFrom.z - vPosition.z };
+                const float fLength = std::sqrt(vAway.x * vAway.x + vAway.y * vAway.y + vAway.z * vAway.z);
+                if (fLength > 0.0f)
+                {
+                    vAnchor.x += vAway.x / fLength;
+                    vAnchor.y += vAway.y / fLength;
+                }
+            }
+            else if (auto *pDoor = pServer->GetDoorByGameObjectID(oidNewObject))
+            {
+                vAnchor = pDoor->GetNearestActionPoint(vFrom);
+                vAnchor.z = vFrom.z;
+            }
+            else if (auto *pPlaceable = pServer->GetPlaceableByGameObjectID(oidNewObject))
+            {
+                vAnchor = pPlaceable->GetNearestActionPoint(vFrom);
+                vAnchor.z = vFrom.z;
+            }
+
+            // The checks ComputeSafeLocation makes of its start before it
+            // agrees to keep the straight line to it (2).
+            ObjectID oidBlockingDoor = Constants::OBJECT_INVALID;
+            const bool bAnchorWalkable =
+                pThis->TestLineWalkable(vAnchor.x - 0.001f, vAnchor.y, vAnchor.x, vAnchor.y) &&
+                pThis->NoNonWalkPolysInDoors(vAnchor.x - 0.01f, vAnchor.y - 0.01f, vAnchor.x + 0.01f, vAnchor.y + 0.01f,
+                                             vAnchor.z - 0.1f, vAnchor.z + pInfo->m_fHeight + 0.1f,
+                                             pInfo->m_fPersonalSpace, Constants::OBJECT_INVALID, oidBlockingDoor, true);
+
+            Vector vNew;
+            if (bAnchorWalkable && pThis->ComputeSafeLocation(vAnchor, fRadius, pInfo, true, &vNew))
+            {
+                pCreature->SetPosition(vNew);
+            }
+            else
+            {
+                LOG_WARNING("BudgeCreatures: %x stuck at (%.2f, %.2f, %.2f) by %x, nowhere connected to put it (action point (%.2f, %.2f) %s); left where it is",
+                    pCreature->m_idSelf, vFrom.x, vFrom.y, vFrom.z, oidNewObject, vAnchor.x, vAnchor.y,
+                    bAnchorWalkable ? "walkable" : "not walkable");
+            }
         }
     }, Hooks::Order::Early);
 
