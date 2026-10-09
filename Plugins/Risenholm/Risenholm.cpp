@@ -4917,6 +4917,115 @@ static Hooks::Hook s_BudgeCreaturesHook = Hooks::HookFunction(&CNWSArea::BudgeCr
 
 
 // ---------------------------------------------------------------------------
+// A swimmer's flinch from a critical hit
+// ---------------------------------------------------------------------------
+//
+// Struck, a creature flinches with whatever reaction the server puts on the
+// attack: CNWSCreature::ResolveMeleeAnimations and ResolveRangedAnimations
+// set m_nReactionAnimation to 14 for any hit, critical or not, and the client
+// turns 14 into damagel, damager, or damages by where the blow came from
+// (CNWCCreature::UpdateShortRangeAttack). Any other id it plays as it stands.
+//
+// A swimmer -- a PC carrying the module's SWIM_STATE local (pw_inc_swim) --
+// struck by a critical hit is given the fire-and-forget spasm instead (engine
+// id 23, "spasm" in the client's CNWCAnimBase::GetAnimationName), which
+// pw_inc_swim swaps for Sekiro's heavy hit while they swim: the body knocked
+// over and righting itself (scripts/gen_swim_anim.py). Anyone else, and a
+// swimmer hit any other way, flinches as before. Attack result 3 is a critical
+// hit, as NWNX_Damage numbers them.
+//
+// It must be a fire-and-forget animation. The first try gave a free looping
+// custom slot (132, Custom32lp), and the client took it as the swimmer's
+// looping animation: every flinch after the crit went back into the tumble
+// until they attacked (seen in game 2026-10-08). No custom slot is
+// fire-and-forget, so a stock one a swimmer has no other use for is borrowed.
+//
+// Read from the 8193.37 decompile, 2026-10-08.
+static void SwimmerCriticalFlinch(CNWSCreature *pThis, CNWSObject *pTarget)
+{
+    static CExoString sVarName = "SWIM_STATE";
+
+    const uint16_t nHitReaction      = 14;
+    const uint16_t nCriticalReaction = 23;    // spasm, fire-and-forget
+    const uint8_t  nCriticalHit      = 3;
+
+    if (!pTarget || !pThis->m_pcCombatRound)
+        return;
+
+    auto *pCreature = Utils::AsNWSCreature(pTarget);
+    if (!pCreature || !Utils::GetScriptVarTable(pCreature)->GetInt(sVarName))
+        return;
+
+    auto *pAttack = pThis->m_pcCombatRound->GetAttack(pThis->m_pcCombatRound->m_nCurrentAttack);
+    if (pAttack && pAttack->m_nAttackResult == nCriticalHit && pAttack->m_nReactionAnimation == nHitReaction)
+        pAttack->m_nReactionAnimation = nCriticalReaction;
+}
+
+static Hooks::Hook s_ResolveMeleeAnimationsHook = Hooks::HookFunction(&CNWSCreature::ResolveMeleeAnimations,
+    +[](CNWSCreature *pThis, int32_t nAttackIndex, int32_t nAttacks, CNWSObject *pTarget, int32_t nTimeAnimation) -> void
+    {
+        s_ResolveMeleeAnimationsHook->CallOriginal<void>(pThis, nAttackIndex, nAttacks, pTarget, nTimeAnimation);
+        SwimmerCriticalFlinch(pThis, pTarget);
+    }, Hooks::Order::Late);
+
+static Hooks::Hook s_ResolveRangedAnimationsHook = Hooks::HookFunction(&CNWSCreature::ResolveRangedAnimations,
+    +[](CNWSCreature *pThis, CNWSObject *pTarget, int32_t nTimeAnimation) -> void
+    {
+        s_ResolveRangedAnimationsHook->CallOriginal<void>(pThis, pTarget, nTimeAnimation);
+        SwimmerCriticalFlinch(pThis, pTarget);
+    }, Hooks::Order::Late);
+
+
+
+// ---------------------------------------------------------------------------
+// Telling a script when a player has been sent their own animation swaps
+// ---------------------------------------------------------------------------
+//
+// A creature's animation swaps (ReplaceObjectAnimation) reach a client in its
+// object updates, as one list, flag 0x1000000 of
+// CNWSMessage::WriteGameObjUpdate_UpdateObject, written only when the list
+// has changed since that client last had it. Nothing tells a script when
+// that has happened, and the module's swimming needs to know: a swimmer's
+// two-hander's resting hold can only be swapped away once the client has
+// their other swaps (pw_inc_swim's THE RESTING HOLD), and just after an area
+// load it was guessed at with a delay.
+//
+// A creature carrying the SWIM_HOLD_WAIT local, when the server writes its
+// update with the swap list to the creature's own player, has the script
+// pw_swim_sent run on it at the top of the next frame -- not from inside the
+// message writer, which is no place to run a script. The script clears the
+// local, so it runs once per wait.
+static Hooks::Hook s_SwapsSentHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pAreaObject, CLastUpdateObject *pLastUpdateObject,
+            uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        s_SwapsSentHook->CallOriginal<void>(pThis, pPlayer, pAreaObject, pLastUpdateObject,
+                                            nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+
+        static CExoString sVarName = "SWIM_HOLD_WAIT";
+        const uint32_t nAnimationReplace = 0x1000000;
+
+        if (!(nObjectUpdatesRequired & nAnimationReplace) || !pPlayer || !pAreaObject ||
+            pAreaObject->m_idSelf != pPlayer->m_oidNWSObject)
+            return;
+
+        auto *pCreature = Utils::AsNWSCreature(pAreaObject);
+        if (!pCreature || !Utils::GetScriptVarTable(pCreature)->GetInt(sVarName))
+            return;
+
+        const ObjectID oidCreature = pCreature->m_idSelf;
+        LOG_INFO("Swaps sent: %x has had its animation swaps written; running pw_swim_sent", oidCreature);
+
+        Tasks::QueueOnMainThread([oidCreature]()
+        {
+            if (Utils::GetGameObject(oidCreature))
+                Utils::ExecuteScript("pw_swim_sent", oidCreature);
+        });
+    }, Hooks::Order::Late);
+
+
+
+// ---------------------------------------------------------------------------
 // No size limits on equipping
 // ---------------------------------------------------------------------------
 //
