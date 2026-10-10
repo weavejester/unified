@@ -2952,12 +2952,81 @@ static Hooks::Hook s_OnRemoveVisualEffectHook = Hooks::HookFunction(&CNWSEffectL
         return nRet;
     }, Hooks::Order::Late);
 
+// ---------------------------------------------------------------------------
+// Shoulders put back when one cloak is swapped for another
+//
+// cloakmodel.2da's HIDESHOL and HIDESHOR hide the left and right shoulder
+// parts under a cloak. CNWCCreatureAppearance::CreateCloak applies them when
+// it attaches a cloak, detaching part 15 or 14 if the new row says so, but
+// nothing there puts a shoulder BACK when the new row says 0. The only restore
+// is on its remove path (a cloak to no cloak), which rebuilds parts 14 and 15
+// alone, through CreateBodyParts with the appearance's +0x11c flag set. So a
+// swap straight from a cloak that hides them (Great Cloak, row 3) to one that
+// does not (Dragon Knight, row 14) left the pauldrons off until something
+// rebuilt the body: an armour colour change at the tailor brought them back
+// (player report, 2026-10-10). Read from nwmain-linux 8193.37.
+//
+// The server already writes a swap as a delete of the cloak slot and an add
+// (WriteGameObjUpdate_UpdateAppearance), but in one appearance block, which
+// the client applies as one change from the old cloak to the new. So after
+// the block carrying a swap, two more go out in the same message, as for the
+// part refresh above: no cloak, then the new one. The client takes the remove
+// path, restoring the shoulders, then attaches the new cloak and hides what
+// ITS row hides: the same as taking one cloak off and putting the other on.
+// No cloak's own behaviour changes. A body rebuild still brings the shoulders
+// back under any cloak, as it always has, and players' looks are set up
+// around that, so it is left alone.
+// ---------------------------------------------------------------------------
+
+static_assert(offsetof(CNWSCreature, m_cAppearance) + offsetof(CNWSCreatureAppearanceInfo, m_oidCloakItem) == 0xaa4);
+static_assert(offsetof(CLastUpdateObject, m_cAppearance) + offsetof(CNWSPlayerLUOAppearanceInfo, m_oidCloakItem) == 0x4c);
+
+static constexpr uint32_t APPEARANCE_ITEMS = 0x200;
+
+// Whether the update about to be written swaps one worn cloak for another.
+// Read before the original runs; the caller only moves the tick's fields into
+// the cache after the update hook.
+static bool IsCloakSwap(CNWSCreature *pCreature, CLastUpdateObject *pLUO, uint32_t nObjectAppearanceUpdatesRequired)
+{
+    if (!pCreature || !pLUO || !(nObjectAppearanceUpdatesRequired & APPEARANCE_ITEMS))
+        return false;
+
+    ObjectID oidWas = pLUO->m_cAppearance.m_oidCloakItem;
+    ObjectID oidNow = pCreature->m_cAppearance.m_oidCloakItem;
+
+    return oidWas != Constants::OBJECT_INVALID && oidNow != Constants::OBJECT_INVALID && oidWas != oidNow;
+}
+
+static void WriteCloakReattach(CNWSMessage *pMessage, CNWSPlayer *pPlayer, CNWSCreature *pCreature, CLastUpdateObject *pLUO)
+{
+    auto &cAppearance = pCreature->m_cAppearance;
+    const ObjectID oidCloak = cAppearance.m_oidCloakItem;
+
+    LOG_DEBUG("Cloak reattach written for creature %x to player %d", pCreature->m_idSelf, pPlayer->m_nPlayerID);
+
+    // Each block lists only what differs from the cached copy, so the cache
+    // follows each write, as in the part refresh.
+    cAppearance.m_oidCloakItem = Constants::OBJECT_INVALID;
+    pMessage->WriteGameObjUpdate_UpdateAppearance(pCreature, pLUO, APPEARANCE_ITEMS, pPlayer);
+    pMessage->UpdateLastUpdateObjectAppearance(pCreature, pLUO, APPEARANCE_ITEMS);
+
+    cAppearance.m_oidCloakItem = oidCloak;
+    pMessage->WriteGameObjUpdate_UpdateAppearance(pCreature, pLUO, APPEARANCE_ITEMS, pPlayer);
+    pMessage->UpdateLastUpdateObjectAppearance(pCreature, pLUO, APPEARANCE_ITEMS);
+}
+
 static Hooks::Hook s_WriteGameObjUpdate_UpdateObjectHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO,
         uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
     {
+        bool bCloakSwap = IsCloakSwap(Utils::AsNWSCreature(pObject), pLUO, nObjectAppearanceUpdatesRequired);
+
         s_WriteGameObjUpdate_UpdateObjectHook->CallOriginal<void>(pThis, pPlayer, pObject, pLUO,
             nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+
+        // Right behind the block carrying the swap (see "Shoulders put back").
+        if (bCloakSwap)
+            WriteCloakReattach(pThis, pPlayer, Utils::AsNWSCreature(pObject), pLUO);
 
         // Party members come through here with no LUO: nothing to refresh.
         if (!pLUO || s_PendingPartRefresh.empty())
