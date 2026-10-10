@@ -5270,6 +5270,62 @@ static Hooks::Hook s_SplitItemHook = Hooks::HookFunction(&CNWSItem::SplitItem,
 
 
 // ---------------------------------------------------------------------------
+// A DM's saved character keeps its items' local variables
+// ---------------------------------------------------------------------------
+//
+// A DM's character lives in the DM's own vault on their machine, never in the
+// servervault, so saving one goes through CNWSPlayer::PackCreatureIntoMessage,
+// which packs the creature for the client to write. That calls
+// CNWSCreature::SaveCreature with its last flag set, and SaveCreature hands
+// the flag to CNWSItem::SaveItem for every item, equipped or carried, and
+// SaveItem to SaveContainerItems for whatever is in a bag. With the flag set,
+// SaveItem skips CNWSObject::SaveObjectState, the item's local variables and
+// effects. SaveServerCharacter passes 0, which is why a player's items keep
+// theirs.
+//
+// The module keeps an item's whole scripted identity in locals (ITEM_POWER,
+// ITEM_INSTABILITY, the base stats, the core bonus, the slot counts), so a
+// Powered ring made with the Orb of Genesis and handed to another DM came
+// back as a plain ring after that DM saved and logged in again. Its item
+// properties survived; GetIsPoweredEquipment did not, and Examine fell back to
+// the stock window (production, 2026-10-10).
+//
+// So while a DM's character is being packed, every item is saved the way a
+// servervault save does it. Loading needs nothing: CNWSItem::LoadItem calls
+// LoadObjectState unconditionally, and nothing on the load path clears an
+// item's locals. A player's export is untouched -- the engine strips it on
+// purpose, since a local-vault file is the player's to edit, and Risenholm's
+// players are all servervault anyway. GetIsDM is the client having logged in
+// as a DM.
+//
+// PackCreatureIntoMessage's only callers are the export reply and the
+// character download reply. Read from the 8193.37 disassembly, 2026-10-10.
+static bool s_bKeepItemStateInPack = false;
+
+static Hooks::Hook s_PackCreatureIntoMessageHook = Hooks::HookFunction(&CNWSPlayer::PackCreatureIntoMessage,
+    +[](CNWSPlayer *pThis) -> int32_t
+    {
+        bool bWas = s_bKeepItemStateInPack;
+        s_bKeepItemStateInPack = pThis && pThis->GetIsDM();
+
+        auto bResult = s_PackCreatureIntoMessageHook->CallOriginal<int32_t>(pThis);
+
+        s_bKeepItemStateInPack = bWas;
+        return bResult;
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_SaveItemHook = Hooks::HookFunction(&CNWSItem::SaveItem,
+    +[](CNWSItem *pThis, CResGFF *pRes, CResStruct *pStruct, int32_t bExportingChar) -> int32_t
+    {
+        if (s_bKeepItemStateInPack)
+            bExportingChar = false;
+
+        return s_SaveItemHook->CallOriginal<int32_t>(pThis, pRes, pStruct, bExportingChar);
+    }, Hooks::Order::Early);
+
+
+
+// ---------------------------------------------------------------------------
 // NUI window logging
 // ---------------------------------------------------------------------------
 //

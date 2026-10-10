@@ -401,6 +401,16 @@ was eaten as a snack with no cooldown, and a split snack lost `FOOD_SCRIPT`. A h
 original's locals onto the new stack before it reaches the inventory. The half left behind is the
 original object and always kept them.
 
+### A DM's saved character keeps its items' local variables
+
+A DM's character lives in the DM's own vault, so saving it goes through
+`CNWSPlayer::PackCreatureIntoMessage`, which saves every item without its local variables and
+effects (`CNWSItem::SaveItem`'s last argument). The module keeps an item's scripted identity in
+locals, so a Powered item a DM held over a save came back as a plain item (production,
+2026-10-10). While a DM's character is being packed, a hook has every item saved the way a
+servervault save does it, locals and effects included. Loading already reads them back. A player's
+export is untouched.
+
 ### No damage message about a creature the reader cannot perceive
 
 The engine sends the damage line ("X damages Y: 12 (12 Divine)") to every player near the target
