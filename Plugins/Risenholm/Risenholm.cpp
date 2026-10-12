@@ -5770,3 +5770,54 @@ NWNX_EXPORT ArgumentStack SetRpcResponse(ArgumentStack&& args)
 
     return {};
 }
+
+// ---------------------------------------------------------------------------
+// Damage level base (moodlets)
+// ---------------------------------------------------------------------------
+//
+// The health line under a creature's name on mouse-over ("Unscathed") is a row
+// of damagelevels.2da, and the SERVER picks the row: CNWSObject::GetDamageLevel
+// turns the HP fraction into 0-4 (5 is dead), and the object update writes that
+// one byte (WriteGameObjUpdate_UpdateObject, flag 0x800) for the client to look
+// up. Each update compares the byte last sent with a fresh GetDamageLevel, so a
+// change here reaches every observer on the next update with nothing else to do.
+//
+// NWNX_Creature_OverrideDamageLevel pins the row to one value, which suits a
+// state like Subdued but freezes the health text. This instead shifts the five
+// live HP levels by a base, so a creature with base 8 shows rows 8-12 and still
+// tracks its HP. pw_inc_mood gives each mood a block of five rows with its own
+// strrefs, and sends those strrefs to each player with SetTlkOverride. Anything
+// above 4 -- dead, or another plugin's override (Creature's hook is Late, inside
+// this one) -- passes through untouched.
+//
+// Keyed by object id rather than stored on the object: this runs for every
+// object in every update to every player, and the map is usually empty. A PC
+// keeps its id over a relog, so an entry outlives a logout; pw_inc_mood sets it
+// again at login anyway.
+static std::unordered_map<ObjectID, uint8_t> s_DamageLevelBase;
+
+static Hooks::Hook s_GetDamageLevelHook = Hooks::HookFunction(&CNWSObject::GetDamageLevel,
+    +[](CNWSObject *pThis) -> uint8_t
+    {
+        auto nLevel = s_GetDamageLevelHook->CallOriginal<uint8_t>(pThis);
+
+        if (nLevel > 4 || s_DamageLevelBase.empty())
+            return nLevel;
+
+        auto it = s_DamageLevelBase.find(pThis->m_idSelf);
+        return it == s_DamageLevelBase.end() ? nLevel : static_cast<uint8_t>(it->second + nLevel);
+    }, Hooks::Order::Early);
+
+NWNX_EXPORT ArgumentStack SetDamageLevelBase(ArgumentStack&& args)
+{
+    auto oidObject = args.extract<ObjectID>();
+    auto nBase     = args.extract<int32_t>();
+      ASSERT_OR_THROW(nBase <= 251); // the row is one byte, and the base carries up to +4
+
+    if (nBase <= 0)
+        s_DamageLevelBase.erase(oidObject);
+    else
+        s_DamageLevelBase[oidObject] = static_cast<uint8_t>(nBase);
+
+    return {};
+}

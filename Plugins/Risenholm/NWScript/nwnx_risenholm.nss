@@ -291,6 +291,16 @@ string NWNX_Risenholm_GetRpcRequest();
 /// whatever the strings inside hold.
 void NWNX_Risenholm_SetRpcResponse(string sResponse);
 
+/// @brief Shift oObject's live health rows in damagelevels.2da by nBase.
+/// @note The server picks the health line's row: 0-4 from the HP fraction, 5 when
+/// dead. With a base set, rows 0-4 are sent as nBase + 0-4 instead, so the health
+/// text still tracks HP from a block of rows the caller owns. Dead, and anything
+/// NWNX_Creature_OverrideDamageLevel sets, pass through. Observers see the change
+/// on their next object update. Not saved; set it again at login.
+/// @param oObject The creature.
+/// @param nBase The first row of a five-row block, at most 251; 0 or less removes it.
+void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -548,4 +558,11 @@ void NWNX_Risenholm_SetRpcResponse(string sResponse)
 {
     NWNXPushString(sResponse);
     NWNXCall(NWNX_Risenholm, "SetRpcResponse");
+}
+
+void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase)
+{
+    NWNXPushInt(nBase);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "SetDamageLevelBase");
 }

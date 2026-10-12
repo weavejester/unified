@@ -423,6 +423,19 @@ is the same test the engine uses to decide whether a client is told about a crea
 always get it, as does the damaged creature itself, and damage to placeables and doors is
 unaffected. Attack rolls, deaths, and saving throws are separate messages and are not changed.
 
+### SetDamageLevelBase
+
+The health text under a creature's name on mouse-over ("Unscathed") is a row of
+`damagelevels.2da`, and the server chooses the row: `CNWSObject::GetDamageLevel` turns the HP
+fraction into 0-4 (5 is dead), and the object update sends it as one byte for the client to look up.
+`NWNX_Risenholm_SetDamageLevelBase(oObject, nBase)` shifts the five live HP levels of one object by
+`nBase`, so it shows rows `nBase` to `nBase + 4` and still follows its HP. Dead, and any value
+`NWNX_Creature_OverrideDamageLevel` sets (its hook sits inside this one), pass through. The update
+already compares the byte last sent with a fresh `GetDamageLevel`, so observers get the change on
+their next update. 0 removes it. It is held per object id and not saved. The module's moods
+(`pw_inc_mood`) give each mood a block of rows with strrefs of its own, filled in per player with
+`NWNX_Player_SetTlkOverride`.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)
