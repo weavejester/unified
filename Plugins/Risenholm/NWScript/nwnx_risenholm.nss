@@ -301,6 +301,14 @@ void NWNX_Risenholm_SetRpcResponse(string sResponse);
 /// @param nBase The first row of a five-row block, at most 251; 0 or less removes it.
 void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase);
 
+/// @brief Set oStore's markup, as NWNX_Store_SetMarkUp does, but up to 30000.
+/// @note Use this and NOT NWNX_Store_SetMarkUp, which refuses anything above 1000, throwing and
+/// leaving the store at its old markup. The engine itself takes up to 32767 less the customer's
+/// adjustment; see the plugin README.
+/// @param oStore The store.
+/// @param nMarkUp The markup in percent, 1 to 30000.
+void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -565,4 +573,11 @@ void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase)
     NWNXPushInt(nBase);
     NWNXPushObject(oObject);
     NWNXCall(NWNX_Risenholm, "SetDamageLevelBase");
+}
+
+void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp)
+{
+    NWNXPushInt(nMarkUp);
+    NWNXPushObject(oStore);
+    NWNXCall(NWNX_Risenholm, "SetStoreMarkUp");
 }

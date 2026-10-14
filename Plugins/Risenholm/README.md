@@ -436,6 +436,17 @@ their next update. 0 removes it. It is held per object id and not saved. The mod
 (`pw_inc_mood`) give each mood a block of rows with strrefs of its own, filled in per player with
 `NWNX_Player_SetTlkOverride`.
 
+### SetStoreMarkUp
+
+`NWNX_Risenholm_SetStoreMarkUp(oStore, nMarkUp)` replaces `NWNX_Store_SetMarkUp`, which refuses a
+markup above 1000%: it throws, and the store keeps the markup it had. The limit is the Store
+plugin's, not the engine's. `CNWSStore::m_nMarkUp` is an int32, `GetCustomerSellRate` reads it as a
+short and adds the customer's signed-byte adjustment, and `SendServerToPlayerOpenStoreInventory`
+sends that short to the client with `WriteSHORT` (read from the disassembly, 2026-10-14). This
+export allows up to 30000, which leaves room for the adjustment. Found when the Millers'
+Provisioner, at the 900% scarcity markup, took a 20% sales tax: the 1142 it asked for was refused,
+and its Snacks sold at the blueprint's 100.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)

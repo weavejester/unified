@@ -27,6 +27,7 @@
 #include "API/CNWItemProperty.hpp"
 #include "External/subprocess.hpp"
 #include "API/CNWSPlayer.hpp"
+#include "API/CNWSStore.hpp"
 #include <cmath>
 #include <dlfcn.h>
 #include <unordered_map>
@@ -5819,5 +5820,32 @@ NWNX_EXPORT ArgumentStack SetDamageLevelBase(ArgumentStack&& args)
     else
         s_DamageLevelBase[oidObject] = static_cast<uint8_t>(nBase);
 
+    return {};
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Store markup above 1000%
+// ---------------------------------------------------------------------------------------------
+//
+// NWNX_Store_SetMarkUp refuses anything above 1000, a limit of the plugin's own: the engine holds
+// m_nMarkUp as an int32, reads it as a short in CNWSStore::GetCustomerSellRate (adding the
+// customer's signed-byte adjustment), and sends that short to the client in
+// SendServerToPlayerOpenStoreInventory (WriteSHORT, read from the disassembly 2026-10-14). So the
+// real ceiling is 32767 less the adjustment. A refusal throws and leaves the old markup in place,
+// which had the Millers' Provisioner selling taxed Snacks at the blueprint's 100 when scarcity and
+// the village's sales tax together asked for 1142.
+
+static constexpr int32_t RH_STORE_MAX_MARKUP = 30000;
+
+NWNX_EXPORT ArgumentStack SetStoreMarkUp(ArgumentStack&& args)
+{
+    if (auto *pStore = Utils::PopStore(args))
+    {
+        const auto nValue = args.extract<int32_t>();
+          ASSERT_OR_THROW(nValue >= 1);
+          ASSERT_OR_THROW(nValue <= RH_STORE_MAX_MARKUP);
+        pStore->m_nMarkUp = nValue;
+    }
     return {};
 }
