@@ -15,6 +15,8 @@
 | `NWNX_RISENHOLM_RUNSCRIPT_REMOVE_ON_DESTROY` | true/false | Runs the ON_REMOVED script of every `EffectRunScript` on a non-player creature when the creature is destroyed. The engine frees a destroyed object's effects without their removal handlers, so without this any cleanup done in ON_REMOVED silently never happens for DestroyObject, corpse decay, or the spawn sweep. The script runs just before deletion with a valid OBJECT_SELF; anything it queues on the creature itself is lost with it. Player characters are skipped, because their effects persist in the .bic and the engine does not run ON_APPLIED when reloading them. |
 | `NWNX_RISENHOLM_STACK_ITEM_ABILITIES` | true/false | Makes every ability bonus on one item count, and every ability penalty. The engine counts only the largest of an item's effects on each ability, so +5 and +1 Strength on one item gave +5; with this on it gives +6. Spell effects keep the stock rule (only the largest of each spell's counts), and the totals are still capped by `SetAbilityBonusLimit` and `SetAbilityPenaltyLimit`. Replaces the Ability branch of `CNWSCreature::GetTotalEffectBonus`; every other bonus type is untouched. |
 | `NWNX_RISENHOLM_LOG_NUI` | true/false | Logs every NUI window the server sends a client (`NUI create:`) and every group layout it replaces (`NUI layout:`), with the character, account, window id, token, and calling script. A window with malformed JSON fails only on the client, as an error box reading `json.exception.type_error...`, and the server logs nothing, so these lines are the way to tell which window a player hit. Hooks `CNWSMessage::SendServerToPlayerNui_Create` and `_SetLayout` by symbol. |
+| `NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET` | true/false | A creature whose attack action is cleared mid-round keeps the round's unfired attacks and makes them, on schedule, against whatever it attacks next in that round. See "A change of target keeps the combat round" below. |
+| `NWNX_RISENHOLM_LOG_COMBAT_ROUND` | true/false | Logs every combat round start and end, each attack group as it fires, and each schedule kept and restored, with a millisecond clock (`Combat round [ms] <creature>: ...`). For measuring; every creature in combat logs, so leave it off on a live server. |
 | `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
 | `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry, at least 16 characters (`openssl rand -hex 32`). Required: with a port and no secret, or a short one, the listener refuses to start. |
 | `NWNX_RISENHOLM_RPC_BIND` | address | Address the RPC listener binds. Default `127.0.0.1`. In Docker set `0.0.0.0` so another container can reach it, and do not publish the port. |
@@ -386,6 +388,27 @@ next Knockdown to whoever had just hit the shield-bearer. A hook on
 every such swing: `NWNX_Risenholm_AddAttackOfOpportunity`, the engine's own AoOs, Parry ripostes,
 and Whirlwind Attack. `GetAttackTarget()` still names the victim for the length of the AoO, as it
 names whatever is being swung at, and the next ordinary swing sets it back.
+
+### A change of target keeps the combat round
+
+A combat round is planned once, when it starts: its attacks are scheduled in up to three groups,
+about 0, 2, and 4 seconds in. Changing target does not disturb that schedule, but clearing the
+attack action does: `CNWSCreature::ClearAction` throws the scheduled attacks away and leaves the
+round running with nothing in it, so the creature stands idle until the round runs out, up to six
+seconds. A player's click on a new target clears the action queue, and so does any script calling
+`ClearAllActions` mid-round, even one that attacks the same target again, which is how NPC AI
+reacting to every hit kept its creature standing still.
+
+With `NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET` the unfired ordinary attacks are kept as the action is
+cleared, and handed back, aimed at the new target, when the creature next runs an attack action in
+the same round. They fire when they were due, or on reaching the new target. Attacks of
+opportunity, parries, cleaves, and Whirlwind Attack are dropped as before. The attacks are moved,
+never copied, so a round still delivers at most the attacks it was planned with. Measured on dev
+(2026-10-16, 3 attacks a round, switching between two targets 1.1 m away): stock went 3.7 s without
+an attack and lost two of the round's three attacks on each switch; with the switch on the next
+attack landed at the normal 1.8 s spacing and none were lost. Hooks `CNWSCreature::ClearAction`,
+`AIActionAttackObject`, `CNWSCombatRound::StartCombatRound`, `StartCombatRoundCast`,
+`EndCombatRound`, and the round's destructor.
 
 ### A split stack keeps its local variables
 

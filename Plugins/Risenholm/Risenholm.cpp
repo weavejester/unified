@@ -3258,13 +3258,306 @@ NWNX_EXPORT ArgumentStack AddAttackOfOpportunity(ArgumentStack&& args)
 static_assert(offsetof(CNWSObject, m_oidCurrentActionTarget) == 0x94, "CNWSObject layout changed");
 static_assert(offsetof(CNWSCreature, m_oidAttemptedAttackTarget) == 0x720, "CNWSCreature layout changed");
 
+// RISENHOLM MODIFICATION: a creature that changes target keeps the rest of its combat round.
+//
+// StartCombatRound runs only when no round is in progress. It works out the
+// attacks and schedules them as up to three combat round actions of type 1,
+// about 0, 2, and 4 seconds into the round on the round's own clock (each one
+// pauses that clock for its animation; InitializeAttackActions, 8193.37
+// disassembly at 0x650af0). The actions carry the time they fall due, so the
+// schedule is absolute within the round.
+//
+// Changing target alone does not disturb that: ChangeAttackTarget calls
+// UpdateAttackTargetForAllActions, which re-aims every retargettable attack.
+// Clearing the attack action does. CNWSCreature::ClearAction, for an
+// interruptible ATTACKOBJECT node, runs ProcessPendingCombatActions and then
+// RemoveAllActions and ClearAllAttacks on the round (disassembly at 0x46fce0),
+// but leaves m_bRoundStarted set and the round's clock running. The next
+// ATTACKOBJECT finds a round in progress with nothing in it, so it does
+// nothing until IncrementTimer passes the round's length and EndCombatRound
+// lets a fresh round start: up to six seconds of standing still, three on
+// average. A player's click on a new target clears the queue
+// (AddAttackActions with bClearActions, from CNWSMessage), and so does every
+// script that calls ClearAllActions mid-round, nw_i0_generic's
+// DetermineCombatRound included, even when it attacks the same target again.
+//
+// So the attacks the wipe throws away are kept here, and handed back to the
+// round when the creature next runs an ATTACKOBJECT in that same round,
+// re-aimed at that action's target. Only ordinary attacks are kept (type 1,
+// m_bActionRetargettable): attacks of opportunity, parries, cleaves, and
+// Whirlwind Attack are aimed at one particular creature and are dropped as
+// before, and so are combat steps and equips. The kept attacks are moved, not
+// copied, and anything that already fired is gone from the schedule, so a
+// round never delivers more attacks than StartCombatRound scheduled. The
+// attack counter (m_nCurrentAttack) is not reset by the wipe, so a later
+// group keeps its iterative penalty, and the per-attack data ClearAllAttacks
+// clears is filled in when an attack resolves, not at round start
+// (InitializeNumberOfAttacks sets only counts).
+//
+// What is kept is dropped when a round starts (StartCombatRound,
+// StartCombatRoundCast), when it ends (EndCombatRound), and with the round
+// itself. An attack already due when it is handed back fires at once, or once
+// the creature is in reach, exactly as an overdue attack does after a chase.
+//
+// Switches:
+//   NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET (bool, default false)
+//   NWNX_RISENHOLM_LOG_COMBAT_ROUND       (bool, default false) logs round
+//     starts and ends, each kept and restored schedule, and each attack group
+//     as it fires, with a millisecond clock, for measuring the gaps.
+
+static bool GetKeepRoundOnRetarget()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("KEEP_ROUND_ON_RETARGET", false);
+        LOG_INFO("Keep the combat round on a change of target: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static bool GetLogCombatRound()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("LOG_COMBAT_ROUND", false);
+        LOG_INFO("Combat round logging: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bKeepRoundOnRetargetLogged = (GetKeepRoundOnRetarget(), GetLogCombatRound(), true);
+
+static_assert(sizeof(CNWSCombatRoundAction) == 0x28, "CNWSCombatRoundAction layout changed");
+static_assert(offsetof(CNWSCombatRoundAction, m_nActionType) == 0x10, "CNWSCombatRoundAction layout changed");
+static_assert(offsetof(CNWSCombatRoundAction, m_oidTarget) == 0x14, "CNWSCombatRoundAction layout changed");
+static_assert(offsetof(CNWSCombatRoundAction, m_bActionRetargettable) == 0x18, "CNWSCombatRoundAction layout changed");
+static_assert(offsetof(CNWSCombatRound, m_bRoundStarted) == 0x2f04, "CNWSCombatRound layout changed");
+static_assert(offsetof(CNWSCombatRound, m_pScheduledActions) == 0x2f70, "CNWSCombatRound layout changed");
+static_assert(offsetof(CNWSObjectActionNode, m_bInterruptable) == 0x9c, "CNWSObjectActionNode layout changed");
+
+static constexpr uint32_t ACTION_ATTACKOBJECT = 12;
+static constexpr uint8_t COMBAT_ROUND_ACTION_ATTACK = 1;
+
+struct KeptRoundAttack
+{
+    int32_t nActionTimer;
+    uint16_t nAnimation;
+    int32_t nAnimationTime;
+    int32_t nNumAttacks;
+};
+
+// Keyed by the round, which lives exactly as long as its creature.
+static std::unordered_map<CNWSCombatRound*, std::vector<KeptRoundAttack>> s_KeptRoundAttacks;
+
+static int64_t CombatRoundLogClock()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static bool GetHasScheduledAttack(CNWSCombatRound *pRound)
+{
+    if (!pRound->m_pScheduledActions)
+        return false;
+
+    for (auto pos = pRound->m_pScheduledActions->GetHeadPos(); pos; pos = pos->pNext)
+    {
+        auto *pAction = static_cast<CNWSCombatRoundAction*>(pos->pObject);
+        if (pAction && pAction->m_nActionType == COMBAT_ROUND_ACTION_ATTACK)
+            return true;
+    }
+
+    return false;
+}
+
+static void ForgetKeptRoundAttacks(CNWSCombatRound *pRound, const char *sWhy)
+{
+    auto it = s_KeptRoundAttacks.find(pRound);
+    if (it == s_KeptRoundAttacks.end())
+        return;
+
+    if (GetLogCombatRound() && pRound->m_pBaseCreature)
+        LOG_INFO("Combat round [%lld] %x: %zu kept attack group(s) dropped (%s)",
+                 (long long)CombatRoundLogClock(), pRound->m_pBaseCreature->m_idSelf, it->second.size(), sWhy);
+
+    s_KeptRoundAttacks.erase(it);
+}
+
+// Called just before the engine's ClearAction wipes the round.
+static void KeepRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNode *pNode)
+{
+    auto *pRound = pCreature->m_pcCombatRound;
+
+    if (!pNode || pNode->m_nActionId != ACTION_ATTACKOBJECT || !pNode->m_bInterruptable)
+        return;
+
+    if (!pRound || !pRound->m_bRoundStarted || pRound->m_bSpellCastRound || !pRound->m_pScheduledActions)
+        return;
+
+    std::vector<KeptRoundAttack> kept;
+
+    for (auto pos = pRound->m_pScheduledActions->GetHeadPos(); pos; pos = pos->pNext)
+    {
+        auto *pAction = static_cast<CNWSCombatRoundAction*>(pos->pObject);
+
+        if (pAction && pAction->m_nActionType == COMBAT_ROUND_ACTION_ATTACK && pAction->m_bActionRetargettable)
+            kept.push_back({pAction->m_nActionTimer, pAction->m_nAnimation, pAction->m_nAnimationTime, pAction->m_nNumAttacks});
+    }
+
+    // One ClearAllActions can clear several ATTACKOBJECT nodes, and each one
+    // wipes the round. Only the first finds anything; the rest must not
+    // overwrite what it kept with nothing.
+    if (kept.empty())
+        return;
+
+    if (GetLogCombatRound())
+        LOG_INFO("Combat round [%lld] %x: kept %zu attack group(s) at round time %d of %d, first due at %d",
+                 (long long)CombatRoundLogClock(), pCreature->m_idSelf, kept.size(),
+                 pRound->m_nTimer, pRound->m_nRoundLength, kept.front().nActionTimer);
+
+    s_KeptRoundAttacks[pRound] = std::move(kept);
+}
+
+// Called as an ATTACKOBJECT runs, before the engine looks at the round.
+static void RestoreKeptRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNode *pNode)
+{
+    auto *pRound = pCreature->m_pcCombatRound;
+
+    if (!pRound || s_KeptRoundAttacks.empty())
+        return;
+
+    auto it = s_KeptRoundAttacks.find(pRound);
+    if (it == s_KeptRoundAttacks.end())
+        return;
+
+    if (!pRound->m_bRoundStarted || pRound->m_bSpellCastRound || !pRound->m_pScheduledActions)
+    {
+        s_KeptRoundAttacks.erase(it);
+        return;
+    }
+
+    // The node's target is in m_pParameter[0]. An invalid one, or the creature
+    // itself, makes the engine wipe the round again at once (ChangeAttackTarget
+    // to OBJECT_INVALID), which would lose what is kept, so wait for a real one.
+    const auto oidTarget = static_cast<ObjectID>(pNode->m_pParameter[0]);
+
+    if (oidTarget == Constants::OBJECT_INVALID || oidTarget == pCreature->m_idSelf || !Utils::GetGameObject(oidTarget))
+        return;
+
+    // Something has scheduled attacks of its own since the wipe; leave it be.
+    if (GetHasScheduledAttack(pRound))
+    {
+        s_KeptRoundAttacks.erase(it);
+        return;
+    }
+
+    for (const auto &k : it->second)
+    {
+        auto *pAction = new CNWSCombatRoundAction();
+        pAction->m_nActionTimer = k.nActionTimer;
+        pAction->m_nAnimation = k.nAnimation;
+        pAction->m_nAnimationTime = k.nAnimationTime;
+        pAction->m_nNumAttacks = k.nNumAttacks;
+        pAction->m_nActionType = COMBAT_ROUND_ACTION_ATTACK;
+        pAction->m_oidTarget = oidTarget;
+        pAction->m_bActionRetargettable = true;
+        pRound->AddAction(pAction);
+    }
+
+    if (GetLogCombatRound())
+        LOG_INFO("Combat round [%lld] %x: restored %zu attack group(s) against %x at round time %d of %d",
+                 (long long)CombatRoundLogClock(), pCreature->m_idSelf, it->second.size(), oidTarget,
+                 pRound->m_nTimer, pRound->m_nRoundLength);
+
+    s_KeptRoundAttacks.erase(it);
+}
+
+static Hooks::Hook s_KeepRoundClearActionHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature11ClearActionEP20CNWSObjectActionNodei,
+    (void*)+[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode, BOOL bIsTopmostAction) -> BOOL
+    {
+        if (GetKeepRoundOnRetarget())
+            KeepRoundAttacks(pCreature, pNode);
+
+        return s_KeepRoundClearActionHook->CallOriginal<BOOL>(pCreature, pNode, bIsTopmostAction);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_KeepRoundStartHook = Hooks::HookFunction(&CNWSCombatRound::StartCombatRound,
+    +[](CNWSCombatRound *pRound, ObjectID oidTarget) -> void
+    {
+        ForgetKeptRoundAttacks(pRound, "round started");
+        s_KeepRoundStartHook->CallOriginal<void>(pRound, oidTarget);
+
+        if (GetLogCombatRound() && pRound->m_pBaseCreature)
+            LOG_INFO("Combat round [%lld] %x: round started against %x, %d attack(s), length %d",
+                     (long long)CombatRoundLogClock(), pRound->m_pBaseCreature->m_idSelf, oidTarget,
+                     (int)pRound->GetTotalAttacks(), pRound->m_nRoundLength);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_KeepRoundStartCastHook = Hooks::HookFunction(&CNWSCombatRound::StartCombatRoundCast,
+    +[](CNWSCombatRound *pRound, uint32_t nRoundLength) -> void
+    {
+        ForgetKeptRoundAttacks(pRound, "cast round started");
+        s_KeepRoundStartCastHook->CallOriginal<void>(pRound, nRoundLength);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_KeepRoundEndHook = Hooks::HookFunction(&CNWSCombatRound::EndCombatRound,
+    +[](CNWSCombatRound *pRound) -> void
+    {
+        ForgetKeptRoundAttacks(pRound, "round ended");
+
+        if (GetLogCombatRound() && pRound->m_pBaseCreature)
+            LOG_INFO("Combat round [%lld] %x: round ended at round time %d of %d",
+                     (long long)CombatRoundLogClock(), pRound->m_pBaseCreature->m_idSelf,
+                     pRound->m_nTimer, pRound->m_nRoundLength);
+
+        s_KeepRoundEndHook->CallOriginal<void>(pRound);
+    }, Hooks::Order::Early);
+
+// Not in NWNX's function table; D1 and D2 share one address.
+static Hooks::Hook s_KeepRoundDtorHook = []() -> Hooks::Hook
+{
+    void *pDtor = dlsym(RTLD_DEFAULT, "_ZN15CNWSCombatRoundD1Ev");
+
+    if (!pDtor)
+    {
+        LOG_ERROR("CNWSCombatRound destructor symbol not found; kept round attacks of destroyed creatures leak");
+        return nullptr;
+    }
+
+    return Hooks::HookFunction(pDtor,
+        (void*)+[](CNWSCombatRound *pRound) -> void
+        {
+            s_KeptRoundAttacks.erase(pRound);
+            s_KeepRoundDtorHook->CallOriginal<void>(pRound);
+        }, Hooks::Order::Early);
+}();
+
 static Hooks::Hook s_AIActionAttackObjectHook = Hooks::HookFunction(&CNWSCreature::AIActionAttackObject,
     +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
     {
+        if (GetKeepRoundOnRetarget())
+            RestoreKeptRoundAttacks(pCreature, pNode);
+
+        // For the log: an attack group about to fire, read the way the engine
+        // decides it (a due action at the head, the round not paused).
+        auto *pRound = pCreature->m_pcCombatRound;
+        const bool bGroupDue = GetLogCombatRound() && pRound && pRound->m_bRoundStarted &&
+                               !pRound->m_bRoundPaused && pRound->GetAttackActionPending();
+        const int32_t nRoundTimeIn = bGroupDue ? pRound->m_nTimer : 0;
+
         const ObjectID oidNodeTarget  = pCreature->m_oidCurrentActionTarget;
         const ObjectID oidAttemptedIn = pCreature->m_oidAttemptedAttackTarget;
 
         auto retVal = s_AIActionAttackObjectHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        if (bGroupDue)
+            LOG_INFO("Combat round [%lld] %x: attack group fired against %x at round time %d",
+                     (long long)CombatRoundLogClock(), pCreature->m_idSelf,
+                     pCreature->m_oidAttemptedAttackTarget, nRoundTimeIn);
 
         if (oidNodeTarget != Constants::OBJECT_INVALID &&
             pCreature->m_oidCurrentActionTarget == oidNodeTarget &&
