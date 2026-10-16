@@ -30,7 +30,7 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `SNEAK_ATTACK_IMMUNE` | int | Placeable | 1 = Immune to SneakAttacks |
 | `DISABLE_COMBAT_SHUFFLE` | int | Creature | 1 = Disable Combat Shuffle |
 | `LOADOUT_DORMANT` | int | Item | 1 = Dormant: none of its properties reach its wearer (see below) |
-| `NO_BUDGE` | int | Creature | 1 = Never moved by the engine's door and placeable budge (see below) |
+| `NO_BUDGE` | int | Creature | No longer read: the budge is off for every creature (see below) |
 
 ### Dormant equipment
 
@@ -331,26 +331,21 @@ the slot appears on its own at the level-up that makes the level reachable. Spel
 slot that goes away are dropped with it. The client shows whatever count the server sends, so it
 needs nothing.
 
-### Budge exemption
+### No budging
 
 `CNWSArea::BudgeCreatures` runs on every door open and close (`CNWSDoor::SetOpenState`) and
 whenever a placeable is added to an area (`CNWSPlaceable::AddToArea`). Any creature within 5m of
 the object's bounding box whose own position fails `TestSafeLocationPoint` is moved with
 `SetPosition` to a `ComputeSafeLocation` result up to 10m from the object. That is meant for a
-creature caught in a closing doorway, but it also catches a creature the module has stood on
-unwalkable ground on purpose: a prisoner in the Stocks stands on the placeable's origin, inside
-its walkmesh, and was thrown out each time the door beside the stocks was used (8193.37,
-2026-09-30).
+creature caught in a closing doorway, but the test also fails for a creature that merely stands
+close to another one, and the spot it finds need not connect to anything, so players were thrown
+through walls and into sealed pockets.
 
-A hook on `BudgeCreatures` leaves a creature carrying the `NO_BUDGE` local where it is. The
-engine's loop has no test to skip a creature by, so for the length of the call each exempt
-creature inside the box has `m_vPosition.y` set far outside it, then put back. It is a write to
-the field, not `SetPosition`, so no trigger, area of effect, or client sees it, and the area's
-object list is sorted by X. Every other creature is budged as before. The hook's scan uses the
-engine's own start index and stop, so it adds one pass of the same length as the original's.
-
-The module sets the local for as long as it holds a creature in place and must clear it on
-release: see `SeatInStocks` and `ReleaseFromStocks` in `pw_inc_stocks.nss`.
+A hook replaces `BudgeCreatures` with nothing: no creature is ever moved by it. A creature a door
+closes on is left inside it and can open the door again. An earlier version budged only creatures
+stuck in the world, only to somewhere connected, and skipped any with the `NO_BUDGE` local; it
+still let doors carry players off (2026-10-16), and was dropped. The module still sets `NO_BUDGE`
+on a Stocks prisoner (`pw_inc_stocks.nss`), which is now harmless.
 
 ### No size limits on equipping
 
