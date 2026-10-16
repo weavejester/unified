@@ -16,6 +16,8 @@
 | `NWNX_RISENHOLM_STACK_ITEM_ABILITIES` | true/false | Makes every ability bonus on one item count, and every ability penalty. The engine counts only the largest of an item's effects on each ability, so +5 and +1 Strength on one item gave +5; with this on it gives +6. Spell effects keep the stock rule (only the largest of each spell's counts), and the totals are still capped by `SetAbilityBonusLimit` and `SetAbilityPenaltyLimit`. Replaces the Ability branch of `CNWSCreature::GetTotalEffectBonus`; every other bonus type is untouched. |
 | `NWNX_RISENHOLM_LOG_NUI` | true/false | Logs every NUI window the server sends a client (`NUI create:`) and every group layout it replaces (`NUI layout:`), with the character, account, window id, token, and calling script. A window with malformed JSON fails only on the client, as an error box reading `json.exception.type_error...`, and the server logs nothing, so these lines are the way to tell which window a player hit. Hooks `CNWSMessage::SendServerToPlayerNui_Create` and `_SetLayout` by symbol. |
 | `NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET` | true/false | A creature whose attack action is cleared mid-round keeps the round's unfired attacks and makes them, on schedule, against whatever it attacks next in that round. See "A change of target keeps the combat round" below. |
+| `NWNX_RISENHOLM_CAST_CUTS_ROUND` | 0/1/2 | A player's spell cast during an attack round starts at once instead of waiting for the round to end. 0 (default) off; 1 the rest of the attack round is forgiven; 2 the rest is added to the spell round. See "A spell cast in an attack round starts at once" below. |
+| `NWNX_RISENHOLM_CAST_CUTS_ROUND_NPCS` | true/false | Gives NPCs the same. Default off. |
 | `NWNX_RISENHOLM_LOG_COMBAT_ROUND` | true/false | Logs every combat round start and end, each attack group as it fires, and each schedule kept and restored, with a millisecond clock (`Combat round [ms] <creature>: ...`). For measuring; every creature in combat logs, so leave it off on a live server. |
 | `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
 | `NWNX_RISENHOLM_RPC_SECRET` | string | Shared secret every RPC request must carry, at least 16 characters (`openssl rand -hex 32`). Required: with a port and no secret, or a short one, the listener refuses to start. |
@@ -409,6 +411,34 @@ an attack and lost two of the round's three attacks on each switch; with the swi
 attack landed at the normal 1.8 s spacing and none were lost. Hooks `CNWSCreature::ClearAction`,
 `AIActionAttackObject`, `CNWSCombatRound::StartCombatRound`, `StartCombatRoundCast`,
 `EndCombatRound`, and the round's destructor.
+
+### A spell cast in an attack round starts at once
+
+A spell is queued behind a wait that holds while a round is running, so a creature that casts part
+way through an attack round stands still until that round runs out, up to six seconds, before it
+starts. The cast then runs a spell round of its own, 6 seconds, or 3 for a Quickened spell
+(`FAST_SPELLCAST_ROUND`), and the same wait makes the next spell wait for that round to end.
+
+With `NWNX_RISENHOLM_CAST_CUTS_ROUND` the wait ends an attack round at once for a player's
+character (and possessed familiar), letting any swing already under way finish first. A spell
+round still holds the wait, so it is still one spell per spell round. The round is ended through
+the engine's own `EndCombatRound` without the creature's OnEndCombatRound script, which in this
+module calls `ClearAllActions` and would cancel the cast.
+
+If attacks were made in the round that is cut, its end is remembered. Should the cast then fail
+or be cancelled, the next attack round waits for that moment, so cancelling a cast can never buy
+a fresh attack round. What the spell round does with it is the switch's value:
+
+- **1, forgiven.** The spell round is its normal length. Attacking for part of a round and then
+  casting gives the first attacks of a round on top of a spell every spell round.
+- **2, carried.** The rest of the cut round is added to the spell round: the creature stands after
+  its spell instead of before it, and nothing but the spell comes any sooner.
+
+Measured on dev (2026-10-16, a cast queued 0.3 s into an attack round): stock started the spell
+2.85 s later and attacked again 8.86 s later; mode 2 started it 0.28 s later and attacked again
+8.82 s later; mode 1 started it 0.5 s later (after the swing in progress) and attacked again 6.0 s
+after the spell. Item casts (potions, wands) queue the same wait but start no spell round, and
+are left alone. Hooks `CNWSCreature::AIActionWaitForEndOfRound` and `AIActionCastSpell`.
 
 ### A split stack keeps its local variables
 

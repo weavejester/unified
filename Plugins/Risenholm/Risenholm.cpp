@@ -3476,6 +3476,202 @@ static void RestoreKeptRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNod
     s_KeptRoundAttacks.erase(it);
 }
 
+// RISENHOLM MODIFICATION: a spell cast in an attack round starts at once.
+//
+// AddCastSpellActions queues an action 16 (WAITFORENDOFROUND) ahead of the
+// CASTSPELL, and AIActionWaitForEndOfRound holds while a round is running
+// with no spell action in it. So a creature that casts mid-way through an
+// attack round stands still until the round runs out, up to six seconds, and
+// only then does AIActionCastSpell, finding no round, start its own spell
+// round (StartCombatRoundCast: 6 s, or 3 s when Quickened or hasted, from
+// the 8193.37 disassembly at 0x4be339). That spell round is also what makes
+// the next spell wait, since the same wait holds through it.
+//
+// With NWNX_RISENHOLM_CAST_CUTS_ROUND, a player-controlled creature's wait
+// (any creature's, with NWNX_RISENHOLM_CAST_CUTS_ROUND_NPCS too) ends an
+// ATTACK round there and then, so the cast starts at once. A spell
+// round still holds the wait as before: one spell per spell round, 6 s or 3 s.
+// The round is ended with the engine's own EndCombatRound (pending equips,
+// per-round AoO, Cleave, and Circle Kick counts, Epic Dodge, dodge target),
+// with the OnEndCombatRound script slot blanked for the call: the module's
+// creature end-round scripts call ClearAllActions, which would cancel the
+// very cast the round is being ended for.
+//
+// Ending a round early must not hand out a fresh one. The wait runs BEFORE
+// AIActionCastSpell checks spell uses, components, and line of sight, and
+// the cast can be cancelled after it, so if nothing else were done a player
+// could make the first attacks of a round, queue a spell, cancel it, and
+// attack again in a new round. So when attacks were made in the round that
+// is cut (m_nCurrentAttack > 0), the time at which it would have ended is
+// kept, and the next ATTACK round that starts before then has its attacks
+// pushed back to it. The creature attacks no sooner than if it had waited.
+// When no attack was made yet, cutting gains nothing and nothing is kept.
+//
+// What the next SPELL round does with that time is the switch's value:
+//   1  forgiven: the spell round is its normal length. Attacking for part of a
+//      round and then casting gives the first attacks of a round on top of a
+//      spell every spell round.
+//   2  carried: the rest of the cut round is added to the spell round, so the
+//      creature stands after its spell for the time it would otherwise have
+//      stood before it. Nothing comes sooner than it did except the spell.
+// 0 (default) leaves the engine alone.
+//
+// Spells only: an item's cast (potions, wands) queues the same wait but
+// starts no spell round, and is left to wait as before.
+
+static int GetCastCutsRound()
+{
+    static const int s_nMode = []() -> int
+    {
+        int n = Config::Get<int>("CAST_CUTS_ROUND", 0);
+        if (n < 0 || n > 2)
+            n = 0;
+        LOG_INFO("A spell cast in an attack round starts at once: %s",
+                 n == 0 ? "off" : n == 1 ? "on, rest of the round forgiven" : "on, rest of the round carried into the spell round");
+        return n;
+    }();
+
+    return s_nMode;
+}
+
+static const bool s_bCastCutsRoundLogged = (GetCastCutsRound(), true);
+
+static constexpr uint32_t ACTION_CASTSPELL = 15;
+static constexpr int32_t SCRIPT_SLOT_END_COMBAT_ROUND = 6;
+
+static_assert(offsetof(CNWSCreature, m_sScripts) + SCRIPT_SLOT_END_COMBAT_ROUND * sizeof(CExoString) == 0x398,
+              "CNWSCreature::m_sScripts layout changed");
+static_assert(offsetof(CNWSCombatRound, m_nCurrentAttack) == 0x2f2c, "CNWSCombatRound layout changed");
+
+// When each cut round would have ended, on CombatRoundLogClock, by round.
+static std::unordered_map<CNWSCombatRound*, int64_t> s_CutRoundEnds;
+
+// How much of a cut round is still to run, taken once, or 0.
+static int32_t TakeCutRoundRemainder(CNWSCombatRound *pRound)
+{
+    auto it = s_CutRoundEnds.find(pRound);
+    if (it == s_CutRoundEnds.end())
+        return 0;
+
+    const int64_t nLeft = it->second - CombatRoundLogClock();
+    s_CutRoundEnds.erase(it);
+    return nLeft > 0 ? (int32_t)nLeft : 0;
+}
+
+// Called as an attack round starts (StartCombatRound, after the engine).
+static void DelayAttackRoundForCutRound(CNWSCombatRound *pRound)
+{
+    const int32_t nDelay = TakeCutRoundRemainder(pRound);
+    if (nDelay <= 0 || !pRound->m_pScheduledActions)
+        return;
+
+    for (auto pos = pRound->m_pScheduledActions->GetHeadPos(); pos; pos = pos->pNext)
+    {
+        if (auto *pAction = static_cast<CNWSCombatRoundAction*>(pos->pObject))
+            pAction->m_nActionTimer += nDelay;
+    }
+
+    pRound->m_nRoundLength += nDelay;
+
+    if (GetLogCombatRound() && pRound->m_pBaseCreature)
+        LOG_INFO("Combat round [%lld] %x: attack round held back %d ms for the round a spell cut short",
+                 (long long)CombatRoundLogClock(), pRound->m_pBaseCreature->m_idSelf, nDelay);
+}
+
+// NWNX_RISENHOLM_CAST_CUTS_ROUND_NPCS (bool, default false) gives NPCs the same.
+static bool GetCastCutsRoundNPCs()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("CAST_CUTS_ROUND_NPCS", false);
+        LOG_INFO("NPCs too: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bCastCutsRoundNPCsLogged = (GetCastCutsRoundNPCs(), true);
+
+static bool GetCastCutsRoundFor(CNWSCreature *pCreature)
+{
+    return pCreature->m_bPlayerCharacter || pCreature->GetIsPossessedFamiliar() || GetCastCutsRoundNPCs();
+}
+
+static Hooks::Hook s_CastCutsRoundWaitHook = Hooks::HookFunction(&CNWSCreature::AIActionWaitForEndOfRound,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        auto *pRound = pCreature->m_pcCombatRound;
+
+        if (!GetCastCutsRound() || !pRound || !pRound->m_bRoundStarted || pRound->m_bSpellCastRound ||
+            !GetCastCutsRoundFor(pCreature) || pCreature->GetDead() || pCreature->GetIsPCDying())
+        {
+            return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
+        }
+
+        // Only a wait that a spell is queued behind. RunActions takes the node
+        // it is running out of the queue for the call (seen in the queue as
+        // logged from here), so the action after it is the queue's head.
+        auto *pNext = pCreature->m_lQueuedActions.GetHead();
+
+        if (!pNext || pNext->m_nActionId != ACTION_CASTSPELL)
+            return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        // Let a swing already under way finish first: the round is paused by
+        // the creature itself for the length of its attack animation.
+        if (pRound->m_bRoundPaused && pRound->m_oidRoundPausedBy == pCreature->m_idSelf && pRound->m_nPauseTimer > 0)
+            return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        int32_t nLeft = pRound->m_nRoundLength - pRound->m_nTimer;
+        if (pRound->m_bRoundPaused)
+            nLeft += pRound->m_nPauseTimer;
+        if (nLeft < 0)
+            nLeft = 0;
+
+        const bool bAttacked = pRound->m_nCurrentAttack > 0;
+
+        CExoString sEndRoundScript(std::move(pCreature->m_sScripts[SCRIPT_SLOT_END_COMBAT_ROUND]));
+        pRound->EndCombatRound();
+        pCreature->m_sScripts[SCRIPT_SLOT_END_COMBAT_ROUND] = std::move(sEndRoundScript);
+
+        if (bAttacked && nLeft > 0)
+            s_CutRoundEnds[pRound] = CombatRoundLogClock() + nLeft;
+
+        if (GetLogCombatRound())
+            LOG_INFO("Combat round [%lld] %x: attack round cut for a spell with %d ms left, %s",
+                     (long long)CombatRoundLogClock(), pCreature->m_idSelf, nLeft,
+                     bAttacked ? "attacks made, so the rest is owed" : "no attacks made, nothing owed");
+
+        return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_CastCutsRoundCastHook = Hooks::HookFunction(&CNWSCreature::AIActionCastSpell,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        auto *pRound = pCreature->m_pcCombatRound;
+        const bool bWatch = GetCastCutsRound() && pRound && !pRound->m_bRoundStarted &&
+                            !s_CutRoundEnds.empty() && s_CutRoundEnds.count(pRound);
+
+        auto retVal = s_CastCutsRoundCastHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        // The cast started its spell round in this call: settle what the cut
+        // round left owing. pRound is the creature's own and outlives the call.
+        if (bWatch && pRound->m_bRoundStarted && pRound->m_bSpellCastRound)
+        {
+            const int32_t nLeft = TakeCutRoundRemainder(pRound);
+
+            if (GetCastCutsRound() == 2 && nLeft > 0)
+                pRound->m_nRoundLength += nLeft;
+
+            if (GetLogCombatRound())
+                LOG_INFO("Combat round [%lld] %x: spell round started, %d ms of the cut round %s",
+                         (long long)CombatRoundLogClock(), pCreature->m_idSelf, nLeft,
+                         GetCastCutsRound() == 2 ? "added to it" : "forgiven");
+        }
+
+        return retVal;
+    }, Hooks::Order::Early);
+
 static Hooks::Hook s_KeepRoundClearActionHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature11ClearActionEP20CNWSObjectActionNodei,
     (void*)+[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode, BOOL bIsTopmostAction) -> BOOL
     {
@@ -3490,6 +3686,7 @@ static Hooks::Hook s_KeepRoundStartHook = Hooks::HookFunction(&CNWSCombatRound::
     {
         ForgetKeptRoundAttacks(pRound, "round started");
         s_KeepRoundStartHook->CallOriginal<void>(pRound, oidTarget);
+        DelayAttackRoundForCutRound(pRound);
 
         if (GetLogCombatRound() && pRound->m_pBaseCreature)
             LOG_INFO("Combat round [%lld] %x: round started against %x, %d attack(s), length %d",
@@ -3502,6 +3699,10 @@ static Hooks::Hook s_KeepRoundStartCastHook = Hooks::HookFunction(&CNWSCombatRou
     {
         ForgetKeptRoundAttacks(pRound, "cast round started");
         s_KeepRoundStartCastHook->CallOriginal<void>(pRound, nRoundLength);
+
+        if (GetLogCombatRound() && pRound->m_pBaseCreature)
+            LOG_INFO("Combat round [%lld] %x: spell round started, length %u",
+                     (long long)CombatRoundLogClock(), pRound->m_pBaseCreature->m_idSelf, nRoundLength);
     }, Hooks::Order::Early);
 
 static Hooks::Hook s_KeepRoundEndHook = Hooks::HookFunction(&CNWSCombatRound::EndCombatRound,
@@ -3532,6 +3733,7 @@ static Hooks::Hook s_KeepRoundDtorHook = []() -> Hooks::Hook
         (void*)+[](CNWSCombatRound *pRound) -> void
         {
             s_KeptRoundAttacks.erase(pRound);
+            s_CutRoundEnds.erase(pRound);
             s_KeepRoundDtorHook->CallOriginal<void>(pRound);
         }, Hooks::Order::Early);
 }();
