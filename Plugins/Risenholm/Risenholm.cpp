@@ -3348,6 +3348,7 @@ struct KeptRoundAttack
     uint16_t nAnimation;
     int32_t nAnimationTime;
     int32_t nNumAttacks;
+    int32_t nRoundLength; // the round's length when this was kept
 };
 
 // Keyed by the round, which lives exactly as long as its creature.
@@ -3359,6 +3360,11 @@ static int64_t CombatRoundLogClock()
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+// Ordinary attacks only. An attack of opportunity, parry riposte, cleave, or
+// Whirlwind Attack queued since the wipe (m_bActionRetargettable 0) is an
+// extra swing at one creature, not a new schedule: Thunderstrike's
+// AddAttackOfOpportunity lands in the same instant as its ActionAttack, and
+// counting it here threw the kept round away (player report, 2026-10-18).
 static bool GetHasScheduledAttack(CNWSCombatRound *pRound)
 {
     if (!pRound->m_pScheduledActions)
@@ -3367,7 +3373,7 @@ static bool GetHasScheduledAttack(CNWSCombatRound *pRound)
     for (auto pos = pRound->m_pScheduledActions->GetHeadPos(); pos; pos = pos->pNext)
     {
         auto *pAction = static_cast<CNWSCombatRoundAction*>(pos->pObject);
-        if (pAction && pAction->m_nActionType == COMBAT_ROUND_ACTION_ATTACK)
+        if (pAction && pAction->m_nActionType == COMBAT_ROUND_ACTION_ATTACK && pAction->m_bActionRetargettable)
             return true;
     }
 
@@ -3405,7 +3411,8 @@ static void KeepRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNode *pNod
         auto *pAction = static_cast<CNWSCombatRoundAction*>(pos->pObject);
 
         if (pAction && pAction->m_nActionType == COMBAT_ROUND_ACTION_ATTACK && pAction->m_bActionRetargettable)
-            kept.push_back({pAction->m_nActionTimer, pAction->m_nAnimation, pAction->m_nAnimationTime, pAction->m_nNumAttacks});
+            kept.push_back({pAction->m_nActionTimer, pAction->m_nAnimation, pAction->m_nAnimationTime, pAction->m_nNumAttacks,
+                            pRound->m_nRoundLength});
     }
 
     // One ClearAllActions can clear several ATTACKOBJECT nodes, and each one
@@ -3448,17 +3455,29 @@ static void RestoreKeptRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNod
     if (oidTarget == Constants::OBJECT_INVALID || oidTarget == pCreature->m_idSelf || !Utils::GetGameObject(oidTarget))
         return;
 
-    // Something has scheduled attacks of its own since the wipe; leave it be.
+    // Something has scheduled ordinary attacks of its own since the wipe; leave it be.
     if (GetHasScheduledAttack(pRound))
     {
         s_KeptRoundAttacks.erase(it);
         return;
     }
 
+    // An attack of opportunity, cleave, or Circle Kick added to a running round
+    // shortens it to make room (DecrementRoundLength, 8193.37 decompile at
+    // 0x74e700): the round's length drops by the extra attack's share and the
+    // round's clock and every scheduled action's due time are scaled down by
+    // the same factor. Kept attacks are out of the schedule then, so they miss
+    // that scaling, and handed back at their old times the last of them fell
+    // after the shortened round's end and was lost. Thunderstrike adds its AoO
+    // between the wipe and the hand-back, and dropped one group in three
+    // (dev, 2026-10-18: 2750 to 1834, the 2050 group never fired). So scale
+    // them now as the engine would have.
     for (const auto &k : it->second)
     {
         auto *pAction = new CNWSCombatRoundAction();
-        pAction->m_nActionTimer = k.nActionTimer;
+        pAction->m_nActionTimer = (k.nRoundLength > 0 && pRound->m_nRoundLength != k.nRoundLength)
+            ? (int32_t)((float)k.nActionTimer * ((float)pRound->m_nRoundLength / (float)k.nRoundLength))
+            : k.nActionTimer;
         pAction->m_nAnimation = k.nAnimation;
         pAction->m_nAnimationTime = k.nAnimationTime;
         pAction->m_nNumAttacks = k.nNumAttacks;
