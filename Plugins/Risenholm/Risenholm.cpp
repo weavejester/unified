@@ -6227,3 +6227,57 @@ NWNX_EXPORT ArgumentStack SetStoreMarkUp(ArgumentStack&& args)
     }
     return {};
 }
+
+
+// ---------------------------------------------------------------------------------------------
+// Removing a weapon hit's queued immunity messages
+// ---------------------------------------------------------------------------------------------
+//
+// A weapon hit's damage immunity is worked out in GetDamageRoll, before the NWNX_Damage attack
+// event runs, by CNWSObject::DoDamageImmunity. With an attacker given and its last argument 1, it
+// does not send "Damage Immunity absorbs" there and then: it builds a CNWCCMessageData of type 0
+// (Integer 0 the feedback id 62, Integer 1 the amount absorbed, Integer 2 the damage type's flag,
+// ObjectID 0 the target) and adds it to the attacker's current attack's m_alstPendingFeedback
+// (read from the disassembly, 2026-10-20). SignalMeleeDamage and SignalRangedDamage post that
+// list as EVENT_FEEDBACK_MESSAGE events, a ranged one delayed by the projectile's flight and by
+// each earlier shot of the flurry.
+//
+// The module's Energy Affinity replaces a damage type's number in the attack event, with the
+// target's lowest immunity of any type in place of that type's own, so the queued message reports
+// an amount that was never taken. It used to hide feedback 62 for everyone for half a second,
+// which a bolt's flight outlasted, and which hid immunity that really did apply as well. This
+// removes the stale entries from the one attack instead.
+
+NWNX_EXPORT ArgumentStack RemoveAttackImmunityFeedback(ArgumentStack&& args)
+{
+    auto *pCreature          = Utils::PopCreature(args);
+    const auto nAttackNumber = args.extract<int32_t>();
+    const auto nDamageTypes  = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pcCombatRound || nAttackNumber < 1 || !nDamageTypes)
+        return {};
+
+    // 1-based, as NWNX_Damage's attack event data gives it.
+    auto *pAttackData = pCreature->m_pcCombatRound->GetAttack(nAttackNumber - 1);
+    if (!pAttackData)
+        return {};
+
+    auto &lstFeedback = pAttackData->m_alstPendingFeedback;
+
+    for (int32_t i = lstFeedback.num - 1; i >= 0; i--)
+    {
+        auto *pData = lstFeedback[i];
+
+        if (!pData || pData->m_nType != 0 || pData->m_nParamInteger.num < 3)
+            continue;
+
+        if (pData->m_nParamInteger[0] != 62/*Damage Immunity Feedback*/ || !(pData->m_nParamInteger[2] & nDamageTypes))
+            continue;
+
+        // The list owns its entries; the feedback events take them over only once the attack is signalled.
+        delete pData;
+        lstFeedback.DelIndex(i);
+    }
+
+    return {};
+}

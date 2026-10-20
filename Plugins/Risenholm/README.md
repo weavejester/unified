@@ -495,6 +495,24 @@ export allows up to 30000, which leaves room for the adjustment. Found when the 
 Provisioner, at the 900% scarcity markup, took a 20% sales tax: the 1142 it asked for was refused,
 and its Snacks sold at the blueprint's 100.
 
+### RemoveAttackImmunityFeedback
+
+`NWNX_Risenholm_RemoveAttackImmunityFeedback(oAttacker, nAttackNumber, nDamageTypes)` drops the
+"Damage Immunity absorbs" messages the engine has queued on one attack, for the damage types in
+`nDamageTypes` (`DAMAGE_TYPE_*` flags ORed together). `nAttackNumber` is the attack event's
+1-based `iAttackNumber`, so it is meant to be called from the NWNX_Damage attack event.
+
+A weapon hit's immunity is worked out in `GetDamageRoll`, before that event runs.
+`CNWSObject::DoDamageImmunity` does not send the message then: it queues a `CNWCCMessageData`
+(type 0; Integer 0 the feedback id 62, Integer 1 the amount absorbed, Integer 2 the damage type's
+flag) on the attacker's current attack's `m_alstPendingFeedback`, and `SignalMeleeDamage` and
+`SignalRangedDamage` post that list as feedback events. A ranged one waits for the projectile's
+flight, plus each earlier shot of the flurry (read from the disassembly, 2026-10-20). The module's
+Energy Affinity replaces a damage type's number in the attack event, so the queued message
+reports an amount that was never taken. The module used to hide feedback 62 for everyone for
+half a second instead, which a crossbow bolt's flight outlasted. This export removes only the
+stale entries, from the one attack, and leaves its other messages alone.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)

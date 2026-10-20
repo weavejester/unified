@@ -309,6 +309,18 @@ void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase);
 /// @param nMarkUp The markup in percent, 1 to 30000.
 void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp);
 
+/// @brief Drop the "Damage Immunity absorbs" messages the engine has queued on one of
+/// oAttacker's attacks, for the damage types in nDamageTypes.
+/// @note Call it from the NWNX_Damage attack event, for a damage type whose number the script
+/// has replaced (Energy Affinity). The engine works out a weapon hit's immunity before the
+/// event and queues the message on the attack, to go out when the blow lands or the bolt
+/// arrives, so it would report an amount the script has since overridden. Other messages on
+/// the attack, and immunity messages for other damage types, are kept.
+/// @param oAttacker The attacker.
+/// @param nAttackNumber The attack, as the attack event data gives it (iAttackNumber, 1-based).
+/// @param nDamageTypes DAMAGE_TYPE_* flags, ORed together.
+void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNumber, int nDamageTypes);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -580,4 +592,12 @@ void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp)
     NWNXPushInt(nMarkUp);
     NWNXPushObject(oStore);
     NWNXCall(NWNX_Risenholm, "SetStoreMarkUp");
+}
+
+void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNumber, int nDamageTypes)
+{
+    NWNXPushInt(nDamageTypes);
+    NWNXPushInt(nAttackNumber);
+    NWNXPushObject(oAttacker);
+    NWNXCall(NWNX_Risenholm, "RemoveAttackImmunityFeedback");
 }
