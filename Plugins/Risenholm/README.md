@@ -319,6 +319,20 @@ command runs its value through the `DamageBonusLimit` server setting's 0-255 con
 without it. `GetDamageRoll` carries the total in a short, so keep it under 32767. `pw_mod_load.nss`
 calls it, because the threat system's Elite Solo creatures carry physical bonuses near 300.
 
+### Cleave when the blow lands: SetScriptedCleave and DoCleaveAttack
+
+The engine decides on a Cleave when it resolves an attack (`ResolvePostMeleeDamage`), from the damage
+as first rolled, before the attack and damage event scripts have changed it. A hit that custom damage
+resistance left short of a kill still Cleaved, and one that script damage turned into a kill did not.
+`NWNX_Risenholm_SetScriptedCleave(TRUE)` switches the engine's Cleave off: while
+`ResolvePostMeleeDamage` runs, `HasFeat` answers FALSE for Cleave and Great Cleave, which gate the
+whole of that branch, and the ranged Cleave in this plugin's `ResolvePostRangedDamage` is skipped.
+The module then calls `NWNX_Risenholm_DoCleaveAttack(oCreature, oKilled)` from the damage event once
+it knows the blow kills. That queues a Cleave exactly as the engine's branch does (fewer than 50
+attacks in the round; Great Cleave without limit, else Cleave while the round's Cleave count lasts;
+the new target from `GetNewCombatTarget`, leaving `oKilled` out) and returns TRUE if it queued one.
+`pw_mod_load.nss` turns it on.
+
 ### Item bonus spell slots only for reachable spell levels
 
 The engine gates ability bonus slots but not item ones. `GetSpellGainWithBonus` returns 0 for

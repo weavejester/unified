@@ -1502,6 +1502,115 @@ static Hooks::Hook s_GetAmmunitionAvailableHook = Hooks::HookFunction(&CNWSCreat
     }, Hooks::Order::Early);
 
 
+// RISENHOLM MODIFICATION: the module decides on a Cleave when the blow lands.
+//
+// The engine decides on a Cleave when it RESOLVES an attack, in
+// ResolvePostMeleeDamage (8193.37 disassembly at 0x4d2f20), long before the
+// blow lands: if the rolled damage is at least the target's hit points, the
+// attack is a killing blow and a Cleave is queued there and then. The attack
+// event script (pw_mod_attack) runs later, from SignalMeleeDamage as the blow
+// lands, and changes the damage a great deal: custom damage resistance,
+// Parry and Monk Flow turning hits into misses, and more in the damage event
+// after it. A hit that custom DR stopped short of killing still Cleaved, and
+// players saw Great Cleave go off with the target still standing (Drallo,
+// 2026-10-21). The other way round, script damage that turned a hit into a
+// kill got no Cleave, which the module patched by calling
+// NWNX_Creature_DoCleaveAttack itself.
+//
+// With SetScriptedCleave on, the engine's own Cleave is switched off and the
+// module queues every Cleave through DoCleaveAttack below, from the damage
+// event, where the damage is final. Switching it off means answering "no" to
+// HasFeat(Cleave) and HasFeat(Great Cleave) while ResolvePostMeleeDamage
+// runs: nothing else in that function asks about either feat, and the branch
+// they gate holds every side effect of a Cleave (the new target, the passive
+// attack flag, the plain Cleave's per-round count), so nothing is left half
+// done. Ranged Cleave, ours alone, is skipped in the ResolvePostRangedDamage
+// replacement below.
+//
+// QueueCleaveAttack is the engine's own branch, read from the disassembly at
+// 0x4d31b3-0x4d376f: fewer than 50 attacks in the round, Great Cleave first
+// and without limit, plain Cleave while m_nCleaveAttacks lasts, the new
+// target from GetNewCombatTarget with the killed creature left out.
+// NWNX_Creature_DoCleaveAttack differs in picking the target, by
+// GetNearestEnemy within the weapon's reach.
+
+static bool s_bScriptedCleave = false;
+static bool s_bInPostMeleeDamage = false;
+
+static_assert(offsetof(CNWSCombatRound, m_nCleaveAttacks) == 0x2f44, "CNWSCombatRound layout changed");
+static_assert(offsetof(CNWSCombatRound, m_oidNewAttackTarget) == 0x2f4c, "CNWSCombatRound layout changed");
+static_assert(offsetof(CNWSCreature, m_bPassiveAttackBehaviour) == 0x700, "CNWSCreature layout changed");
+
+static bool QueueCleaveAttack(CNWSCreature *pThis, ObjectID oidKilled)
+{
+    CNWSCombatRound *pCombatRound = pThis->m_pcCombatRound;
+
+    if (!pCombatRound || pCombatRound->GetTotalAttacks() >= 50)
+        return false;
+
+    if (pThis->m_pStats->HasFeat(Constants::Feat::GreatCleave))
+    {
+        if (auto *pNewTarget = pThis->GetNewCombatTarget(oidKilled))
+        {
+            pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
+            pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf, true);
+            pThis->m_bPassiveAttackBehaviour = true;
+            return true;
+        }
+    }
+    else if (pThis->m_pStats->HasFeat(Constants::Feat::Cleave) && pCombatRound->m_nCleaveAttacks > 0)
+    {
+        if (auto *pNewTarget = pThis->GetNewCombatTarget(oidKilled))
+        {
+            pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
+            pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf);
+            pThis->m_bPassiveAttackBehaviour = true;
+            pCombatRound->m_nCleaveAttacks--;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static Hooks::Hook s_ResolvePostMeleeDamageHook = Hooks::HookFunction(&CNWSCreature::ResolvePostMeleeDamage,
+    +[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
+    {
+        s_bInPostMeleeDamage = s_bScriptedCleave;
+        s_ResolvePostMeleeDamageHook->CallOriginal<void>(pThis, pTarget);
+        s_bInPostMeleeDamage = false;
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_PostMeleeDamageHasFeatHook = Hooks::HookFunction(&CNWSCreatureStats::HasFeat,
+    +[](CNWSCreatureStats *pThis, uint16_t nFeat) -> int32_t
+    {
+        if (s_bInPostMeleeDamage && (nFeat == Constants::Feat::Cleave || nFeat == Constants::Feat::GreatCleave))
+            return false;
+
+        return s_PostMeleeDamageHasFeatHook->CallOriginal<int32_t>(pThis, nFeat);
+    }, Hooks::Order::Early);
+
+NWNX_EXPORT ArgumentStack SetScriptedCleave(ArgumentStack&& args)
+{
+    s_bScriptedCleave = args.extract<int32_t>() != 0;
+    LOG_INFO("Scripted Cleave: %s", s_bScriptedCleave ? "on" : "off");
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack DoCleaveAttack(ArgumentStack&& args)
+{
+    bool bQueued = false;
+
+    if (auto *pCreature = Utils::PopCreature(args))
+    {
+        const auto oidKilled = args.extract<ObjectID>();
+        bQueued = QueueCleaveAttack(pCreature, oidKilled);
+    }
+
+    return bQueued ? 1 : 0;
+}
+
+
 static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(&CNWSCreature::ResolvePostRangedDamage,
     +[](CNWSCreature *pThis, CNWSObject *pTarget) -> void
     {
@@ -1546,31 +1655,14 @@ static Hooks::Hook s_ResolvePostRangedDamageHook = Hooks::HookFunction(&CNWSCrea
             // NOTE: Devastating Critical stuff would go here.
             // *****
 
-            // RISENHOLM MODIFICATION: Allow Ranged Cleave
-            if (pAttackData->m_bKillingBlow &&
+            // RISENHOLM MODIFICATION: Allow Ranged Cleave, unless the module
+            // queues its Cleaves itself (SetScriptedCleave, above).
+            if (!s_bScriptedCleave &&
+                pAttackData->m_bKillingBlow &&
                 pAttackData->m_nAttackType != Constants::Feat::WhirlwindAttack &&
-                pAttackData->m_nAttackType != Constants::Feat::ImprovedWhirlwind &&
-                pCombatRound->GetTotalAttacks() < 50)
+                pAttackData->m_nAttackType != Constants::Feat::ImprovedWhirlwind)
             {
-                if (pThis->m_pStats->HasFeat(Constants::Feat::GreatCleave))
-                {
-                    if (auto *pNewTarget = pThis->GetNewCombatTarget(pTarget->m_idSelf))
-                    {
-                        pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
-                        pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf, true);
-                        pThis->m_bPassiveAttackBehaviour = true;
-                    }
-                }
-                else if ((pThis->m_pStats->HasFeat(Constants::Feat::Cleave) && pCombatRound->m_nCleaveAttacks > 0))
-                {
-                    if (auto *pNewTarget = pThis->GetNewCombatTarget(pTarget->m_idSelf))
-                    {
-                        pCombatRound->m_oidNewAttackTarget = pNewTarget->m_idSelf;
-                        pCombatRound->AddCleaveAttack(pNewTarget->m_idSelf);
-                        pThis->m_bPassiveAttackBehaviour = true;
-                        pCombatRound->m_nCleaveAttacks--;
-                    }
-                }
+                QueueCleaveAttack(pThis, pTarget->m_idSelf);
             }
             // END RISENHOLM MODIFICATION
         }

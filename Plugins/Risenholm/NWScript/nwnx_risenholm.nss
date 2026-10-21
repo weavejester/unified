@@ -255,6 +255,21 @@ int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem);
 /// @param nLimit The new limit, 0 or more.
 void NWNX_Risenholm_SetDamageBonusLimit(int nLimit);
 
+/// @brief Switch the engine's own Cleave off, so the module queues each one with DoCleaveAttack.
+/// @note The engine decides on a Cleave when it resolves an attack, from the damage as first
+/// rolled, before the attack and damage scripts change it. Covers this plugin's ranged Cleave too.
+/// Lasts until the module unloads.
+/// @param bScripted TRUE to switch the engine's Cleave off, FALSE to give it back.
+void NWNX_Risenholm_SetScriptedCleave(int bScripted);
+
+/// @brief Queue a Cleave or Great Cleave for oCreature, as the engine does after a killing blow.
+/// @note The engine's own rules: fewer than 50 attacks in the round, Great Cleave without limit,
+/// plain Cleave once a round; the new target is the engine's GetNewCombatTarget, never oKilled.
+/// @param oCreature The creature that struck the killing blow.
+/// @param oKilled The creature it killed.
+/// @return TRUE if a Cleave was queued.
+int NWNX_Risenholm_DoCleaveAttack(object oCreature, object oKilled);
+
 /// @brief Copy out every level oCreature has taken, as the engine stores them, for RestoreLevelHistory.
 /// @note Take this BEFORE deleveling: LevelDown deletes each level's record, and the .bic only ever
 /// holds the levels a character currently has. The result is
@@ -550,6 +565,20 @@ void NWNX_Risenholm_SetDamageBonusLimit(int nLimit)
 {
     NWNXPushInt(nLimit);
     NWNXCall(NWNX_Risenholm, "SetDamageBonusLimit");
+}
+
+void NWNX_Risenholm_SetScriptedCleave(int bScripted)
+{
+    NWNXPushInt(bScripted);
+    NWNXCall(NWNX_Risenholm, "SetScriptedCleave");
+}
+
+int NWNX_Risenholm_DoCleaveAttack(object oCreature, object oKilled)
+{
+    NWNXPushObject(oKilled);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "DoCleaveAttack");
+    return NWNXPopInt();
 }
 
 json NWNX_Risenholm_GetLevelHistory(object oCreature)
