@@ -527,6 +527,23 @@ reports an amount that was never taken. The module used to hide feedback 62 for 
 half a second instead, which a crossbow bolt's flight outlasted. This export removes only the
 stale entries, from the one attack, and leaves its other messages alone.
 
+### SetShelterAppearances
+
+`NWNX_Risenholm_SetShelterAppearances(sRows)` names the `placeables.2da` rows that shelter from
+the rain, comma separated, replacing any named before. From then on, a placeable whose appearance
+is one of them sets the int local `SHELTER_LIVE_DIRTY` to 1 on its area whenever it is added to
+the area (`CNWSPlaceable::AddToArea`: made, or loaded with the area) or taken out of it
+(`CNWSPlaceable::RemoveFromArea`: destroyed or otherwise). Nothing is marked while an area or the
+module is being torn down.
+
+The module keeps each area's shelters from its placeables (`pw_inc_shslots.nss`, which names the
+rows as it reads its table of them) and needs to know when one comes or goes. Nothing in the
+engine or in NWNX_Events tells a script that, 70 of the module's scripts make placeables, and
+looking over every placeable in the town, nearly seven hundred, was too dear to do on a timer
+for fifty players. The local is set here directly, with no script run, since an area loads
+hundreds of placeables at a time. Checked on dev (2026-10-22): an awning made by script set it at
+once, a barrel did not, and the awning's `DestroyObject` set it again.
+
 ### RPC listener
 
 A small HTTP listener inside the server process, so that something outside the game (Wellkeeper)

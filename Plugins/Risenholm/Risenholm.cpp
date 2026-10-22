@@ -274,6 +274,27 @@ static Hooks::Hook s_TrimItemCtorHook = []() -> Hooks::Hook
         }, Hooks::Order::Earliest);
 }();
 
+// Rain shelters (2026-10-22). The module keeps each area's shelters from its
+// placeables, worked out from the placeables.2da rows that shelter (the
+// module's pw_inc_shslots and scripts/gen_shelters.py), and needs telling
+// when one is put in an area or taken out: nothing in the engine or in
+// NWNX_Events tells a script that, and 70 of the module's scripts make
+// placeables. So a placeable whose appearance is one of those named by
+// SetShelterAppearances sets SHELTER_LIVE_DIRTY on its area as it comes and
+// goes, a local the module reads when it next wants the area's shelters.
+// Set here, with no script run, since a town loads hundreds of placeables.
+static std::unordered_set<uint16_t> s_ShelterAppearances;
+static bool ShelterMarksSuppressed();
+
+static void MarkShelterChanged(CNWSPlaceable *pPlaceable, CNWSArea *pArea)
+{
+    if (!pArea || s_ShelterAppearances.empty() || ShelterMarksSuppressed()) return;
+    if (!s_ShelterAppearances.count(pPlaceable->m_nAppearance)) return;
+
+    CExoString sVar("SHELTER_LIVE_DIRTY");
+    pArea->m_ScriptVars.SetInt(sVar, 1);
+}
+
 // Static placeables: out as soon as they are placed. The static flag is read
 // from the GIT in LoadPlaceable, which CNWSArea::LoadPlaceables calls before
 // AddToArea, so it is set by the time this runs.
@@ -284,6 +305,18 @@ static Hooks::Hook s_TrimPlaceableAddToAreaHook = Hooks::HookFunction(&CNWSPlace
 
         if (TrimAIListsEnabled() && pPlaceable->m_nAILevel != -1 && GetIsTrimmablePlaceable(pPlaceable))
             Globals::AppManager()->m_pServerExoApp->GetServerAIMaster()->RemoveObject(pPlaceable);
+
+        MarkShelterChanged(pPlaceable, pArea);
+    }, Hooks::Order::Earliest);
+
+// The other half: a placeable leaving its area, destroyed or otherwise. The
+// area is read before the original, which clears it.
+static Hooks::Hook s_ShelterPlaceableRemoveHook = Hooks::HookFunction(&CNWSPlaceable::RemoveFromArea,
+    +[](CNWSPlaceable *pPlaceable) -> void
+    {
+        CNWSArea *pArea = pPlaceable->GetArea();
+        s_ShelterPlaceableRemoveHook->CallOriginal<void>(pPlaceable);
+        MarkShelterChanged(pPlaceable, pArea);
     }, Hooks::Order::Earliest);
 
 static Hooks::Hook s_TrimDoorAddToAreaHook = Hooks::HookFunction(&CNWSDoor::AddToArea,
@@ -616,6 +649,13 @@ static const bool s_bRunScriptRemoveOnDestroyLogged = (GetRunScriptRemoveOnDestr
 // unload) in which no removal script may run. They can nest.
 static int s_nRunScriptRemoveSuppressed = 0;
 
+// No shelter marks while an area or the module is being torn down: there is
+// nothing left to tell.
+static bool ShelterMarksSuppressed()
+{
+    return s_nRunScriptRemoveSuppressed > 0;
+}
+
 static void RemoveRunScriptEffectsBeforeDestroy(CNWSCreature *pCreature)
 {
     if (!GetRunScriptRemoveOnDestroy() || s_nRunScriptRemoveSuppressed > 0)
@@ -831,6 +871,30 @@ NWNX_EXPORT ArgumentStack RemoveEffectsByTag(ArgumentStack&& args)
 // The raw flag, so it is only meaningful on a DM avatar. It is left set on a
 // player who was toggled in and out of DM with NWNX_Player_ToggleDM (that path
 // sets it true both ways), so callers gate on GetIsDM() first.
+// The placeables.2da rows that shelter from the rain, comma separated; see
+// MarkShelterChanged.
+NWNX_EXPORT ArgumentStack SetShelterAppearances(ArgumentStack&& args)
+{
+    const auto sRows = args.extract<std::string>();
+
+    s_ShelterAppearances.clear();
+    size_t nStart = 0;
+    while (nStart < sRows.size())
+    {
+        size_t nEnd = sRows.find(',', nStart);
+        if (nEnd == std::string::npos) nEnd = sRows.size();
+        if (nEnd > nStart)
+        {
+            try { s_ShelterAppearances.insert((uint16_t)std::stoul(sRows.substr(nStart, nEnd - nStart))); }
+            catch (...) { LOG_WARNING("SetShelterAppearances: not a row: '%s'", sRows.substr(nStart, nEnd - nStart).c_str()); }
+        }
+        nStart = nEnd + 1;
+    }
+
+    LOG_INFO("Rain shelters: %zu placeable appearances", s_ShelterAppearances.size());
+    return {};
+}
+
 NWNX_EXPORT ArgumentStack GetIsDMManifested(ArgumentStack&& args)
 {
     auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));

@@ -336,6 +336,15 @@ void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp);
 /// @param nDamageTypes DAMAGE_TYPE_* flags, ORed together.
 void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNumber, int nDamageTypes);
 
+/// @brief Name the placeable appearances that shelter from the rain, so that an area learns
+/// when one is put in it or taken out.
+/// @note From then on, whenever a placeable whose appearance is one of these is added to an
+/// area or removed from one (made, destroyed, or loaded with the area), the area's int local
+/// SHELTER_LIVE_DIRTY is set to 1. Nothing else tells a script that a placeable has come or
+/// gone, and pw_inc_shslots keeps each area's placeable shelters until it is told.
+/// @param sRows The placeables.2da rows, separated by commas. Replaces any given before.
+void NWNX_Risenholm_SetShelterAppearances(string sRows);
+
 /// @}
 
 void NWNX_Risenholm_SetPCLikeStatus(object oSourcePC, object oTargetPC, int bNewAttitude, int bSetReciprocal=TRUE)
@@ -629,4 +638,10 @@ void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNu
     NWNXPushInt(nAttackNumber);
     NWNXPushObject(oAttacker);
     NWNXCall(NWNX_Risenholm, "RemoveAttackImmunityFeedback");
+}
+
+void NWNX_Risenholm_SetShelterAppearances(string sRows)
+{
+    NWNXPushString(sRows);
+    NWNXCall(NWNX_Risenholm, "SetShelterAppearances");
 }
