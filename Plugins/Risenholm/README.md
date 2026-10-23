@@ -200,6 +200,16 @@ skeleton aliased to `pmh151` for that player; with the alias taken off, a second
 beside it drew plainly while the first kept the model it had loaded. A changed alias reaches what
 the client loads next (a new creature, or a body rebuilt by an equip), not what is on screen.
 
+### SetPhenoType
+
+`NWNX_Risenholm_SetPhenoType(oCreature, nPheno)` sets a phenotype anywhere in 0-255. The script
+command refuses anything over 99, but that is one `if` in `ExecuteCommandSetPhenoType`: the
+phenotype is a byte in the creature's stats and appearance, and the object update writes and the
+client reads it in 8 bits, so 255 is the true ceiling (a save holding 300 loads as 44). This writes
+the same two bytes the script command does. The client draws a phenotype with no `phenotype.2da`
+row from phenotype 0's parts (seen at 151, 2026-10-23), but finds no cloak for it and drops the
+cloak; the module's robe slots alias the cloak models for that reason (`pw_inc_robeslot.nss`).
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the

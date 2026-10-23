@@ -934,6 +934,26 @@ NWNX_EXPORT ArgumentStack SetResourceOverride(ArgumentStack&& args)
     return 1;
 }
 
+// Set oCreature's phenotype to any of 0-255. SetPhenoType refuses anything
+// over 99 (an if in ExecuteCommandSetPhenoType), but the phenotype is a byte
+// everywhere else: the creature's stats and appearance, the save, and the
+// object update, which writes and reads it in 8 bits. This writes the same
+// two bytes the script command does; the next object update sends it, and
+// the client builds the creature's model names from it (p<g><r><pheno>),
+// falling back to phenotype.2da's DefaultPhenoType, or 0 where the table has
+// no row, for anything missing. Returns FALSE outside 0-255.
+NWNX_EXPORT ArgumentStack SetPhenoType(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto nPheno = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pStats || nPheno < 0 || nPheno > 255) return 0;
+
+    pCreature->m_pStats->m_nPhenoType = (uint8_t)nPheno;
+    pCreature->m_cAppearance.m_nPhenoType = (uint8_t)nPheno;
+    return 1;
+}
+
 NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
 {
     auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));

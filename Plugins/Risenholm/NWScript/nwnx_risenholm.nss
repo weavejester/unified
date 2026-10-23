@@ -132,6 +132,11 @@ int NWNX_Risenholm_GetIsDMManifested(object oCreature);
 /// cut to 16, as the engine keeps it.
 string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld);
 
+/// @brief Set oCreature's phenotype to any of 0-255, past SetPhenoType's 99.
+/// The phenotype is a byte in the engine and the network message, so 255 is
+/// as far as it goes. Returns FALSE if nPheno is out of range.
+int NWNX_Risenholm_SetPhenoType(object oCreature, int nPheno);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -419,6 +424,14 @@ int NWNX_Risenholm_SetResourceOverride(object oPlayer, int nResType, string sOld
     NWNXPushInt(nResType);
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "SetResourceOverride");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetPhenoType(object oCreature, int nPheno)
+{
+    NWNXPushInt(nPheno);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SetPhenoType");
     return NWNXPopInt();
 }
 
