@@ -904,6 +904,29 @@ NWNX_EXPORT ArgumentStack GetIsDMManifested(ArgumentStack&& args)
     return pCreature->m_pStats->m_bDMManifested ? 1 : 0;
 }
 
+// The name oObject's animation sOld is swapped for (ReplaceObjectAnimation),
+// or "" if it has no swap. The server keeps each name in 16 characters
+// (TextureReplaceInfo), so a longer sOld is cut to 16 to match, as
+// CNWSObject::SetAnimationReplace cuts it. Read by the combat styles
+// (pw_inc_styleswap.nss): after an equip each style swap is made twice, and
+// the second time only where nothing else has swapped the name in between.
+NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
+{
+    auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto sOld = args.extract<std::string>().substr(0, 16);
+
+    if (!pObject) return std::string();
+
+    for (int32_t i = 0; i < pObject->m_lAnimationReplaceInfo.num; i++)
+    {
+        const auto &info = pObject->m_lAnimationReplaceInfo.element[i];
+        if (sOld == info.m_sOldName)
+            return std::string(info.m_sNewName);
+    }
+
+    return std::string();
+}
+
 // One pass over every AI list, removing idle static placeables and effect-free
 // items that got in by a route the hooks do not cover. Returns the number
 // removed. Safe to call repeatedly; a no-op when every switch is off.

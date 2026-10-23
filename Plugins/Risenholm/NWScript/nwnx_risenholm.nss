@@ -127,6 +127,11 @@ int NWNX_Risenholm_RemoveEffectsByTag(object oObject, string sTag);
 /// @param oCreature The DM avatar.
 int NWNX_Risenholm_GetIsDMManifested(object oCreature);
 
+/// @brief The name oObject's animation sOld is swapped for by
+/// ReplaceObjectAnimation, or "" if it has none. A name over 16 characters is
+/// cut to 16, as the engine keeps it.
+string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld);
+
 /// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
@@ -399,6 +404,14 @@ int NWNX_Risenholm_GetIsDMManifested(object oCreature)
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "GetIsDMManifested");
     return NWNXPopInt();
+}
+
+string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld)
+{
+    NWNXPushString(sOld);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "GetAnimationReplace");
+    return NWNXPopString();
 }
 
 void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdate = FALSE)

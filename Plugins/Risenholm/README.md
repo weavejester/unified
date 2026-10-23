@@ -174,6 +174,17 @@ this for everyone aboard straight after each leg, so every leg leaves at once. I
 update message to each of those players per call, and restarts the player's own update cycle from
 that moment.
 
+### GetAnimationReplace
+
+`NWNX_Risenholm_GetAnimationReplace(oObject, sOld)` returns the name `oObject`'s animation `sOld`
+is swapped for by `ReplaceObjectAnimation`, or `""` when it has no swap, read from the object's
+`m_lAnimationReplaceInfo`. The engine keeps both names in 16 characters
+(`CNWSObject::SetAnimationReplace` cuts them), so a longer `sOld` is cut to 16 to match. Nothing in
+NWScript reads the list back otherwise. The module's combat styles played by swap
+(`pw_inc_styleswap.nss`) use it: after an equip the client drops every swap and takes back only
+changed ones, so each style swap is made to itself and retaken a moment later, and the retake must
+leave alone any name another system (a sneak's walk, a wind's idle) has swapped in between.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the
