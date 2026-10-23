@@ -910,6 +910,30 @@ NWNX_EXPORT ArgumentStack GetIsDMManifested(ArgumentStack&& args)
 // CNWSObject::SetAnimationReplace cuts it. Read by the combat styles
 // (pw_inc_styleswap.nss): after an equip each style swap is made twice, and
 // the second time only where nothing else has swapped the name in between.
+// Tell oPlayer's client to load sNew wherever it would load sOld, for one
+// resource type (2002 a model, 2001 every texture type at once, as
+// SetTextureOverride sends), or with sNew empty to take the override off.
+// CNWSMessage::SendServerToPlayerResmanOverride already carries a type;
+// nwscript only ever sends it 2001. The client hands any other type straight
+// to CExoResMan::AddOverride (CNWCMessage::HandleServerToPlayerResman, read
+// from nwmain-linux 2026-10-23). The client keeps the override until it
+// leaves; nothing on the server remembers it.
+NWNX_EXPORT ArgumentStack SetResourceOverride(ArgumentStack&& args)
+{
+    const auto oidPlayer = args.extract<ObjectID>();
+    const auto nResType = args.extract<int32_t>();
+    const auto sOld = args.extract<std::string>();
+    const auto sNew = args.extract<std::string>();
+
+    auto *pPlayer = Globals::AppManager()->m_pServerExoApp->GetClientObjectByObjectId(oidPlayer);
+    auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage();
+    if (!pPlayer || !pMessage) return 0;
+
+    pMessage->SendServerToPlayerResmanOverride(pPlayer->m_nPlayerID, (RESTYPE)nResType,
+                                               CResRef(sOld.c_str()), CResRef(sNew.c_str()));
+    return 1;
+}
+
 NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
 {
     auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));

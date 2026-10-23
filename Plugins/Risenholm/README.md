@@ -185,6 +185,21 @@ NWScript reads the list back otherwise. The module's combat styles played by swa
 changed ones, so each style swap is made to itself and retaken a moment later, and the retake must
 leave alone any name another system (a sneak's walk, a wind's idle) has swapped in between.
 
+### SetResourceOverride
+
+`NWNX_Risenholm_SetResourceOverride(oPlayer, nResType, sOld, sNew)` has one player's client load
+`sNew` wherever it would load `sOld`, for one resource type, or takes the override off with `sNew`
+empty. `SetTextureOverride` is the same message (`CNWSMessage::SendServerToPlayerResmanOverride`)
+with the type fixed at 2001, which the client spreads over every texture type (TGA, DDS, PLT,
+BMP, MTR, TXI, and 2073). The client hands any other type straight to `CExoResMan::AddOverride`
+(`CNWCMessage::HandleServerToPlayerResman`, read from nwmain-linux 2026-10-23), so 2002 aliases a
+model. Nothing on the server keeps it: send it again to a client that reconnects.
+
+Seen in game 2026-10-23: a creature at phenotype 151, which has no skeleton of its own, drew a
+skeleton aliased to `pmh151` for that player; with the alias taken off, a second one spawned
+beside it drew plainly while the first kept the model it had loaded. A changed alias reaches what
+the client loads next (a new creature, or a body rebuilt by an equip), not what is on screen.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the

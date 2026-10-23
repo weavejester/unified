@@ -132,6 +132,12 @@ int NWNX_Risenholm_GetIsDMManifested(object oCreature);
 /// cut to 16, as the engine keeps it.
 string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld);
 
+/// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
+/// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
+/// does), or take the override off with sNew "". Per client, kept until it
+/// leaves. Returns FALSE if oPlayer is not a player.
+int NWNX_Risenholm_SetResourceOverride(object oPlayer, int nResType, string sOld, string sNew = "");
+
 /// @brief Fixes items that have become unuseable when their destruction is skipped in the NWNX_ON_ITEM_DESTROY_OBJECT_BEFORE event
 /// @param oItem The item to fix
 void NWNX_Risenholm_FixItemDestroySkipUseableState(object oItem);
@@ -403,6 +409,16 @@ int NWNX_Risenholm_GetIsDMManifested(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "GetIsDMManifested");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetResourceOverride(object oPlayer, int nResType, string sOld, string sNew = "")
+{
+    NWNXPushString(sNew);
+    NWNXPushString(sOld);
+    NWNXPushInt(nResType);
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "SetResourceOverride");
     return NWNXPopInt();
 }
 
