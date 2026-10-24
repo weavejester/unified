@@ -137,6 +137,15 @@ string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld);
 /// as far as it goes. Returns FALSE if nPheno is out of range.
 int NWNX_Risenholm_SetPhenoType(object oCreature, int nPheno);
 
+/// @brief Draw oCreature with head nHead without changing its head: object
+/// updates send nHead, while GetCreatureBodyPart and the save keep the real
+/// one. nHead 0 puts the real head back. SetCreatureBodyPart on the head undoes
+/// it, so set it again after one. Returns FALSE for no creature.
+int NWNX_Risenholm_SetDisplayedHead(object oCreature, int nHead);
+
+/// @brief The head oCreature is drawn with (see SetDisplayedHead), or -1.
+int NWNX_Risenholm_GetDisplayedHead(object oCreature);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -432,6 +441,21 @@ int NWNX_Risenholm_SetPhenoType(object oCreature, int nPheno)
     NWNXPushInt(nPheno);
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "SetPhenoType");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetDisplayedHead(object oCreature, int nHead)
+{
+    NWNXPushInt(nHead);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SetDisplayedHead");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetDisplayedHead(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "GetDisplayedHead");
     return NWNXPopInt();
 }
 

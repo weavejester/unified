@@ -210,6 +210,19 @@ the same two bytes the script command does. The client draws a phenotype with no
 row from phenotype 0's parts (seen at 151, 2026-10-23), but finds no cloak for it and drops the
 cloak; the module's robe slots alias the cloak models for that reason (`pw_inc_robeslot.nss`).
 
+### SetDisplayedHead / GetDisplayedHead
+
+`NWNX_Risenholm_SetDisplayedHead(oCreature, nHead)` draws a creature with head `nHead` without
+changing its head. A creature keeps its head twice: in its stats, which `GetCreatureBodyPart`
+reads and the save keeps, and in its appearance, which object updates send. This sets only the
+appearance's (`CNWSCreature::m_cAppearance.m_nHeadVariation`, 16 bits, as the update carries it),
+and `nHead` 0 copies the stats head back. `GetDisplayedHead` reads it. Anything that copies the
+stats head over the appearance's, `SetCreatureBodyPart` on the head among them, undoes it.
+
+The module draws a worn helmet as a head this way (`pw_inc_helmslot.nss`): helmet n is head
+1000 + n, a copy of the helmet under a head's name, as SWLOR does. Seen in game 2026-10-24: head
+1044 went out and the client drew helmet 44 in the head's place.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the

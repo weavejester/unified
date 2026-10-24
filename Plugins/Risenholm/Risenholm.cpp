@@ -954,6 +954,30 @@ NWNX_EXPORT ArgumentStack SetPhenoType(ArgumentStack&& args)
     return 1;
 }
 
+// Draw oCreature with head nHead without changing its head: the creature's
+// appearance (what object updates send) is set, and its stats (what
+// GetCreatureBodyPart reads and the save keeps) are not. nHead 0 puts the
+// stats head back. Both are 16 bits. Anything that copies the stats head over
+// the appearance's (SetCreatureBodyPart on the head among them) undoes it, so
+// a caller sets it again after those. Returns FALSE for no creature.
+NWNX_EXPORT ArgumentStack SetDisplayedHead(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto nHead = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pStats || nHead < 0 || nHead > 0xFFFF) return 0;
+
+    pCreature->m_cAppearance.m_nHeadVariation = nHead ? (uint16_t)nHead : pCreature->m_pStats->m_nHeadVariation;
+    return 1;
+}
+
+// The head oCreature is drawn with (see SetDisplayedHead), or -1.
+NWNX_EXPORT ArgumentStack GetDisplayedHead(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    return pCreature ? (int32_t)pCreature->m_cAppearance.m_nHeadVariation : -1;
+}
+
 NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
 {
     auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));
