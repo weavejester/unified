@@ -31,6 +31,7 @@
 #include <cmath>
 #include <dlfcn.h>
 #include <unordered_map>
+#include <deque>
 #include "API/CExoLinkedListInternal.hpp"
 #include "API/CNWSScriptVar.hpp"
 #include "API/CNWSScriptVarTable.hpp"
@@ -6528,3 +6529,324 @@ NWNX_EXPORT ArgumentStack RemoveAttackImmunityFeedback(ArgumentStack&& args)
 
     return {};
 }
+
+// ---------------------------------------------------------------------------
+// Logging what strips a player's effects
+// ---------------------------------------------------------------------------
+//
+// Reported on production 2026-10-25: a Summoner lost every buff and their
+// summon, twice, each time within a second of a bard's Echo onto them (00:13:49
+// and 00:19:21 UTC; the summon left the area in the same second as the first).
+// Nothing in the Echo cascade can do that when read as written, and it would
+// not reproduce on dev, so this records what does it next time.
+//
+// Every removal of an effect goes through CServerAIMaster::OnEffectRemoved,
+// whichever path asked for it, so that is where a player's losses are seen. A
+// script's RemoveEffect does not remove anything itself: it hides the effect
+// and queues EVENT_REMOVE_EFFECT carrying a raw pointer to it, and the creature
+// later removes whatever id it reads through that pointer
+// (ExecuteCommandRemoveEffect; CNWSCreature::EventHandler -> RemoveEffectById;
+// 8193.37 disassembly). So each queued removal on a player is recorded with
+// the script that asked and the id at that moment, which lets a loss name its
+// script, and lets the event be checked: if the effect was freed in between
+// and its memory reused, the id read when the event runs is some other
+// effect's, and a removal nobody asked for happens. That is logged as stale.
+//
+// Lines start EFFECT_LOSS:
+//  - a player's summon effect removed (which unsummons the summon), always;
+//  - a player's temporary and permanent effects falling by BURST_COUNT or more
+//    within BURST_SECONDS, net of those applied, once per window. Net, because
+//    every recast removes the old copy as it applies the new one, so Autocast
+//    or an ordinary Echo removes a dozen effects in a second and loses none.
+//    A Long Rest or Debuff Self still logs, as it should;
+//  - a player's summon unsummoned (CNWSCreature::UnsummonMyself), unless the
+//    summon was made undestroyable first: nw_s0_summon does that around every
+//    new summon, because the engine's AddAssociate unsummons the first one;
+//  - a stale removal event.
+// The first three carry a native backtrace, which names the engine path
+// (the binary has symbols). At most LINES_PER_MINUTE lines a minute.
+//
+// Switch: NWNX_RISENHOLM_LOG_EFFECT_LOSS (bool, default true).
+
+static bool GetLogEffectLoss()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("LOG_EFFECT_LOSS", true);
+        LOG_INFO("Effect loss logging: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bLogEffectLossLogged = (GetLogEffectLoss(), true);
+
+namespace EffectLoss
+{
+    constexpr int32_t BURST_COUNT      = 12;
+    constexpr int32_t BURST_SECONDS    = 2;
+    constexpr int32_t LINES_PER_MINUTE = 60;
+    constexpr size_t  MAX_PENDING      = 2048;
+    constexpr int32_t PENDING_SECONDS  = 30;
+    constexpr uint8_t BACKTRACE_LEVELS = 20;
+
+    using Clock = std::chrono::steady_clock;
+
+    struct Pending
+    {
+        uint64_t nId;
+        ObjectID oidTarget;
+        ObjectID oidCaller;
+        std::string sScript;
+        Clock::time_point tPosted;
+    };
+
+    struct Burst
+    {
+        Clock::time_point tStart;
+        int32_t nCount = 0;     // removed minus applied
+        bool bLogged = false;
+    };
+
+    // Keyed by the pointer the event carries; a deque because the same address
+    // can be queued twice before the first event runs, which is the stale case.
+    static std::unordered_map<void*, std::deque<Pending>> s_Pending;
+    static size_t s_nPending = 0;
+
+    // The queued removal whose event is being handled right now, if any.
+    static const Pending *s_pCurrent = nullptr;
+
+    static std::unordered_map<ObjectID, Burst> s_Bursts;
+
+    static Clock::time_point s_tLineWindow;
+    static int32_t s_nLines = 0;
+
+    static bool MayLog()
+    {
+        auto tNow = Clock::now();
+
+        if (tNow - s_tLineWindow > std::chrono::minutes(1))
+        {
+            if (s_nLines > LINES_PER_MINUTE)
+                LOG_WARNING("EFFECT_LOSS %d more line(s) in the last minute were not logged", s_nLines - LINES_PER_MINUTE);
+
+            s_tLineWindow = tNow;
+            s_nLines = 0;
+        }
+
+        return ++s_nLines <= LINES_PER_MINUTE;
+    }
+
+    // One a player plays, whether or not anyone is driving it at the moment.
+    static CNWSCreature *AsPlayerCharacter(ObjectID oid)
+    {
+        auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(oid));
+        return pCreature && pCreature->m_bPlayerCharacter ? pCreature : nullptr;
+    }
+
+    static std::string Name(CNWSCreature *pCreature)
+    {
+        char sId[16];
+        std::snprintf(sId, sizeof(sId), " (%x)", pCreature->m_idSelf);
+        return std::string(pCreature->m_pStats ? pCreature->m_pStats->GetFullName().CStr() : "?") + sId;
+    }
+
+    static void Prune()
+    {
+        if (s_nPending < MAX_PENDING)
+            return;
+
+        auto tCutoff = Clock::now() - std::chrono::seconds(PENDING_SECONDS);
+
+        for (auto it = s_Pending.begin(); it != s_Pending.end(); )
+        {
+            auto &q = it->second;
+
+            while (!q.empty() && q.front().tPosted < tCutoff)
+            {
+                q.pop_front();
+                s_nPending--;
+            }
+
+            it = q.empty() ? s_Pending.erase(it) : std::next(it);
+        }
+    }
+
+    // Who asked for this effect to come off this object.
+    static std::string Origin(ObjectID oidTarget, uint64_t nId)
+    {
+        const Pending *p = nullptr;
+
+        if (s_pCurrent && s_pCurrent->oidTarget == oidTarget && s_pCurrent->nId == nId)
+            p = s_pCurrent;
+
+        for (auto it = s_Pending.begin(); !p && it != s_Pending.end(); ++it)
+            for (auto &r : it->second)
+                if (r.oidTarget == oidTarget && r.nId == nId) { p = &r; break; }
+
+        if (!p)
+            return "no script asked for it (engine path, see backtrace)";
+
+        char sCaller[16];
+        std::snprintf(sCaller, sizeof(sCaller), "%x", p->oidCaller);
+        return "RemoveEffect from " + p->sScript + " run by " + sCaller;
+    }
+
+    static bool CountsTowardBurst(CGameEffect *pEffect)
+    {
+        auto nDuration = pEffect->GetDurationType();
+        return nDuration == Constants::EffectDurationType::Temporary || nDuration == Constants::EffectDurationType::Permanent;
+    }
+
+    static Burst &CurrentBurst(ObjectID oid)
+    {
+        auto tNow = Clock::now();
+        auto &burst = s_Bursts[oid];
+
+        if (tNow - burst.tStart > std::chrono::seconds(BURST_SECONDS))
+            burst = Burst{tNow, 0, false};
+
+        return burst;
+    }
+
+    static void NoteApplied(CNWSObject *pObject, CGameEffect *pEffect)
+    {
+        if (!CountsTowardBurst(pEffect) || !AsPlayerCharacter(pObject->m_idSelf))
+            return;
+
+        CurrentBurst(pObject->m_idSelf).nCount--;
+    }
+
+    static void NoteRemoved(CNWSObject *pObject, CGameEffect *pEffect)
+    {
+        auto *pCreature = AsPlayerCharacter(pObject->m_idSelf);
+        if (!pCreature)
+            return;
+
+        if (pEffect->m_nType == Constants::EffectTrueType::SummonCreature)
+        {
+            if (MayLog())
+                LOG_WARNING("EFFECT_LOSS %s lost its summon effect (effect %llu, summon %x, spell %d, creator %x): %s; running script %s%s",
+                    Name(pCreature).c_str(), (unsigned long long)pEffect->m_nID, pEffect->m_oidParamObjectID[1],
+                    (int32_t)pEffect->m_nSpellId, pEffect->m_oidCreator, Origin(pObject->m_idSelf, pEffect->m_nID).c_str(),
+                    GetNuiCallingScript().c_str(), Platform::GetStackTrace(BACKTRACE_LEVELS).c_str());
+            return;
+        }
+
+        if (!CountsTowardBurst(pEffect))
+            return;
+
+        auto &burst = CurrentBurst(pObject->m_idSelf);
+
+        if (++burst.nCount < BURST_COUNT || burst.bLogged)
+            return;
+
+        burst.bLogged = true;
+
+        if (MayLog())
+            LOG_WARNING("EFFECT_LOSS %s lost %d more effects than it gained within %d s; this one: effect %llu, type %d, spell %d, creator %x, %s; running script %s%s",
+                Name(pCreature).c_str(), burst.nCount, BURST_SECONDS, (unsigned long long)pEffect->m_nID, pEffect->m_nType,
+                (int32_t)pEffect->m_nSpellId, pEffect->m_oidCreator, Origin(pObject->m_idSelf, pEffect->m_nID).c_str(),
+                GetNuiCallingScript().c_str(), Platform::GetStackTrace(BACKTRACE_LEVELS).c_str());
+
+        if (s_Bursts.size() > 1024)
+            s_Bursts.clear();
+    }
+}
+
+static Hooks::Hook s_EffectLossQueueHook = Hooks::HookFunction(&CServerAIMaster::AddEventDeltaTime,
+    +[](CServerAIMaster *pThis, uint32_t nDays, uint32_t nTime, ObjectID oidCaller, ObjectID oidObject,
+        uint32_t nEventId, void *pScript) -> BOOL
+    {
+        if (nEventId == Constants::AIMasterEvent::RemoveEffect && pScript && GetLogEffectLoss()
+            && EffectLoss::AsPlayerCharacter(oidObject))
+        {
+            EffectLoss::Prune();
+            EffectLoss::s_Pending[pScript].push_back({static_cast<CGameEffect*>(pScript)->m_nID, oidObject, oidCaller,
+                                                      GetNuiCallingScript(), EffectLoss::Clock::now()});
+            EffectLoss::s_nPending++;
+        }
+
+        return s_EffectLossQueueHook->CallOriginal<BOOL>(pThis, nDays, nTime, oidCaller, oidObject, nEventId, pScript);
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_EffectLossEventHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature12EventHandlerEjjPvjj,
+    (void*)+[](CNWSCreature *pThis, uint32_t nEventId, ObjectID oidCaller, void *pScript, uint32_t nDay, uint32_t nTime) -> void
+    {
+        using namespace EffectLoss;
+
+        auto it = (nEventId == Constants::AIMasterEvent::RemoveEffect && pScript && !s_Pending.empty())
+                  ? s_Pending.find(pScript) : s_Pending.end();
+
+        if (it == s_Pending.end())
+        {
+            s_EffectLossEventHook->CallOriginal<void>(pThis, nEventId, oidCaller, pScript, nDay, nTime);
+            return;
+        }
+
+        Pending r = std::move(it->second.front());
+        it->second.pop_front();
+        s_nPending--;
+
+        if (it->second.empty())
+            s_Pending.erase(it);
+
+        // The engine reads this word next, whatever now lives there.
+        uint64_t nNow = static_cast<CGameEffect*>(pScript)->m_nID;
+
+        if ((nNow != r.nId || r.oidTarget != pThis->m_idSelf) && MayLog())
+        {
+            auto *pTarget = AsPlayerCharacter(r.oidTarget);
+            double fAge = std::chrono::duration<double>(Clock::now() - r.tPosted).count();
+
+            LOG_WARNING("EFFECT_LOSS stale removal on %s: %s (run by %x) asked to remove effect %llu, the event %.2f s later reads %llu",
+                pTarget ? Name(pTarget).c_str() : "?", r.sScript.c_str(), r.oidCaller,
+                (unsigned long long)r.nId, fAge, (unsigned long long)nNow);
+        }
+
+        s_pCurrent = &r;
+        s_EffectLossEventHook->CallOriginal<void>(pThis, nEventId, oidCaller, pScript, nDay, nTime);
+        s_pCurrent = nullptr;
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_EffectLossRemovedHook = Hooks::HookFunction(&CServerAIMaster::OnEffectRemoved,
+    +[](CServerAIMaster *pThis, CNWSObject *pObject, CGameEffect *pEffect) -> int32_t
+    {
+        int32_t nRet = s_EffectLossRemovedHook->CallOriginal<int32_t>(pThis, pObject, pEffect);
+
+        // 1 is CNWSEffectListHandler::DELETE_EFFECT: the effect really comes off.
+        if (nRet == 1 && pObject && pEffect && GetLogEffectLoss())
+            EffectLoss::NoteRemoved(pObject, pEffect);
+
+        return nRet;
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_EffectLossAppliedHook = Hooks::HookFunction(&CServerAIMaster::OnEffectApplied,
+    +[](CServerAIMaster *pThis, CNWSObject *pObject, CGameEffect *pEffect, BOOL bLoadingGame) -> int32_t
+    {
+        int32_t nRet = s_EffectLossAppliedHook->CallOriginal<int32_t>(pThis, pObject, pEffect, bLoadingGame);
+
+        // DELETE_EFFECT here means the effect was refused and never lands.
+        if (nRet != 1 && pObject && pEffect && GetLogEffectLoss())
+            EffectLoss::NoteApplied(pObject, pEffect);
+
+        return nRet;
+    }, Hooks::Order::Earliest);
+
+static Hooks::Hook s_EffectLossUnsummonHook = Hooks::HookFunction(&CNWSCreature::UnsummonMyself,
+    +[](CNWSCreature *pThis) -> void
+    {
+        if (GetLogEffectLoss() && pThis->m_bDestroyable)
+        {
+            if (auto *pMaster = EffectLoss::AsPlayerCharacter(pThis->m_oidMaster))
+            {
+                if (EffectLoss::MayLog())
+                    LOG_WARNING("EFFECT_LOSS summon %s of %s unsummoned; running script %s%s",
+                        EffectLoss::Name(pThis).c_str(), EffectLoss::Name(pMaster).c_str(),
+                        GetNuiCallingScript().c_str(), Platform::GetStackTrace(EffectLoss::BACKTRACE_LEVELS).c_str());
+            }
+        }
+
+        s_EffectLossUnsummonHook->CallOriginal<void>(pThis);
+    }, Hooks::Order::Earliest);
