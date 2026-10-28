@@ -6570,6 +6570,17 @@ static Hooks::Hook s_SaveItemHook = Hooks::HookFunction(&CNWSItem::SaveItem,
 // and the script that asked. Matching a report's time and character against
 // these lines names the window.
 //
+// That names the window only when the player's report can be matched to one
+// create. Leandra's, on 2026-10-28, could not: her first login after a restart
+// sent eleven windows in five seconds, and the error box names none. So the
+// JSON is also checked for the shapes the client reads with at(): every
+// window's layout as it is sent, and every bind value as it is sent after.
+// The client's JsonWindow::Initialize reads the bind values as well as the
+// layout (nwmain-linux 0x883c10), so a bind holding the wrong shape fails
+// there just as a bad layout does. A problem is logged as "NUI shape:" with
+// the window, the JSON path or bind, and what was there; nothing is logged
+// for a window that is sound. See CheckNuiShape below for what is checked.
+//
 // Hooked by symbol: SendServerToPlayerNui_Create and _SetLayout take an
 // nlohmann::json, so the API headers leave them commented out. The json is
 // passed through untouched as an opaque pointer. The window id is a
@@ -6625,8 +6636,303 @@ static std::string GetNuiPlayerLabel(CNWSPlayer *pPlayer)
     return "(" + sAccount + ")";
 }
 
+// The shape checks. Only the fields the client reads as an OBJECT are checked,
+// since at() on anything else is exactly the reported error: a rect (x, y, w,
+// h), a colour (r, g, b, a), a point (x, y), and an element (its "type" and
+// the rest). Each may also be null, which the client takes as unset (a window
+// with no size constraint passes null), or a bind, an object of its own whose
+// value is then checked as it is sent. Scalars (a label's text, a width) are
+// left alone: a wrong one there would be a different error, and nothing has
+// reported one.
+
+enum class NuiShape { Rect, Colour, Point };
+
+static const char *GetNuiShapeName(NuiShape shape)
+{
+    switch (shape)
+    {
+        case NuiShape::Rect:   return "rect";
+        case NuiShape::Colour: return "colour";
+        default:               return "point";
+    }
+}
+
+// What a bind used in an object field must hold. A bind inside a list's row
+// template, or in a draw list item with "arrayBinds", holds an array with one
+// entry per row; anywhere else, one value. bArray is true only while EVERY use
+// seen is an array one, so a single plain use is enough to flag an array.
+struct NuiBindShape
+{
+    NuiShape shape;
+    bool bArray;
+    std::string sPath;
+};
+
+using NuiBindShapes = std::unordered_map<std::string, NuiBindShape>;
+
+// Per player and window token. Entries go when the window is destroyed, and
+// any left by a window the engine dropped some other way (a create with an id
+// already open replaces the old window) are cleared at the player's next
+// create.
+static std::unordered_map<uint64_t, NuiBindShapes> s_NuiBindShapes;
+
+static uint64_t GetNuiShapeKey(CNWSPlayer *pPlayer, int32_t nToken)
+{
+    return (uint64_t(pPlayer->m_nPlayerID) << 32) | uint32_t(nToken);
+}
+
+static const char *GetNuiJsonTypeName(const json &j)
+{
+    return j.type_name();
+}
+
+// The value, cut short: enough to recognise in a log line.
+static std::string GetNuiJsonExcerpt(const json &j)
+{
+    std::string s = j.dump(-1, ' ', true, json::error_handler_t::replace);
+    return s.size() > 160 ? s.substr(0, 157) + "..." : s;
+}
+
+struct NuiShapeCheck
+{
+    CNWSPlayer *pPlayer;
+    std::string sWindowId;
+    int32_t nToken;
+    NuiBindShapes *pBinds;
+    int nProblems = 0;
+
+    void Report(const std::string &sPath, const json &j, const char *sWanted)
+    {
+        // A broken window can repeat one fault per row; the first few say it.
+        if (++nProblems > 5)
+            return;
+
+        LOG_WARNING("NUI shape: %s window '%s' token %d: %s is %s where %s belongs: %s (from %s)",
+            GetNuiPlayerLabel(pPlayer).c_str(), sWindowId.c_str(), nToken, sPath.c_str(),
+            GetNuiJsonTypeName(j), sWanted, GetNuiJsonExcerpt(j).c_str(), GetNuiCallingScript().c_str());
+    }
+
+    static bool IsBind(const json &j)
+    {
+        return j.is_object() && j.contains("bind") && j["bind"].is_string();
+    }
+
+    void NoteBind(const json &j, NuiShape shape, bool bArray, const std::string &sPath)
+    {
+        const std::string &sBind = j["bind"].get_ref<const std::string&>();
+        auto it = pBinds->find(sBind);
+
+        if (it == pBinds->end())
+            pBinds->emplace(sBind, NuiBindShape{shape, bArray, sPath});
+        else if (!bArray)
+            it->second.bArray = false;
+    }
+
+    // An object field: a rect, a colour, or a point. A bind is noted, to be
+    // checked when its value is sent.
+    void CheckObjectField(const json &jParent, const char *sKey, NuiShape shape, bool bArray, const std::string &sPath)
+    {
+        auto it = jParent.find(sKey);
+
+        if (it == jParent.end() || it->is_null())
+            return;
+
+        std::string sFieldPath = sPath + "." + sKey;
+
+        if (IsBind(*it))
+            NoteBind(*it, shape, bArray, sFieldPath);
+        else if (!it->is_object())
+            Report(sFieldPath, *it, GetNuiShapeName(shape));
+    }
+
+    void CheckDrawList(const json &jList, bool bInList, const std::string &sPath)
+    {
+        if (jList.is_null() || IsBind(jList))
+            return;
+
+        if (!jList.is_array())
+        {
+            Report(sPath, jList, "an array of draw list items");
+            return;
+        }
+
+        for (size_t i = 0; i < jList.size(); i++)
+        {
+            const json &jItem = jList[i];
+            std::string sItemPath = sPath + "[" + std::to_string(i) + "]";
+
+            if (!jItem.is_object())
+            {
+                Report(sItemPath, jItem, "a draw list item");
+                continue;
+            }
+
+            auto itArrays = jItem.find("arrayBinds");
+            bool bArray = bInList || (itArrays != jItem.end() && itArrays->is_boolean() && itArrays->get<bool>());
+
+            CheckObjectField(jItem, "color", NuiShape::Colour, bArray, sItemPath);
+            CheckObjectField(jItem, "rect", NuiShape::Rect, bArray, sItemPath);
+            CheckObjectField(jItem, "image_region", NuiShape::Rect, bArray, sItemPath);
+            CheckObjectField(jItem, "a", NuiShape::Point, bArray, sItemPath);
+            CheckObjectField(jItem, "b", NuiShape::Point, bArray, sItemPath);
+            CheckObjectField(jItem, "ctrl0", NuiShape::Point, bArray, sItemPath);
+            CheckObjectField(jItem, "ctrl1", NuiShape::Point, bArray, sItemPath);
+            CheckObjectField(jItem, "c", NuiShape::Point, bArray, sItemPath);
+        }
+    }
+
+    void CheckElement(const json &jElem, bool bInList, const std::string &sPath)
+    {
+        if (!jElem.is_object())
+        {
+            Report(sPath, jElem, "an element");
+            return;
+        }
+
+        CheckObjectField(jElem, "foreground_color", NuiShape::Colour, bInList, sPath);
+        CheckObjectField(jElem, "image_region", NuiShape::Rect, bInList, sPath);
+
+        auto itDraw = jElem.find("draw_list");
+        if (itDraw != jElem.end())
+            CheckDrawList(*itDraw, bInList, sPath + ".draw_list");
+
+        // A chart's slots each carry a colour.
+        auto itType = jElem.find("type");
+        auto itValue = jElem.find("value");
+        if (itType != jElem.end() && *itType == "chart" && itValue != jElem.end() && itValue->is_array())
+        {
+            for (size_t i = 0; i < itValue->size(); i++)
+            {
+                if ((*itValue)[i].is_object())
+                    CheckObjectField((*itValue)[i], "color", NuiShape::Colour, bInList, sPath + ".value[" + std::to_string(i) + "]");
+            }
+        }
+
+        auto itChildren = jElem.find("children");
+        if (itChildren != jElem.end() && !itChildren->is_null())
+        {
+            if (!itChildren->is_array())
+                Report(sPath + ".children", *itChildren, "an array of elements");
+            else
+            {
+                for (size_t i = 0; i < itChildren->size(); i++)
+                    CheckElement((*itChildren)[i], bInList, sPath + ".children[" + std::to_string(i) + "]");
+            }
+        }
+
+        // A list's row template is an array of cells, each [element, width,
+        // variable]; everything bound inside it holds one value per row.
+        auto itTemplate = jElem.find("row_template");
+        if (itTemplate != jElem.end() && !itTemplate->is_null())
+        {
+            if (!itTemplate->is_array())
+                Report(sPath + ".row_template", *itTemplate, "an array of cells");
+            else
+            {
+                for (size_t i = 0; i < itTemplate->size(); i++)
+                {
+                    const json &jCell = (*itTemplate)[i];
+                    std::string sCellPath = sPath + ".row_template[" + std::to_string(i) + "]";
+
+                    if (!jCell.is_array() || jCell.empty())
+                        Report(sCellPath, jCell, "a cell [element, width, variable]");
+                    else
+                        CheckElement(jCell[0], true, sCellPath + "[0]");
+                }
+            }
+        }
+    }
+
+    void CheckWindow(const json &jWindow)
+    {
+        if (!jWindow.is_object())
+        {
+            Report("window", jWindow, "a window object");
+            return;
+        }
+
+        CheckObjectField(jWindow, "geometry", NuiShape::Rect, false, "window");
+        CheckObjectField(jWindow, "size_constraint", NuiShape::Rect, false, "window");
+        CheckObjectField(jWindow, "edge_constraint", NuiShape::Rect, false, "window");
+
+        auto itRoot = jWindow.find("root");
+        if (itRoot == jWindow.end())
+            Report("window.root", json(), "an element");
+        else
+            CheckElement(*itRoot, false, "window.root");
+    }
+
+    // A value sent for a bind noted above.
+    void CheckBindValue(const std::string &sBind, const json &jValue)
+    {
+        auto it = pBinds->find(sBind);
+
+        if (it == pBinds->end() || jValue.is_null() || jValue.is_object())
+            return;
+
+        const NuiBindShape &bind = it->second;
+        std::string sWhere = "bind '" + sBind + "' (used at " + bind.sPath + ")";
+
+        if (!jValue.is_array() || !bind.bArray)
+        {
+            Report(sWhere, jValue, GetNuiShapeName(bind.shape));
+            return;
+        }
+
+        for (size_t i = 0; i < jValue.size(); i++)
+        {
+            if (!jValue[i].is_null() && !jValue[i].is_object())
+            {
+                Report(sWhere + "[" + std::to_string(i) + "]", jValue[i], GetNuiShapeName(bind.shape));
+                return;
+            }
+        }
+    }
+};
+
+static std::string GetNuiWindowId(CNWSPlayer *pPlayer, int32_t nToken)
+{
+    auto &windows = pPlayer->m_cNuiState.m_windows;
+    auto it = windows.find(nToken);
+    return it != windows.end() ? it->second.m_id : std::string();
+}
+
+// A window's layout, as it is created. Starts the window's bind record afresh,
+// and drops any the player's closed windows left behind.
+static void CheckNuiWindowShape(CNWSPlayer *pPlayer, int32_t nToken, const std::string &sId, const json &jWindow)
+{
+    auto &windows = pPlayer->m_cNuiState.m_windows;
+
+    for (auto it = s_NuiBindShapes.begin(); it != s_NuiBindShapes.end(); )
+    {
+        bool bThisPlayer = (it->first >> 32) == pPlayer->m_nPlayerID;
+        int32_t nOtherToken = int32_t(uint32_t(it->first));
+
+        if (bThisPlayer && nOtherToken != nToken && windows.find(nOtherToken) == windows.end())
+            it = s_NuiBindShapes.erase(it);
+        else
+            ++it;
+    }
+
+    NuiBindShapes &binds = s_NuiBindShapes[GetNuiShapeKey(pPlayer, nToken)];
+    binds.clear();
+
+    NuiShapeCheck check{pPlayer, sId, nToken, &binds};
+    check.CheckWindow(jWindow);
+}
+
+// A group's new children: their binds join the window's record.
+static void CheckNuiLayoutShape(CNWSPlayer *pPlayer, int32_t nToken, const std::string &sElement, const json &jLayout)
+{
+    NuiBindShapes &binds = s_NuiBindShapes[GetNuiShapeKey(pPlayer, nToken)];
+    NuiShapeCheck check{pPlayer, GetNuiWindowId(pPlayer, nToken), nToken, &binds};
+    check.CheckElement(jLayout, false, "layout '" + sElement + "'");
+}
+
 static Hooks::Hook s_NuiCreateHook;
 static Hooks::Hook s_NuiSetLayoutHook;
+static Hooks::Hook s_NuiBindsHook;
+static Hooks::Hook s_NuiDestroyHook;
 
 static Hooks::Hook HookNuiByName(const char *sSymbol, void *pHandler)
 {
@@ -6654,6 +6960,18 @@ static const bool s_bLogNuiHooked = []() -> bool
             {
                 LOG_INFO("NUI create: %s window '%s' token %d from %s",
                     GetNuiPlayerLabel(pPlayer).c_str(), pId ? pId->c_str() : "", nToken, GetNuiCallingScript().c_str());
+
+                // Only ever a log line: a fault in the check must not stop the
+                // window going out.
+                try
+                {
+                    if (pJson)
+                        CheckNuiWindowShape(pPlayer, nToken, pId ? *pId : std::string(), *static_cast<const json*>(pJson));
+                }
+                catch (const std::exception &e)
+                {
+                    LOG_ERROR("NUI shape check failed on create: %s", e.what());
+                }
             }
 
             return s_NuiCreateHook->CallOriginal<int32_t>(pMessage, pPlayer, nToken, pId, pJson);
@@ -6668,19 +6986,86 @@ static const bool s_bLogNuiHooked = []() -> bool
                 // The token is all the engine passes; its window id is in the
                 // player's NUI state, which the layout command has just looked
                 // the token up in, so it is there.
-                std::string sId;
-                auto &windows = pPlayer->m_cNuiState.m_windows;
-                auto it = windows.find(nToken);
-
-                if (it != windows.end())
-                    sId = it->second.m_id;
+                std::string sId = GetNuiWindowId(pPlayer, nToken);
 
                 LOG_INFO("NUI layout: %s window '%s' token %d element '%s' from %s",
                     GetNuiPlayerLabel(pPlayer).c_str(), sId.c_str(), nToken,
                     pElement ? pElement->CStr() : "", GetNuiCallingScript().c_str());
+
+                try
+                {
+                    if (pJson)
+                        CheckNuiLayoutShape(pPlayer, nToken, pElement ? pElement->CStr() : "", *static_cast<const json*>(pJson));
+                }
+                catch (const std::exception &e)
+                {
+                    LOG_ERROR("NUI shape check failed on layout: %s", e.what());
+                }
             }
 
             return s_NuiSetLayoutHook->CallOriginal<int32_t>(pMessage, pPlayer, nToken, pElement, pJson);
+        });
+
+    // Bind values, sent as each NuiSetBind runs. The vector is taken by
+    // reference, so it is hooked and forwarded as a pointer, and walked by
+    // hand: the engine's BindUpdate is 64 bytes, while NWNX's API header
+    // declares one of 56 (nwn_api.hpp), so iterating it as the header's type
+    // read the second update from the middle of the first and crashed hashing
+    // a garbage name (dev, 2026-10-28). SendServerToPlayerNui_Binds itself
+    // reads the token at +4, the name's std::string at +8, and the value at
+    // +0x28, stepping 0x40 (nwserver-linux 0x5c42e2). What the last 8 bytes
+    // hold was not looked into.
+    s_NuiBindsHook = HookNuiByName(
+        "_ZN11CNWSMessage27SendServerToPlayerNui_BindsEP10CNWSPlayerRKSt6vectorIN3Nui4JSON10BindUpdateESaIS5_EE",
+        (void*)+[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, const void *pUpdates) -> int32_t
+        {
+            struct EngineBindUpdate
+            {
+                uint32_t m_player;
+                int32_t m_token;
+                std::string m_bind;
+                json m_value;
+                uint64_t m_unknown;
+            };
+            static_assert(sizeof(EngineBindUpdate) == 0x40, "the engine's BindUpdate is 64 bytes");
+            static_assert(offsetof(EngineBindUpdate, m_bind) == 0x08, "name at +8");
+            static_assert(offsetof(EngineBindUpdate, m_value) == 0x28, "value at +0x28");
+
+            if (pPlayer && pUpdates)
+            {
+                try
+                {
+                    // A std::vector is three pointers: begin, end, capacity.
+                    auto *pRange = static_cast<const EngineBindUpdate* const*>(pUpdates);
+
+                    for (const EngineBindUpdate *pUpdate = pRange[0]; pUpdate < pRange[1]; ++pUpdate)
+                    {
+                        auto it = s_NuiBindShapes.find(GetNuiShapeKey(pPlayer, pUpdate->m_token));
+
+                        if (it == s_NuiBindShapes.end())
+                            continue;
+
+                        NuiShapeCheck check{pPlayer, GetNuiWindowId(pPlayer, pUpdate->m_token), pUpdate->m_token, &it->second};
+                        check.CheckBindValue(pUpdate->m_bind, pUpdate->m_value);
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    LOG_ERROR("NUI shape check failed on binds: %s", e.what());
+                }
+            }
+
+            return s_NuiBindsHook->CallOriginal<int32_t>(pMessage, pPlayer, pUpdates);
+        });
+
+    s_NuiDestroyHook = HookNuiByName(
+        "_ZN11CNWSMessage29SendServerToPlayerNui_DestroyEP10CNWSPlayeri",
+        (void*)+[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, int32_t nToken) -> int32_t
+        {
+            if (pPlayer)
+                s_NuiBindShapes.erase(GetNuiShapeKey(pPlayer, nToken));
+
+            return s_NuiDestroyHook->CallOriginal<int32_t>(pMessage, pPlayer, nToken);
         });
 
     return true;
