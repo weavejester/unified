@@ -2423,6 +2423,94 @@ static Hooks::Hook s_UpdateEncumbranceStateHook = Hooks::HookFunction(&CNWSCreat
     }, Hooks::Order::Early);
 
 // ---------------------------------------------------------------------------
+// Bag contents and the encumbrance slow
+// ---------------------------------------------------------------------------
+//
+// UpdateEncumbranceState is the only thing that refreshes
+// m_nTotalWeightCarried, and the engine skips it whenever something goes into
+// or out of a bag that has no Enhanced Container: Reduced Weight (item
+// property 32). CItemRepository::AddItem and RemoveItem call it on the bag's
+// owner only when the bag has that property, and a DestroyObject of an item in
+// a bag (CNWSItem::EventHandler, event 11) goes through that RemoveItem and
+// nothing else. A plain bag emptied by a script leaves its owner carrying the
+// old weight, and the old encumbrance, until something else updates them.
+// Production, 2026-10-29: players handing in sacks of Building Stone at the
+// Material Stores (pw_inc_matstore's HandInMaterial destroys every stack,
+// bags included) were left heavy and slowed.
+//
+// The slow is the second half. UpdateEncumbranceState calls
+// ComputeModifiedMovementRate only when the encumbrance state CHANGES, and
+// that is what applies the slow: one innate (duration type 4)
+// EFFECT_MOVEMENT_SPEED_DECREASE marked with integer 0 = 1, summing the
+// detect mode, stealth, and encumbrance penalties. Innate effects go into the
+// TURD (SaveEffectList keeps all but equipped ones) and EatTURD applies the
+// TURD's effects back onto the freshly loaded creature at a relog. Its state
+// was already worked out from its real weight while it loaded, so no change is
+// ever seen and the stale slow stays. Toggling stealth or detect mode calls
+// ComputeModifiedMovementRate, which removes every such marked effect and
+// applies the right one; that is how players got rid of it.
+//
+// So: update the owner after any add to or remove from a bag the engine left
+// alone, and recompute the movement rate once the TURD has been eaten.
+//
+// Read from the 8193.37 decompilation and disassembly, 2026-10-29:
+// CItemRepository::AddItem and RemoveItem, CNWSItem::EventHandler,
+// UpdateEncumbranceState (0x4931a0, ComputeModifiedMovementRate behind
+// "new state != old state"), ComputeModifiedMovementRate,
+// CNWSObject::SaveEffectList, and CNWSPlayer::EatTURD.
+//
+// Not covered: SetItemStackSize on a stack inside a bag also skips the update
+// (it looks for a creature as the item's own possessor), so a partial stack
+// taken from a bag is put right at the owner's next update.
+static void RH_UpdateBagOwnerEncumbrance(CItemRepository *pRepository)
+{
+    auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(pRepository->m_oidParent));
+
+    // A creature's own pack (its repository's parent is the creature) is
+    // handled by the creature's AcquireItem and RemoveItem; a bag with
+    // Reduced Weight by the engine itself.
+    if (!pBag || pBag->GetPropertyByTypeExists(32))
+        return;
+
+    if (auto *pOwner = Utils::AsNWSCreature(Utils::GetGameObject(pBag->m_oidPossessor)))
+        pOwner->UpdateEncumbranceState(true);
+}
+
+static Hooks::Hook s_BagAddItemHook = Hooks::HookFunction(&CItemRepository::AddItem,
+    +[](CItemRepository *pThis, CNWSItem **ppItem, uint8_t x, uint8_t y, BOOL bAllowEncumbrance, BOOL bMergeItem) -> BOOL
+    {
+        auto bResult = s_BagAddItemHook->CallOriginal<BOOL>(pThis, ppItem, x, y, bAllowEncumbrance, bMergeItem);
+
+        if (bResult)
+            RH_UpdateBagOwnerEncumbrance(pThis);
+
+        return bResult;
+    }, Hooks::Order::Late);
+
+static Hooks::Hook s_BagRemoveItemHook = Hooks::HookFunction(&CItemRepository::RemoveItem,
+    +[](CItemRepository *pThis, CNWSItem *pItem) -> BOOL
+    {
+        auto bResult = s_BagRemoveItemHook->CallOriginal<BOOL>(pThis, pItem);
+
+        if (bResult)
+            RH_UpdateBagOwnerEncumbrance(pThis);
+
+        return bResult;
+    }, Hooks::Order::Late);
+
+static Hooks::Hook s_EatTURDMovementHook = Hooks::HookFunction(&CNWSPlayer::EatTURD,
+    +[](CNWSPlayer *pPlayer, CNWSPlayerTURD *pTURD) -> void
+    {
+        s_EatTURDMovementHook->CallOriginal<void>(pPlayer, pTURD);
+
+        if (auto *pCreature = Utils::AsNWSCreature(pPlayer->GetGameObject()))
+        {
+            pCreature->UpdateEncumbranceState(false);
+            pCreature->ComputeModifiedMovementRate();
+        }
+    }, Hooks::Order::Late);
+
+// ---------------------------------------------------------------------------
 // Item uses fire once, and a charged item is never used up
 // ---------------------------------------------------------------------------
 //
