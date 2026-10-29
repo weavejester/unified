@@ -2792,7 +2792,9 @@ static Hooks::Hook s_RemovePCFromWorldHook = Hooks::HookFunction(&CServerExoAppI
 // taken off a list that had them under the Intruder's id. NWNX_Rename's own
 // hook here (ON_MODULE_CHAR_LIST) runs after this one when it is on, and finds
 // no player for the PC body of one driving something else, so it leaves the
-// name alone.
+// name alone. NWNX_Tweaks' HIDE_CLASSES_ON_CHAR_LIST replaces this message and
+// dropped any entry whose id names no controlled creature; it looks the
+// player up by their PC body too now (HideOnCharList.cpp).
 static Hooks::Hook s_SendServerToPlayerPlayModuleCharacterListResponseHook = Hooks::HookFunction(
     &CNWSMessage::SendServerToPlayerPlayModuleCharacterListResponse,
     +[](CNWSMessage *pThis, PlayerID nPlayerId, ObjectID nCharacterId, int32_t bAdd) -> int32_t

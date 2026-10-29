@@ -46,6 +46,23 @@ static int32_t SendServerToPlayerPlayModuleCharacterListResponseHook(CNWSMessage
     auto *pServer = Globals::AppManager()->m_pServerExoApp;
     auto *pObserver = pServer->GetClientObjectByPlayerId(nPlayerId);
     auto *pPlayer = pServer->GetClientObjectByObjectId(nCharacterId);
+
+    // Risenholm: GetClientObjectByObjectId matches only the creature a player
+    // is controlling, and NWNX_Risenholm lists a possessing player by their PC
+    // body, so look for the player by their own character too. Without this,
+    // every player on an invasion was left off the list (2026-10-29).
+    if (!pPlayer)
+    {
+        for (auto *pCandidate : pServer->GetPlayerList())
+        {
+            if (pCandidate && pCandidate->m_oidPCObject == nCharacterId)
+            {
+                pPlayer = pCandidate;
+                break;
+            }
+        }
+    }
+
     if (bAdd && (!pObserver || !pPlayer || (!pObserver->GetIsDM() &&
                                             ((s_HideCharBehavior == 3) ||
                                              (s_HideCharBehavior == 2 && !pPlayer->GetIsDM()) ||
