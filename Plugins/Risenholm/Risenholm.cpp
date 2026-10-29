@@ -2780,6 +2780,39 @@ static Hooks::Hook s_RemovePCFromWorldHook = Hooks::HookFunction(&CServerExoAppI
         s_RemovePCFromWorldHook->CallOriginal<void>(pThis, pPlayer);
     });
 
+// The players listed on the character-select screen are named from whatever
+// creature each one is DRIVING: HandlePlayerToServerPlayModuleCharacterList_Start
+// passes GetGameObject()'s id to this message, which reads that creature's own
+// name, portrait, and classes (8193.37 disassembly, 2026-10-28). So a player
+// on an invasion was listed as "Intruder", which says who is invading. Name
+// them by their PC body instead, as the in-game player list already does.
+//
+// It also makes the add match the remove: RemovePCFromWorld sends the master's
+// id for a possessed creature, so a player who left mid-invasion was never
+// taken off a list that had them under the Intruder's id. NWNX_Rename's own
+// hook here (ON_MODULE_CHAR_LIST) runs after this one when it is on, and finds
+// no player for the PC body of one driving something else, so it leaves the
+// name alone.
+static Hooks::Hook s_SendServerToPlayerPlayModuleCharacterListResponseHook = Hooks::HookFunction(
+    &CNWSMessage::SendServerToPlayerPlayModuleCharacterListResponse,
+    +[](CNWSMessage *pThis, PlayerID nPlayerId, ObjectID nCharacterId, int32_t bAdd) -> int32_t
+    {
+        auto *pServer = Globals::AppManager()->m_pServerExoApp;
+
+        for (auto *pPlayer : pServer->GetPlayerList())
+        {
+            if (pPlayer && pPlayer->m_oidNWSObject == nCharacterId &&
+                pPlayer->m_oidPCObject != Constants::OBJECT_INVALID && pPlayer->m_oidPCObject != nCharacterId &&
+                pServer->GetCreatureByGameObjectID(pPlayer->m_oidPCObject))
+            {
+                nCharacterId = pPlayer->m_oidPCObject;
+                break;
+            }
+        }
+
+        return s_SendServerToPlayerPlayModuleCharacterListResponseHook->CallOriginal<int32_t>(pThis, nPlayerId, nCharacterId, bAdd);
+    }, Hooks::Order::Earliest);
+
 // CNWSPlayer::SaveServerCharacter (8193.37) writes whichever creature the
 // client is driving (m_oidNWSObject) into the player's vault file. Only for a
 // possessed familiar, or a DM possession (associate types 7 and 8), does it
