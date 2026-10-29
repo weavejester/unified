@@ -172,12 +172,28 @@ CNWSPlayer *Rename::player(ObjectID playerId)
     return pPlayer;
 }
 
+// Risenholm: the player list names a player by their own character, whatever
+// they are driving. The engine's SendServerToPlayerPlayerList_All/_Add take
+// the character name from the controlled creature only if it is a player
+// character, and otherwise from its m_oidMaster, which is the PC body for a
+// possessed creature (8193.37 disassembly, 2026-10-28). So the override that
+// names a player there is the PC body's, and an override on a possessed
+// creature (Impersonate, cast by a Scar Intruder) must not reach the list.
+// Before this the lookup used m_oidNWSObject, and a list sent during an
+// invasion carried the player's login as the community name.
+static ObjectID PlayerListTargetOid(CNWSPlayer *targetPlayer)
+{
+    return targetPlayer->m_oidPCObject != Constants::OBJECT_INVALID ? targetPlayer->m_oidPCObject
+                                                                    : targetPlayer->m_oidNWSObject;
+}
+
 void Rename::SetOrRestorePlayerName(bool before, CNWSPlayer *targetPlayer, CNWSPlayer *observerPlayer, bool playerList)
 {
     if (targetPlayer == nullptr || observerPlayer == nullptr)
         return;
 
-    auto *targetCreature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(targetPlayer->m_oidNWSObject);
+    auto *targetCreature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(
+            playerList ? PlayerListTargetOid(targetPlayer) : targetPlayer->m_oidNWSObject);
     auto *observerCreature = Globals::AppManager()->m_pServerExoApp->GetCreatureByGameObjectID(observerPlayer->m_oidNWSObject);
 
     ObjectID observerOid;
@@ -411,7 +427,7 @@ void Rename::GlobalNameChange(
         for (auto &targetPid : targetsToNotify)
         {
             auto *targetPlayer = server->GetClientObjectByPlayerId(targetPid);
-            auto targetOid = targetPlayer->m_oidNWSObject;
+            auto targetOid = PlayerListTargetOid(targetPlayer);
             auto *targetCreature = server->GetCreatureByGameObjectID(targetOid);
             if (targetCreature && g_plugin->m_RenamePlayerNames.count(targetOid) &&
                 g_plugin->m_RenamePlayerNames[targetOid].count(Constants::OBJECT_INVALID))
