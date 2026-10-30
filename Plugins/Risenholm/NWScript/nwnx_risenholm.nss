@@ -246,6 +246,24 @@ void NWNX_Risenholm_SetAlwaysWalk(object oCreature, int bWalk = TRUE);
 /// @param oCreature The PC body, or the creature its player is driving.
 void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature);
 
+/// @brief Show the player behind oCreature under a new name on the player list, keeping the old one.
+/// @note For a disguise going on or off. sNewName joins every player's list at once, with the
+/// client's join line, and sOldName stays, with sOldPortrait, until RemovePlayerListGhost takes it
+/// off with the leave line, so the two names are not seen to swap. Tells to either name reach the
+/// player while it is listed. DMs see the true list throughout. Call after the name has changed.
+/// @param oCreature The PC body, or the creature its player is driving.
+/// @param sOldName The name the player went by.
+/// @param sOldPortrait The portrait resref they had under it.
+/// @param sNewName The name they go by now.
+/// @param bToOwn TRUE if sNewName is their character's own (no disguise).
+/// @return The old name's row, for RemovePlayerListGhost, or -1 if nothing changed.
+int NWNX_Risenholm_SwapPlayerListIdentity(object oCreature, string sOldName, string sOldPortrait, string sNewName, int bToOwn);
+
+/// @brief Take a name left by SwapPlayerListIdentity off the player list, with the leave line.
+/// @note Nothing if it has gone already: the player went back to it, or left.
+/// @param nListId What SwapPlayerListIdentity returned.
+void NWNX_Risenholm_RemovePlayerListGhost(int nListId);
+
 /// @brief Whose inventory oPlayer's other-inventory panel is showing.
 /// @note The panel NWNX_Player_OpenInventory opens on another creature. For a non-DM it is
 /// read-only unless the owner is their own body or one of their associates: the plugin stops the
@@ -605,6 +623,23 @@ void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "RefreshPlayerListEntry");
+}
+
+int NWNX_Risenholm_SwapPlayerListIdentity(object oCreature, string sOldName, string sOldPortrait, string sNewName, int bToOwn)
+{
+    NWNXPushInt(bToOwn);
+    NWNXPushString(sNewName);
+    NWNXPushString(sOldPortrait);
+    NWNXPushString(sOldName);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SwapPlayerListIdentity");
+    return NWNXPopInt();
+}
+
+void NWNX_Risenholm_RemovePlayerListGhost(int nListId)
+{
+    NWNXPushInt(nListId);
+    NWNXCall(NWNX_Risenholm, "RemovePlayerListGhost");
 }
 
 object NWNX_Risenholm_GetOtherInventoryOwner(object oPlayer)

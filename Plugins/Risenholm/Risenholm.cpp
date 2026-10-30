@@ -38,6 +38,7 @@
 #include "API/CServerExoAppInternal.hpp"
 #include "API/CNetLayer.hpp"
 #include "API/CNetLayerPlayerInfo.hpp"
+#include "API/CServerInfo.hpp"
 #include "API/CNWSFaction.hpp"
 #include "API/CFactionManager.hpp"
 #include <vector>
@@ -2732,6 +2733,464 @@ NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
 
     pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_PLAYERS, pPlayer);
     pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_GAMEMASTERS, pPlayer);
+
+    return {};
+}
+
+// -----------------------------------------------------------------------------
+// The player list under a disguise
+//
+// A player who puts on a disguise must not simply change name on the player
+// list, and must not vanish from it the moment the disguise's name appears.
+// So for a while the list shows both: the new name joins at once, with the
+// client's "<name> has joined as a player." line, and the old name stays until
+// the module takes it off 30-60 s later, with "<name> has left as a player."
+// Taking a disguise off runs the same in reverse. DMs see the true list
+// throughout. The module drives it (pw_inc_disgkit.nss):
+// SwapPlayerListIdentity when the name a player goes by changes, and
+// RemovePlayerListGhost when the old name should go.
+//
+// What the client does with the three player-list messages (Linux client
+// disassembly, CNWCMessage::HandleServerToPlayerPlayerList, 2026-10-30):
+//   - Full (minor 1) clears the list and fills it again, printing nothing.
+//   - Add (minor 2) of an id the client does not have inserts a row and
+//     prints the join line; of an id it has, updates that row in place and
+//     prints nothing (RefreshPlayerListEntry above relies on the same).
+//   - Delete (minor 3) removes the row and always prints the leave line for a
+//     player. The BOOL every message opens with (the server's
+//     bShowDMJoinMessage) only governs the lines for DMs.
+// Every row is keyed by the player id it was sent with, and nothing makes it
+// a real one. So each name a player is shown under is a row with an id of its
+// own: their own player id for their character's name, a made-up one for each
+// disguise. The engine's messages about the player name their own id, so the
+// hooks below send them under whichever id other clients know that player by
+// now; and the row of a name being left behind (a "ghost") keeps the id it
+// already had, so that taking it off later prints the leave line.
+//
+// Chat routing needs one change. /t and /tp are resolved on the client, from
+// its own list (CGuiInGameChatPrompt::ParseChatString: GetPlayerByCreatureName
+// and GetPlayerByPlayerName), into a tell to the row's player id, which the
+// server passes to SendServerToPlayerChatMessage unchecked
+// (HandlePlayerToServerChatMessage). So a tell to a made-up id is sent on to
+// its player. A name no longer on the list fails in the client, as it would
+// after a real logout. Party requests carry object ids, not player ids, and
+// need nothing; a ghost's row carries no object, so a chat line's clickable
+// portrait (matched by object id) finds only the row the player is on now.
+//
+// The rows are written as the engine writes them (SendServerToPlayerPlayerList_
+// Add and _All, 8193.37 server disassembly, 2026-10-30), field for field: an
+// Add is the BOOL and one entry, a Full is the BOOL, a count byte of players
+// with a game object, and their entries in player-list order. The hooks run
+// inside NWNX_Rename's (Order::Late against its Early), so the names on the
+// creatures are already the ones that observer is to be shown.
+
+static_assert(offsetof(CNetLayerPlayerInfo, m_sPlayerName) == 0x8, "CNetLayerPlayerInfo layout changed");
+static_assert(offsetof(CNetLayerPlayerInfo, m_sPSID) == 0xc8, "CNetLayerPlayerInfo layout changed");
+static_assert(offsetof(CNetLayerPlayerInfo, m_nPlatformId) == 0xd8, "CNetLayerPlayerInfo layout changed");
+static_assert(offsetof(CNWSCreatureStats, m_nGender) == 0xa4, "CNWSCreatureStats layout changed");
+static_assert(offsetof(CNWSCreatureStats, m_bIsPC) == 0xb0, "CNWSCreatureStats layout changed");
+static_assert(offsetof(CNWSCreatureStats, m_cPortrait) == 0xdd2, "CNWSCreatureStats layout changed");
+static_assert(offsetof(CNWSCreature, m_sDisplayName) == 0x8b8, "CNWSCreature layout changed");
+static_assert(offsetof(CNWSCreature, m_oidMaster) == 0x8f4, "CNWSCreature layout changed");
+static_assert(offsetof(CServerInfo, m_PlayOptions.bShowDMJoinMessage) == 0x140, "CServerInfo layout changed");
+
+// A row left behind under a name its player no longer goes by.
+struct PlayerListGhost
+{
+    uint32_t   nListId;    // the id the clients have the row under
+    PlayerID   nOwner;     // the player it was
+    CExoString sName;
+    CResRef    cPortrait;
+    uint8_t    nGender;
+    uint8_t    nPlatformId;
+    CExoString sPSID;
+};
+
+static std::vector<PlayerListGhost> s_PlayerListGhosts;
+// A player shown under a made-up id now, by their own id. Absent: their own.
+static std::unordered_map<PlayerID, uint32_t> s_PlayerListCurrentId;
+// Every made-up id on the lists, current or a ghost's, to its player's own.
+static std::unordered_map<uint32_t, PlayerID> s_PlayerListMadeUpIds;
+// Clear of the engine's player ids, which are small, and its special ones
+// (PLAYERID_ALL_PLAYERS and the rest, from 0xfffffff0).
+static uint32_t s_PlayerListNextMadeUpId = 0x7e000000;
+
+static bool PlayerListTargetIsDM(PlayerID nTarget)
+{
+    if (nTarget == Constants::PLAYERID_ALL_GAMEMASTERS)
+        return true;
+    if (nTarget == Constants::PLAYERID_ALL_PLAYERS || nTarget == Constants::PLAYERID_ALL_CLIENTS)
+        return false;
+
+    auto *pTarget = Globals::AppManager()->m_pServerExoApp->GetClientObjectByPlayerId(nTarget);
+    return pTarget && pTarget->GetIsDM();
+}
+
+static uint32_t PlayerListIdOf(PlayerID nPlayerId)
+{
+    auto it = s_PlayerListCurrentId.find(nPlayerId);
+    return it != s_PlayerListCurrentId.end() ? it->second : nPlayerId;
+}
+
+static void WritePlayerListPortrait(CNWSMessage *pMessage, uint16_t nPortraitId, uint8_t nGender, const CResRef &cPortrait)
+{
+    if (nPortraitId <= 0xfffd)
+    {
+        pMessage->WriteWORD(nPortraitId, 16);
+        return;
+    }
+
+    // As the engine does it: a custom portrait goes as 0xfffe for a creature
+    // of gender 1 and as its own id otherwise, with the resref after either.
+    pMessage->WriteWORD(nGender == 1 ? 0xfffe : nPortraitId, 16);
+    pMessage->WriteCResRef(cPortrait, 16);
+}
+
+// One player's entry, as the engine writes it, under nListId.
+static bool WritePlayerListEntry(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint32_t nListId)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pObject = pPlayer->GetGameObject();
+    auto *pInfo   = pServer->GetNetLayer()->GetPlayerInfo(pPlayer->m_nPlayerID);
+
+    if (!pObject || !pInfo)
+        return false;
+
+    BOOL bDM = pPlayer->GetIsDM() ? !pPlayer->GetIsPlayerDM() : false;
+
+    // The character: what the player drives if it is a player character, else
+    // that creature's master if THAT is one (a possession).
+    auto oidCharacter = Constants::OBJECT_INVALID;
+    if (auto *pCreature = Utils::AsNWSCreature(pObject); pCreature && pCreature->m_pStats)
+    {
+        if (pCreature->m_pStats->m_bIsPC)
+            oidCharacter = pCreature->m_idSelf;
+        else if (auto *pMaster = pServer->GetCreatureByGameObjectID(pCreature->m_oidMaster);
+                 pMaster && pMaster->m_pStats && pMaster->m_pStats->m_bIsPC)
+            oidCharacter = pMaster->m_idSelf;
+    }
+    auto *pCharacter = oidCharacter != Constants::OBJECT_INVALID ? pServer->GetCreatureByGameObjectID(oidCharacter) : nullptr;
+    if (pCharacter && !pCharacter->m_pStats)
+        pCharacter = nullptr;
+
+    pMessage->WriteDWORD(nListId, 32);
+    pMessage->WriteOBJECTIDServer(pObject->m_idSelf);
+    pMessage->WriteBOOL(bDM);
+    pMessage->WriteCExoString(pInfo->m_sPlayerName, 32);
+    pMessage->WriteBOOL(pCharacter != nullptr);
+    pMessage->WriteBYTE(pInfo->m_nPlatformId, 8, true);
+    pMessage->WriteCExoString(pInfo->m_sPSID, 32);
+
+    if (pCharacter)
+    {
+        // A display name, when the creature has one, stands in for the first
+        // name with no last name (this is what NWNX_Rename sets).
+        CExoLocString lsFirst, lsLast;
+        if (pCharacter->m_sDisplayName.m_nStringLength)
+        {
+            lsFirst.AddString(0, pCharacter->m_sDisplayName.CStr(), 0);
+        }
+        else
+        {
+            lsFirst = pCharacter->m_pStats->m_lsFirstName;
+            lsLast  = pCharacter->m_pStats->m_lsLastName;
+        }
+
+        pMessage->WriteOBJECTIDServer(oidCharacter);
+        pMessage->WriteCExoLocStringServer(lsFirst, 0);
+        pMessage->WriteCExoLocStringServer(lsLast, 0);
+        WritePlayerListPortrait(pMessage, pCharacter->GetPortraitId(), pCharacter->m_pStats->m_nGender,
+                                pCharacter->m_pStats->m_cPortrait);
+    }
+
+    return true;
+}
+
+// A ghost's entry: its name and portrait, and no object, so nothing in the
+// world or the chat log is matched to it.
+static void WritePlayerListGhost(CNWSMessage *pMessage, const PlayerListGhost &ghost)
+{
+    CExoLocString lsFirst, lsLast;
+    lsFirst.AddString(0, ghost.sName, 0);
+
+    pMessage->WriteDWORD(ghost.nListId, 32);
+    pMessage->WriteOBJECTIDServer(Constants::OBJECT_INVALID);
+    pMessage->WriteBOOL(false);
+    pMessage->WriteCExoString(ghost.sName, 32);
+    pMessage->WriteBOOL(true);
+    pMessage->WriteBYTE(ghost.nPlatformId, 8, true);
+    pMessage->WriteCExoString(ghost.sPSID, 32);
+    pMessage->WriteOBJECTIDServer(Constants::OBJECT_INVALID);
+    pMessage->WriteCExoLocStringServer(lsFirst, 0);
+    pMessage->WriteCExoLocStringServer(lsLast, 0);
+    WritePlayerListPortrait(pMessage, 0xffff, ghost.nGender, ghost.cPortrait);
+}
+
+static BOOL PlayerListServerFlag()
+{
+    return Globals::AppManager()->m_pServerExoApp->GetServerInfo()->m_PlayOptions.bShowDMJoinMessage;
+}
+
+static BOOL SendPlayerListMessage(CNWSMessage *pMessage, PlayerID nTarget, uint8_t nMinor)
+{
+    uint8_t *pData = nullptr;
+    uint32_t nSize = 0;
+
+    if (!pMessage->GetWriteMessage(&pData, &nSize) || !nSize)
+        return false;
+
+    return pMessage->SendServerToPlayerMessage(nTarget, Constants::MessageMajor::PlayerList, nMinor, pData, nSize);
+}
+
+static BOOL SendPlayerListAdd(CNWSMessage *pMessage, PlayerID nTarget, CNWSPlayer *pPlayer, uint32_t nListId)
+{
+    pMessage->CreateWriteMessage(0x100, Constants::PLAYERID_INVALIDID, true);
+    pMessage->WriteBOOL(PlayerListServerFlag());
+    if (!WritePlayerListEntry(pMessage, pPlayer, nListId))
+        return false;
+    return SendPlayerListMessage(pMessage, nTarget, Constants::MessagePlayerListMinor::Add);
+}
+
+static BOOL SendPlayerListGhostAdd(CNWSMessage *pMessage, PlayerID nTarget, const PlayerListGhost &ghost)
+{
+    pMessage->CreateWriteMessage(0x100, Constants::PLAYERID_INVALIDID, true);
+    pMessage->WriteBOOL(PlayerListServerFlag());
+    WritePlayerListGhost(pMessage, ghost);
+    return SendPlayerListMessage(pMessage, nTarget, Constants::MessagePlayerListMinor::Add);
+}
+
+static BOOL SendPlayerListDelete(CNWSMessage *pMessage, PlayerID nTarget, uint32_t nListId)
+{
+    pMessage->CreateWriteMessage(4, Constants::PLAYERID_INVALIDID, true);
+    pMessage->WriteBOOL(PlayerListServerFlag());
+    pMessage->WriteDWORD(nListId, 32);
+    return SendPlayerListMessage(pMessage, nTarget, Constants::MessagePlayerListMinor::Delete);
+}
+
+static Hooks::Hook s_PlayerListAddHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerPlayerList_Add,
+    +[](CNWSMessage *pThis, PlayerID nTarget, CNWSPlayer *pPlayer) -> int32_t
+    {
+        if (pPlayer && !PlayerListTargetIsDM(nTarget))
+        {
+            auto nListId = PlayerListIdOf(pPlayer->m_nPlayerID);
+            if (nListId != pPlayer->m_nPlayerID)
+                return SendPlayerListAdd(pThis, nTarget, pPlayer, nListId);
+        }
+
+        return s_PlayerListAddHook->CallOriginal<int32_t>(pThis, nTarget, pPlayer);
+    }, Hooks::Order::Late);
+
+static Hooks::Hook s_PlayerListAllHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerPlayerList_All,
+    +[](CNWSMessage *pThis, CNWSPlayer *pObserver) -> int32_t
+    {
+        if (!pObserver || pObserver->GetIsDM() || (s_PlayerListCurrentId.empty() && s_PlayerListGhosts.empty()))
+            return s_PlayerListAllHook->CallOriginal<int32_t>(pThis, pObserver);
+
+        const auto &players = Globals::AppManager()->m_pServerExoApp->GetPlayerList();
+
+        uint8_t nCount = 0;
+        for (auto *pPlayer : players)
+        {
+            if (pPlayer && pPlayer->GetGameObject())
+                nCount++;
+        }
+        nCount += (uint8_t)s_PlayerListGhosts.size();
+
+        pThis->CreateWriteMessage(0x200, pObserver->m_nPlayerID, true);
+        pThis->WriteBOOL(PlayerListServerFlag());
+        pThis->WriteBYTE(nCount, 8, true);
+        for (auto *pPlayer : players)
+        {
+            if (pPlayer)
+                WritePlayerListEntry(pThis, pPlayer, PlayerListIdOf(pPlayer->m_nPlayerID));
+        }
+        for (auto &ghost : s_PlayerListGhosts)
+            WritePlayerListGhost(pThis, ghost);
+
+        return SendPlayerListMessage(pThis, pObserver->m_nPlayerID, Constants::MessagePlayerListMinor::Full);
+    }, Hooks::Order::Late);
+
+// A player leaving takes their row under whatever id it is now, and a ghost
+// still under their own id with it: the engine hands that id to the next
+// connection, which a later Delete of the ghost would then remove.
+static Hooks::Hook s_PlayerListDeleteHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerPlayerList_Delete,
+    +[](CNWSMessage *pThis, PlayerID nTarget, CNWSPlayer *pPlayer) -> int32_t
+    {
+        if (pPlayer && !PlayerListTargetIsDM(nTarget))
+        {
+            auto nPlayerId = pPlayer->m_nPlayerID;
+            auto nListId   = PlayerListIdOf(nPlayerId);
+            if (nListId != nPlayerId)
+            {
+                bool bGhostHere = std::any_of(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
+                    [&](const PlayerListGhost &ghost) { return ghost.nListId == nPlayerId; });
+
+                auto bSent = SendPlayerListDelete(pThis, nTarget, nListId);
+                if (bGhostHere)
+                    SendPlayerListDelete(pThis, nTarget, nPlayerId);
+                return bSent;
+            }
+        }
+
+        return s_PlayerListDeleteHook->CallOriginal<int32_t>(pThis, nTarget, pPlayer);
+    }, Hooks::Order::Late);
+
+// The bookkeeping for a player goes once the engine has sent every Delete for
+// them (and on entering, in case an id comes round again with state left on
+// it). Ghosts under made-up ids stay: they are rows of their own, and the
+// module takes them off on its own timer whether or not their player is here.
+// Their remaining ghosts lose their owner and stop passing tells on, so that
+// neither reaches whoever is given the id next.
+static void ForgetPlayerListPlayer(PlayerID nPlayerId)
+{
+    s_PlayerListCurrentId.erase(nPlayerId);
+
+    for (auto it = s_PlayerListMadeUpIds.begin(); it != s_PlayerListMadeUpIds.end();)
+    {
+        if (it->second == nPlayerId)
+            it = s_PlayerListMadeUpIds.erase(it);
+        else
+            ++it;
+    }
+
+    s_PlayerListGhosts.erase(std::remove_if(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
+        [&](const PlayerListGhost &ghost) { return ghost.nListId == nPlayerId; }), s_PlayerListGhosts.end());
+
+    for (auto &ghost : s_PlayerListGhosts)
+    {
+        if (ghost.nOwner == nPlayerId)
+            ghost.nOwner = Constants::PLAYERID_INVALIDID;
+    }
+}
+
+static Hooks::Hook s_PlayerListChangeHook = Hooks::HookFunction(&CServerExoAppInternal::PlayerListChange,
+    +[](CServerExoAppInternal *pThis, uint32_t nPlayerId, BOOL bEnter, BOOL bPrimaryPlayer) -> void
+    {
+        if (bEnter)
+            ForgetPlayerListPlayer(nPlayerId);
+
+        s_PlayerListChangeHook->CallOriginal<void>(pThis, nPlayerId, bEnter, bPrimaryPlayer);
+
+        if (!bEnter)
+            ForgetPlayerListPlayer(nPlayerId);
+    }, Hooks::Order::Late);
+
+// A tell to a made-up id goes to its player. Earliest, so NWNX_Chat and the
+// module's chat script see the real recipient.
+static Hooks::Hook s_PlayerListTellHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerChatMessage,
+    +[](CNWSMessage *pThis, uint8_t nChatMessageType, ObjectID oidSpeaker, CExoString sSpeakerMessage,
+        uint32_t nTellPlayerId, const CExoString &sTellName) -> int32_t
+    {
+        auto it = s_PlayerListMadeUpIds.find(nTellPlayerId);
+        if (it != s_PlayerListMadeUpIds.end())
+            nTellPlayerId = it->second;
+
+        return s_PlayerListTellHook->CallOriginal<int32_t>(pThis, nChatMessageType, oidSpeaker, sSpeakerMessage,
+                                                           nTellPlayerId, sTellName);
+    }, Hooks::Order::Earliest);
+
+// The player behind oCreature has stopped going by sOldName (with sOldPortrait)
+// and now goes by sNewName, which is their character's own name if bToOwn. The
+// old row stays as a ghost, and the new name joins; returns the ghost's id for
+// RemovePlayerListGhost, or -1 if nothing changed. Call after the name has
+// changed (NWNX_Rename_SetPCNameOverride).
+NWNX_EXPORT ArgumentStack SwapPlayerListIdentity(ArgumentStack&& args)
+{
+    auto oidCreature  = args.extract<ObjectID>();
+    auto sOldName     = args.extract<std::string>();
+    auto sOldPortrait = args.extract<std::string>();
+    auto sNewName     = args.extract<std::string>();
+    auto bToOwn       = !!args.extract<int32_t>();
+
+    auto *pServer  = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    auto *pPlayer  = FindPlayerForCreature(oidCreature);
+    if (!pMessage || !pPlayer || !pPlayer->GetGameObject() || pPlayer->GetIsDM())
+        return -1;
+
+    auto nPlayerId = pPlayer->m_nPlayerID;
+    auto *pInfo    = pServer->GetNetLayer()->GetPlayerInfo(nPlayerId);
+    auto *pBody    = pServer->GetCreatureByGameObjectID(pPlayer->m_oidPCObject);
+    if (!pInfo || !pBody || !pBody->m_pStats)
+        return -1;
+
+    auto nOldId = PlayerListIdOf(nPlayerId);
+
+    // A ghost of the new name comes back to life, row and all, with no join
+    // line, as nothing ever saw it leave; failing that, the character's own
+    // name takes their own id, and a disguise a new one.
+    uint32_t nNewId;
+    auto ghostIt = std::find_if(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
+        [&](const PlayerListGhost &ghost)
+        {
+            return ghost.nOwner == nPlayerId && (bToOwn ? ghost.nListId == nPlayerId : sNewName == ghost.sName.CStr());
+        });
+    if (ghostIt != s_PlayerListGhosts.end())
+    {
+        nNewId = ghostIt->nListId;
+        s_PlayerListGhosts.erase(ghostIt);
+    }
+    else if (bToOwn)
+    {
+        nNewId = nPlayerId;
+    }
+    else
+    {
+        do { nNewId = s_PlayerListNextMadeUpId++; } while (s_PlayerListMadeUpIds.count(nNewId));
+    }
+
+    if (nNewId == nOldId)
+        return -1;
+
+    PlayerListGhost ghost;
+    ghost.nListId     = nOldId;
+    ghost.nOwner      = nPlayerId;
+    ghost.sName       = sOldName.c_str();
+    ghost.cPortrait   = CResRef(sOldPortrait.c_str());
+    ghost.nGender     = pBody->m_pStats->m_nGender;
+    ghost.nPlatformId = pInfo->m_nPlatformId;
+    ghost.sPSID       = pInfo->m_sPSID;
+    s_PlayerListGhosts.push_back(ghost);
+
+    if (nNewId == nPlayerId)
+    {
+        s_PlayerListCurrentId.erase(nPlayerId);
+    }
+    else
+    {
+        s_PlayerListCurrentId[nPlayerId] = nNewId;
+        s_PlayerListMadeUpIds[nNewId]    = nPlayerId;
+    }
+
+    // The old row stays where it is, losing its object (the clients have the
+    // id, so this prints nothing), and the new one is added, through
+    // NWNX_Rename and the hook above, printing the join line where it is new.
+    SendPlayerListGhostAdd(pMessage, Constants::PLAYERID_ALL_PLAYERS, ghost);
+    pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_PLAYERS, pPlayer);
+
+    return (int32_t)nOldId;
+}
+
+// Take off the ghost row nListId (from SwapPlayerListIdentity), with the
+// leave line. Nothing if it has gone already: brought back to life, or taken
+// with its player.
+NWNX_EXPORT ArgumentStack RemovePlayerListGhost(ArgumentStack&& args)
+{
+    auto nListId = (uint32_t)args.extract<int32_t>();
+
+    auto ghostIt = std::find_if(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
+        [&](const PlayerListGhost &ghost) { return ghost.nListId == nListId; });
+    if (ghostIt == s_PlayerListGhosts.end())
+        return {};
+
+    auto nOwner = ghostIt->nOwner;
+    s_PlayerListGhosts.erase(ghostIt);
+
+    if (PlayerListIdOf(nOwner) != nListId)
+        s_PlayerListMadeUpIds.erase(nListId);
+
+    if (auto *pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
+        SendPlayerListDelete(pMessage, Constants::PLAYERID_ALL_PLAYERS, nListId);
 
     return {};
 }
