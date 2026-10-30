@@ -2774,8 +2774,19 @@ NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
 // (HandlePlayerToServerChatMessage). So a tell to a made-up id is sent on to
 // its player. A name no longer on the list fails in the client, as it would
 // after a real logout. Party requests carry object ids, not player ids, and
-// need nothing; a ghost's row carries no object, so a chat line's clickable
-// portrait (matched by object id) finds only the row the player is on now.
+// need nothing.
+//
+// A ghost's row carries an object id of its own, made up and owned by
+// nothing. Not OBJECT_INVALID: the client's player panel
+// (CGuiIngamePVPPanel::BuildPlayerList) leaves out any row whose character is
+// the viewer's own creature or that creature's master, and a player's master
+// is OBJECT_INVALID, so a ghost sent with it was hidden from every list while
+// its join and leave lines still printed (seen in game 2026-10-30). And not
+// the player's real one: a chat line's clickable portrait is matched to a row
+// by object id, and could find the ghost and give the old name away. Clicking
+// a ghost in the panel sends its made-up id with the module's player-list GUI
+// event, which looks nothing up; inviting it finds no one, as for someone who
+// has just left.
 //
 // The rows are written as the engine writes them (SendServerToPlayerPlayerList_
 // Add and _All, 8193.37 server disassembly, 2026-10-30), field for field: an
@@ -2798,6 +2809,7 @@ static_assert(offsetof(CServerInfo, m_PlayOptions.bShowDMJoinMessage) == 0x140, 
 struct PlayerListGhost
 {
     uint32_t   nListId;    // the id the clients have the row under
+    ObjectID   oidFake;    // the object id it is sent with (see above)
     PlayerID   nOwner;     // the player it was
     CExoString sName;
     CResRef    cPortrait;
@@ -2814,6 +2826,9 @@ static std::unordered_map<uint32_t, PlayerID> s_PlayerListMadeUpIds;
 // Clear of the engine's player ids, which are small, and its special ones
 // (PLAYERID_ALL_PLAYERS and the rest, from 0xfffffff0).
 static uint32_t s_PlayerListNextMadeUpId = 0x7e000000;
+// Ghosts' object ids, far above any the server hands out, which count up from
+// the bottom, and below OBJECT_INVALID (0x7f000000).
+static ObjectID s_PlayerListNextFakeOid = 0x7d000000;
 
 static bool PlayerListTargetIsDM(PlayerID nTarget)
 {
@@ -2906,21 +2921,21 @@ static bool WritePlayerListEntry(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uin
     return true;
 }
 
-// A ghost's entry: its name and portrait, and no object, so nothing in the
-// world or the chat log is matched to it.
+// A ghost's entry: its name and portrait, and an object id owned by nothing,
+// so nothing in the world or the chat log is matched to it.
 static void WritePlayerListGhost(CNWSMessage *pMessage, const PlayerListGhost &ghost)
 {
     CExoLocString lsFirst, lsLast;
     lsFirst.AddString(0, ghost.sName, 0);
 
     pMessage->WriteDWORD(ghost.nListId, 32);
-    pMessage->WriteOBJECTIDServer(Constants::OBJECT_INVALID);
+    pMessage->WriteOBJECTIDServer(ghost.oidFake);
     pMessage->WriteBOOL(false);
     pMessage->WriteCExoString(ghost.sName, 32);
     pMessage->WriteBOOL(true);
     pMessage->WriteBYTE(ghost.nPlatformId, 8, true);
     pMessage->WriteCExoString(ghost.sPSID, 32);
-    pMessage->WriteOBJECTIDServer(Constants::OBJECT_INVALID);
+    pMessage->WriteOBJECTIDServer(ghost.oidFake);
     pMessage->WriteCExoLocStringServer(lsFirst, 0);
     pMessage->WriteCExoLocStringServer(lsLast, 0);
     WritePlayerListPortrait(pMessage, 0xffff, ghost.nGender, ghost.cPortrait);
@@ -3144,6 +3159,7 @@ NWNX_EXPORT ArgumentStack SwapPlayerListIdentity(ArgumentStack&& args)
 
     PlayerListGhost ghost;
     ghost.nListId     = nOldId;
+    ghost.oidFake     = s_PlayerListNextFakeOid++;
     ghost.nOwner      = nPlayerId;
     ghost.sName       = sOldName.c_str();
     ghost.cPortrait   = CResRef(sOldPortrait.c_str());
