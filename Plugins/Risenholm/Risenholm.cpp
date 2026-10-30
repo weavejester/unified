@@ -2855,14 +2855,18 @@ NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
 // now; and the row of a name being left behind (a "ghost") keeps the id it
 // already had, so that taking it off later prints the leave line.
 //
-// Chat routing needs one change. /t and /tp are resolved on the client, from
+// Chat routing needs two changes. /t and /tp are resolved on the client, from
 // its own list (CGuiInGameChatPrompt::ParseChatString: GetPlayerByCreatureName
 // and GetPlayerByPlayerName), into a tell to the row's player id, which the
 // server passes to SendServerToPlayerChatMessage unchecked
-// (HandlePlayerToServerChatMessage). So a tell to a made-up id is sent on to
-// its player. A name no longer on the list fails in the client, as it would
-// after a real logout. Party requests carry object ids, not player ids, and
-// need nothing.
+// (HandlePlayerToServerChatMessage). So a tell to a player's current made-up
+// id is sent on to them, and a tell to a ghost reaches no one: a disguised
+// player answering a tell sent to their old name would give the disguise
+// away. That covers a ghost under its player's own id, the usual case while a
+// disguise is new, which is why DMs are left out: their list has the real row
+// under that id. The sender still sees their own line, as for any tell. A
+// name no longer on the list fails in the client, as it would after a real
+// logout. Party requests carry object ids, not player ids, and need nothing.
 //
 // A ghost's row carries an object id of its own, made up and owned by
 // nothing. Not OBJECT_INVALID: the client's player panel
@@ -3252,14 +3256,24 @@ static Hooks::Hook s_PlayerListChangeHook = Hooks::HookFunction(&CServerExoAppIn
             ForgetPlayerListPlayer(nPlayerId);
     }, Hooks::Order::Late);
 
-// A tell to a made-up id goes to its player. Earliest, so NWNX_Chat and the
-// module's chat script see the real recipient.
+// A tell to a made-up id goes to its player, and one to a ghost goes back to
+// its sender alone: the engine sends a tell whose target is its sender once
+// (8193.37 disassembly, 2026-10-30), which is the line a sender always sees.
+// Earliest, so NWNX_Chat and the module's chat script see the real recipient.
 static Hooks::Hook s_PlayerListTellHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerChatMessage,
     +[](CNWSMessage *pThis, uint8_t nChatMessageType, ObjectID oidSpeaker, CExoString sSpeakerMessage,
         uint32_t nTellPlayerId, const CExoString &sTellName) -> int32_t
     {
+        bool bToGhost = nChatMessageType == Constants::ChatChannel::PlayerTell &&
+            std::any_of(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
+                [&](const PlayerListGhost &ghost) { return ghost.nListId == nTellPlayerId; });
+
+        auto *pSender = bToGhost ? Globals::AppManager()->m_pServerExoApp->GetClientObjectByObjectId(oidSpeaker) : nullptr;
+
         auto it = s_PlayerListMadeUpIds.find(nTellPlayerId);
-        if (it != s_PlayerListMadeUpIds.end())
+        if (pSender && !pSender->GetIsDM())
+            nTellPlayerId = pSender->m_nPlayerID;
+        else if (it != s_PlayerListMadeUpIds.end())
             nTellPlayerId = it->second;
 
         return s_PlayerListTellHook->CallOriginal<int32_t>(pThis, nChatMessageType, oidSpeaker, sSpeakerMessage,

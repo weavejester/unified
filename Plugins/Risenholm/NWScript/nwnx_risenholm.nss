@@ -249,8 +249,8 @@ void NWNX_Risenholm_RefreshPlayerListEntry(object oCreature);
 /// @brief Show the player behind oCreature under a new name on the player list, keeping the old one.
 /// @note For a disguise going on or off. sNewName joins every player's list at once, with the
 /// client's join line, and sOldName stays, with sOldPortrait, until RemovePlayerListGhost takes it
-/// off with the leave line, so the two names are not seen to swap. Tells to either name reach the
-/// player while it is listed. DMs see the true list throughout. Call after the name has changed.
+/// off with the leave line, so the two names are not seen to swap. Tells to sNewName reach the
+/// player, and tells to the listed sOldName reach no one. DMs see the true list throughout. Call after the name has changed.
 /// @param oCreature The PC body, or the creature its player is driving.
 /// @param sOldName The name the player went by.
 /// @param sOldPortrait The portrait resref they had under it.
