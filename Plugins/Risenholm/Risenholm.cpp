@@ -2788,6 +2788,16 @@ NWNX_EXPORT ArgumentStack RefreshPlayerListEntry(ArgumentStack&& args)
 // event, which looks nothing up; inviting it finds no one, as for someone who
 // has just left.
 //
+// The character-select screen has a list of its own, sent by another message
+// (SendServerToPlayerPlayModuleCharacterListResponse, whose rows go by object
+// id alone) to whoever has it open (m_bPlayModuleListingCharacters), so a ghost
+// is put there too, under the same made-up object id. The client's handler
+// (CNWCMessage::HandleServerToPlayerPlayModuleCharacterList, Linux disassembly,
+// 2026-10-30) inserts a row for every add, even of an id it has, and takes off
+// the row of that id for a remove. So a real row changes name by a remove and
+// an add, and nothing prints: this list has no join or leave lines. A ghost
+// lists no classes: HIDE_CLASSES_ON_CHAR_LIST sends none for anyone here.
+//
 // The rows are written as the engine writes them (SendServerToPlayerPlayerList_
 // Add and _All, 8193.37 server disassembly, 2026-10-30), field for field: an
 // Add is the BOOL and one entry, a Full is the BOOL, a count byte of players
@@ -2982,6 +2992,63 @@ static BOOL SendPlayerListDelete(CNWSMessage *pMessage, PlayerID nTarget, uint32
     return SendPlayerListMessage(pMessage, nTarget, Constants::MessagePlayerListMinor::Delete);
 }
 
+static void SendCharacterListGhost(CNWSMessage *pMessage, PlayerID nTarget, const PlayerListGhost &ghost, bool bAdd)
+{
+    pMessage->CreateWriteMessage(0x100, nTarget, true);
+    pMessage->WriteBOOL(bAdd);
+    pMessage->WriteDWORD(ghost.oidFake, 32);
+
+    if (bAdd)
+    {
+        CExoLocString lsFirst, lsLast;
+        lsFirst.AddString(0, ghost.sName, 0);
+
+        pMessage->WriteCExoLocStringServer(lsFirst, 0);
+        pMessage->WriteCExoLocStringServer(lsLast, 0);
+        WritePlayerListPortrait(pMessage, 0xffff, ghost.nGender, ghost.cPortrait);
+        pMessage->WriteBYTE(0, 8);
+    }
+
+    uint8_t *pData = nullptr;
+    uint32_t nSize = 0;
+
+    if (pMessage->GetWriteMessage(&pData, &nSize) && nSize)
+    {
+        pMessage->SendServerToPlayerMessage(nTarget, Constants::MessageMajor::PlayModuleCharacterList,
+            Constants::MessagePlayModuleCharacterListMinor::Response, pData, nSize);
+    }
+}
+
+// Takes a ghost off the list of everyone on the character-select screen.
+static void RemoveCharacterListGhost(const PlayerListGhost &ghost)
+{
+    auto *pServer  = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    if (!pMessage)
+        return;
+
+    for (auto *pViewer : pServer->GetPlayerList())
+    {
+        if (pViewer && pViewer->m_bPlayModuleListingCharacters && !pViewer->GetIsDM())
+            SendCharacterListGhost(pMessage, pViewer->m_nPlayerID, ghost, false);
+    }
+}
+
+// The screen's list is filled once, as it opens, so a ghost joins it here.
+static Hooks::Hook s_CharacterListStartHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerPlayModuleCharacterList_Start,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer) -> BOOL
+    {
+        auto bStarted = s_CharacterListStartHook->CallOriginal<BOOL>(pThis, pPlayer);
+
+        if (bStarted && pPlayer && !pPlayer->GetIsDM())
+        {
+            for (auto &ghost : s_PlayerListGhosts)
+                SendCharacterListGhost(pThis, pPlayer->m_nPlayerID, ghost, true);
+        }
+
+        return bStarted;
+    }, Hooks::Order::Late);
+
 static Hooks::Hook s_PlayerListAddHook = Hooks::HookFunction(&CNWSMessage::SendServerToPlayerPlayerList_Add,
     +[](CNWSMessage *pThis, PlayerID nTarget, CNWSPlayer *pPlayer) -> int32_t
     {
@@ -3069,7 +3136,14 @@ static void ForgetPlayerListPlayer(PlayerID nPlayerId)
     }
 
     s_PlayerListGhosts.erase(std::remove_if(s_PlayerListGhosts.begin(), s_PlayerListGhosts.end(),
-        [&](const PlayerListGhost &ghost) { return ghost.nListId == nPlayerId; }), s_PlayerListGhosts.end());
+        [&](const PlayerListGhost &ghost)
+        {
+            if (ghost.nListId != nPlayerId)
+                return false;
+
+            RemoveCharacterListGhost(ghost);
+            return true;
+        }), s_PlayerListGhosts.end());
 
     for (auto &ghost : s_PlayerListGhosts)
     {
@@ -3143,6 +3217,7 @@ NWNX_EXPORT ArgumentStack SwapPlayerListIdentity(ArgumentStack&& args)
     if (ghostIt != s_PlayerListGhosts.end())
     {
         nNewId = ghostIt->nListId;
+        RemoveCharacterListGhost(*ghostIt);
         s_PlayerListGhosts.erase(ghostIt);
     }
     else if (bToOwn)
@@ -3184,6 +3259,18 @@ NWNX_EXPORT ArgumentStack SwapPlayerListIdentity(ArgumentStack&& args)
     SendPlayerListGhostAdd(pMessage, Constants::PLAYERID_ALL_PLAYERS, ghost);
     pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_PLAYERS, pPlayer);
 
+    // Anyone on the character-select screen sees the same: the player's row
+    // takes the new name, through NWNX_Rename, and the old name stays beside it.
+    for (auto *pViewer : pServer->GetPlayerList())
+    {
+        if (pViewer && pViewer->m_bPlayModuleListingCharacters && !pViewer->GetIsDM())
+        {
+            pMessage->SendServerToPlayerPlayModuleCharacterListResponse(pViewer->m_nPlayerID, pPlayer->m_oidPCObject, false);
+            pMessage->SendServerToPlayerPlayModuleCharacterListResponse(pViewer->m_nPlayerID, pPlayer->m_oidPCObject, true);
+            SendCharacterListGhost(pMessage, pViewer->m_nPlayerID, ghost, true);
+        }
+    }
+
     return (int32_t)nOldId;
 }
 
@@ -3200,6 +3287,7 @@ NWNX_EXPORT ArgumentStack RemovePlayerListGhost(ArgumentStack&& args)
         return {};
 
     auto nOwner = ghostIt->nOwner;
+    RemoveCharacterListGhost(*ghostIt);
     s_PlayerListGhosts.erase(ghostIt);
 
     if (PlayerListIdOf(nOwner) != nListId)
