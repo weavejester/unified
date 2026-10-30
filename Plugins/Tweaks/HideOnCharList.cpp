@@ -80,8 +80,23 @@ static int32_t SendServerToPlayerPlayModuleCharacterListResponseHook(CNWSMessage
     {
         if (CNWSCreature *pCreature = pServer->GetCreatureByGameObjectID(nCharacterId))
         {
-            thisPtr->WriteCExoLocStringServer(pCreature->GetFirstName(), pCreature->GetGender());
-            thisPtr->WriteCExoLocStringServer(pCreature->GetLastName(), pCreature->GetGender());
+            // Risenholm: a display name, when the creature has one, stands in
+            // for the first name with no last name, as the engine's own
+            // message does (8193.37 disassembly, 2026-10-30). That is where
+            // NWNX_Rename puts an override for this list (ON_MODULE_CHAR_LIST),
+            // so without it every player was listed by their .bic's name.
+            if (pCreature->m_sDisplayName.m_nStringLength)
+            {
+                CExoLocString lsFirst, lsLast;
+                lsFirst.AddString(0, pCreature->m_sDisplayName, 0);
+                thisPtr->WriteCExoLocStringServer(lsFirst, pCreature->GetGender());
+                thisPtr->WriteCExoLocStringServer(lsLast, pCreature->GetGender());
+            }
+            else
+            {
+                thisPtr->WriteCExoLocStringServer(pCreature->GetFirstName(), pCreature->GetGender());
+                thisPtr->WriteCExoLocStringServer(pCreature->GetLastName(), pCreature->GetGender());
+            }
 
             uint16_t portraitId = pCreature->GetPortraitId();
             thisPtr->WriteWORD(portraitId, 16);
