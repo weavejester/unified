@@ -577,6 +577,20 @@ reports an amount that was never taken. The module used to hide feedback 62 for 
 half a second instead, which a crossbow bolt's flight outlasted. This export removes only the
 stale entries, from the one attack, and leaves its other messages alone.
 
+### GetAttackAbsorbed
+
+`NWNX_Risenholm_GetAttackAbsorbed(oAttacker, nAttackNumber)` gives how much the target's damage
+immunity, resistance, and reduction took off one weapon hit, all three summed. `nAttackNumber` is
+the attack event's 1-based `iAttackNumber`, so it is meant to be called from the NWNX_Damage
+attack event, before `RemoveAttackImmunityFeedback` takes any messages out.
+
+`GetDamageRoll` runs a hit through `CNWSObject::DoDamageImmunity`, `DoDamageResistance`, and
+`DoDamageReduction` before that event, so a script sees only what they left. Each queues a
+`CNWCCMessageData` on the attack's `m_alstPendingFeedback` with the feedback id in Integer 0 and
+the amount taken off in Integer 1: 62 immunity, 63 resistance, 64 reduction (read from the 8193.37
+disassembly, 2026-10-30). This sums those. Vulnerability queues nothing, so it is not counted.
+The module uses it to measure an Intruder's damage before the defenders' mitigation.
+
 ### SetShelterAppearances
 
 `NWNX_Risenholm_SetShelterAppearances(sRows)` names the `placeables.2da` rows that shelter from

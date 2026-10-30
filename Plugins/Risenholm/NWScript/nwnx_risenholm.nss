@@ -379,6 +379,17 @@ void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp);
 /// @param nDamageTypes DAMAGE_TYPE_* flags, ORed together.
 void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNumber, int nDamageTypes);
 
+/// @brief Get how much damage the target's damage immunity, resistance, and reduction took off
+/// one of oAttacker's weapon hits, all three together.
+/// @note Call it from the NWNX_Damage attack event, and before
+/// NWNX_Risenholm_RemoveAttackImmunityFeedback: the engine works these out before the event,
+/// and the amounts are read from the "absorbs" messages it queues on the attack. Vulnerability
+/// is not among them. 0 on a build without this function.
+/// @param oAttacker The attacker.
+/// @param nAttackNumber The attack, as the attack event data gives it (iAttackNumber, 1-based).
+/// @return The damage taken off, summed over every damage type.
+int NWNX_Risenholm_GetAttackAbsorbed(object oAttacker, int nAttackNumber);
+
 /// @brief Name the placeable appearances that shelter from the rain, so that an area learns
 /// when one is put in it or taken out.
 /// @note From then on, whenever a placeable whose appearance is one of these is added to an
@@ -739,6 +750,14 @@ void NWNX_Risenholm_RemoveAttackImmunityFeedback(object oAttacker, int nAttackNu
     NWNXPushInt(nAttackNumber);
     NWNXPushObject(oAttacker);
     NWNXCall(NWNX_Risenholm, "RemoveAttackImmunityFeedback");
+}
+
+int NWNX_Risenholm_GetAttackAbsorbed(object oAttacker, int nAttackNumber)
+{
+    NWNXPushInt(nAttackNumber);
+    NWNXPushObject(oAttacker);
+    NWNXCall(NWNX_Risenholm, "GetAttackAbsorbed");
+    return NWNXPopInt();
 }
 
 void NWNX_Risenholm_SetShelterAppearances(string sRows)

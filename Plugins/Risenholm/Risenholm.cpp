@@ -7601,6 +7601,52 @@ NWNX_EXPORT ArgumentStack RemoveAttackImmunityFeedback(ArgumentStack&& args)
     return {};
 }
 
+// ---------------------------------------------------------------------------------------------
+// What the engine's mitigation took off a weapon hit
+// ---------------------------------------------------------------------------------------------
+//
+// GetDamageRoll runs a weapon hit through the target's damage immunity, resistance, and reduction
+// (CNWSObject::DoDamageImmunity, DoDamageResistance, DoDamageReduction, in that order) before the
+// NWNX_Damage attack event, so a script only ever sees what they left. Each of the three, given
+// an attacker and its feedback argument, queues a CNWCCMessageData on the attacker's current
+// attack's m_alstPendingFeedback, holding the feedback id in Integer 0 and the amount it took off
+// in Integer 1: 62 for immunity (Integer 2 the damage type's flag), 63 for resistance (the lesser
+// of the damage and the resistance), 64 for reduction. Read from the 8193.37 disassembly,
+// 2026-10-30. SignalMeleeDamage and SignalRangedDamage post the list as feedback only after the
+// attack event, so it is all still there while the event runs.
+//
+// The module adds these back to measure an Intruder's damage before the defenders' mitigation
+// (pw_inc_invraw). Read it before RemoveAttackImmunityFeedback takes any of them out.
+
+NWNX_EXPORT ArgumentStack GetAttackAbsorbed(ArgumentStack&& args)
+{
+    auto *pCreature          = Utils::PopCreature(args);
+    const auto nAttackNumber = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pcCombatRound || nAttackNumber < 1)
+        return 0;
+
+    // 1-based, as NWNX_Damage's attack event data gives it.
+    auto *pAttackData = pCreature->m_pcCombatRound->GetAttack(nAttackNumber - 1);
+    if (!pAttackData)
+        return 0;
+
+    int32_t nAbsorbed = 0;
+
+    for (auto *pData : pAttackData->m_alstPendingFeedback)
+    {
+        if (!pData || pData->m_nType != 0 || pData->m_nParamInteger.num < 2)
+            continue;
+
+        const int32_t nFeedback = pData->m_nParamInteger[0];
+
+        if (nFeedback == 62/*Damage Immunity*/ || nFeedback == 63/*Damage Resistance*/ || nFeedback == 64/*Damage Reduction*/)
+            nAbsorbed += pData->m_nParamInteger[1];
+    }
+
+    return nAbsorbed;
+}
+
 // ---------------------------------------------------------------------------
 // Logging what strips a player's effects
 // ---------------------------------------------------------------------------
