@@ -3056,7 +3056,32 @@ static BOOL SendPlayerListMessage(CNWSMessage *pMessage, PlayerID nTarget, uint8
     if (!pMessage->GetWriteMessage(&pData, &nSize) || !nSize)
         return false;
 
-    return pMessage->SendServerToPlayerMessage(nTarget, Constants::MessageMajor::PlayerList, nMinor, pData, nSize);
+    if (nTarget != Constants::PLAYERID_ALL_PLAYERS && nTarget != Constants::PLAYERID_ALL_CLIENTS)
+        return pMessage->SendServerToPlayerMessage(nTarget, Constants::MessageMajor::PlayerList, nMinor, pData, nSize);
+
+    // One by one, leaving out DMs. PLAYERID_ALL_PLAYERS reaches them too: a DM
+    // connection has player privileges as well as DM ones (8193.37 disassembly,
+    // CNetLayerInternal, 2026-10-31). A DM's party bar holds a panel for each
+    // row's object id, rebuilt at every player-list message
+    // (CPanelPartyBar::DungeonMasterAddEveryOne), and a ghost's Add took the
+    // row's real id away, so the player's panel went and came back new. A new
+    // panel's area is invalid until the player changes area, the server having
+    // nothing else to send, and a creature on the party bar takes its area from
+    // its panel (CNWCCreature::UpdateAreaId). One that does not match the
+    // client's own area has its name bubble hidden. So a DM lost the name,
+    // portrait, and background on hovering that player, and the name on Tab,
+    // and leaving the area did not bring them back (seen 2026-10-31; the chain
+    // is read from the client's disassembly, not yet proved by this fix).
+    BOOL bSent = false;
+    for (auto *pViewer : Globals::AppManager()->m_pServerExoApp->GetPlayerList())
+    {
+        if (pViewer && !pViewer->GetIsDM() &&
+            pMessage->SendServerToPlayerMessage(pViewer->m_nPlayerID, Constants::MessageMajor::PlayerList, nMinor, pData, nSize))
+        {
+            bSent = true;
+        }
+    }
+    return bSent;
 }
 
 static BOOL SendPlayerListAdd(CNWSMessage *pMessage, PlayerID nTarget, CNWSPlayer *pPlayer, uint32_t nListId)
@@ -3360,6 +3385,12 @@ NWNX_EXPORT ArgumentStack SwapPlayerListIdentity(ArgumentStack&& args)
     // NWNX_Rename and the hook above, printing the join line where it is new.
     SendPlayerListGhostAdd(pMessage, Constants::PLAYERID_ALL_PLAYERS, ghost);
     pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_PLAYERS, pPlayer);
+
+    // DMs keep the one true row, which takes the new name in place. NWNX_Rename
+    // only refreshes the list of an observer who has this creature in their
+    // object updates, so without this a DM elsewhere keeps the old name until
+    // something else refreshes their list.
+    pMessage->SendServerToPlayerPlayerList_Add(Constants::PLAYERID_ALL_GAMEMASTERS, pPlayer);
 
     // Anyone on the character-select screen sees the same: the player's row
     // takes the new name, through NWNX_Rename, and the old name stays beside it.
