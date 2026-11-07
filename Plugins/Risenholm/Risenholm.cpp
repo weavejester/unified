@@ -5767,6 +5767,196 @@ NWNX_EXPORT ArgumentStack GetIsItemConcealedFrom(ArgumentStack&& args)
     return (int32_t)(it != s_ConcealedItems.end() && it->second.items.count(oidItem) != 0);
 }
 
+// ---- An animation played for one player alone ----
+//
+// A pickpocket's steal plays for the thief, for the victim only if they
+// notice it, and later for a bystander only if they do (the module's
+// pw_inc_pickpock). The creature itself plays nothing: what one player is
+// sent of it is overridden instead.
+//
+// An object update carries a creature's animation as state, not as an event.
+// For each player and object, CNWSMessage::ComputeUpdateRequired diffs the
+// object's m_nAnimation and m_fAnimSpeed against that player's
+// CLastUpdateObject (what their client was last told of it),
+// WriteGameObjUpdate_UpdateObject writes the object's fields, and
+// StoreValuesInLastUpdateObject and UpdateLastUpdateObject copy them into the
+// LUO. So for a player with an override on a creature, all four run with the
+// creature's animation and speed swapped for the override's, put back the
+// moment each returns (the Rename plugin swaps a name around the write the
+// same way). The change is seen, sent, and recorded for that player alone.
+//
+// The recorders count as much as the diff. With only the diff and the write
+// swapped, the LUO took the creature's real animation while the client had
+// been sent the override, so the two disagreed ever after, and every later
+// update to that player sent the animation again: the thief saw the first
+// frames of one replayed each time anything else about them changed, three
+// times over a lift (the purse coming in, its worn effect going on), once
+// over a failure (2026-11-07).
+//
+// Only the diff decides that an override has run out (bExpire), and the
+// others go by what it decided, so all four agree within one update. Once one
+// runs out, the creature's real animation differs from what that player was
+// last told, and goes out to them, and is recorded, as ever.
+//
+// A player who first sees the creature during an override is sent its real
+// animation, as a new LUO is built without these calls.
+
+struct AnimationOverride
+{
+    int32_t nAnimation;
+    float fSpeed;
+    std::chrono::steady_clock::time_point tUntil;
+};
+
+static std::unordered_map<ObjectID, std::unordered_map<ObjectID, AnimationOverride>> s_AnimationOverrides;   // player -> creature
+
+static const AnimationOverride *FindAnimationOverride(CNWSPlayer *pPlayer, CNWSObject *pObject, bool bExpire)
+{
+    if (s_AnimationOverrides.empty() || !pPlayer || !pObject)
+        return nullptr;
+
+    auto it = s_AnimationOverrides.find(pPlayer->m_oidNWSObject);
+    if (it == s_AnimationOverrides.end())
+        it = s_AnimationOverrides.find(pPlayer->m_oidPCObject);
+    if (it == s_AnimationOverrides.end())
+        return nullptr;
+
+    auto jt = it->second.find(pObject->m_idSelf);
+    if (jt == it->second.end())
+        return nullptr;
+
+    // Run out: forgotten, so the real animation goes out on this diff.
+    if (bExpire && std::chrono::steady_clock::now() >= jt->second.tUntil)
+    {
+        it->second.erase(jt);
+        if (it->second.empty())
+            s_AnimationOverrides.erase(it);
+        return nullptr;
+    }
+
+    return &jt->second;
+}
+
+// Runs fn with pObject's animation and speed swapped for pOverride's.
+template <typename Fn>
+static auto WithAnimationOverride(CNWSObject *pObject, const AnimationOverride *pOverride, Fn fn)
+{
+    const auto nAnimation = pObject->m_nAnimation;
+    const auto fSpeed     = pObject->m_fAnimSpeed;
+    pObject->m_nAnimation = pOverride->nAnimation;
+    pObject->m_fAnimSpeed = pOverride->fSpeed;
+    auto result = fn();
+    pObject->m_nAnimation = nAnimation;
+    pObject->m_fAnimSpeed = fSpeed;
+    return result;
+}
+
+static Hooks::Hook s_AnimationOverrideComputeHook = Hooks::HookFunction(&CNWSMessage::ComputeUpdateRequired,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pGameObject, CLastUpdateObject *pLastUpdateObject,
+        BOOL bPlayerObject) -> uint32_t
+    {
+        auto CallOriginal = [&]()
+        {
+            return s_AnimationOverrideComputeHook->CallOriginal<uint32_t>(pThis, pPlayer, pGameObject,
+                pLastUpdateObject, bPlayerObject);
+        };
+
+        const auto *pOverride = FindAnimationOverride(pPlayer, pGameObject, true);
+        return pOverride ? WithAnimationOverride(pGameObject, pOverride, CallOriginal) : CallOriginal();
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_AnimationOverrideWriteHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pAreaObject, CLastUpdateObject *pLastUpdateObject,
+        uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_AnimationOverrideWriteHook->CallOriginal<void>(pThis, pPlayer, pAreaObject, pLastUpdateObject,
+                nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+            return 0;
+        };
+
+        const auto *pOverride = FindAnimationOverride(pPlayer, pAreaObject, false);
+        if (pOverride) WithAnimationOverride(pAreaObject, pOverride, CallOriginal); else CallOriginal();
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_AnimationOverrideStoreHook = Hooks::HookFunction(&CNWSMessage::StoreValuesInLastUpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CLastUpdateObject *pLastUpdateObject, CNWSObject *pAreaObject,
+        uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_AnimationOverrideStoreHook->CallOriginal<void>(pThis, pPlayer, pLastUpdateObject, pAreaObject,
+                nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+            return 0;
+        };
+
+        const auto *pOverride = FindAnimationOverride(pPlayer, pAreaObject, false);
+        if (pOverride) WithAnimationOverride(pAreaObject, pOverride, CallOriginal); else CallOriginal();
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_AnimationOverrideUpdateLuoHook = Hooks::HookFunction(&CNWSMessage::UpdateLastUpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pGameObject, CLastUpdateObject *pLastUpdateObject,
+        uint32_t nObjectUpdatesRequired) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_AnimationOverrideUpdateLuoHook->CallOriginal<void>(pThis, pPlayer, pGameObject, pLastUpdateObject,
+                nObjectUpdatesRequired);
+            return 0;
+        };
+
+        const auto *pOverride = FindAnimationOverride(pPlayer, pGameObject, false);
+        if (pOverride) WithAnimationOverride(pGameObject, pOverride, CallOriginal); else CallOriginal();
+    }, Hooks::Order::Early);
+
+// Show oPlayer oCreature playing the engine animation nAnimation at fSpeed for
+// fDuration seconds, whatever it is really doing; everyone else sees what it
+// really does. A second call for the pair replaces the first. A duration of 0
+// or less takes an override off at once.
+NWNX_EXPORT ArgumentStack PlayAnimationForPlayer(ArgumentStack&& args)
+{
+    const auto oidPlayer   = args.extract<ObjectID>();
+    const auto oidCreature = args.extract<ObjectID>();
+    const auto nAnimation  = args.extract<int32_t>();
+    const auto fSpeed      = args.extract<float>();
+    const auto fDuration   = args.extract<float>();
+
+    if (oidPlayer == Constants::OBJECT_INVALID || oidCreature == Constants::OBJECT_INVALID)
+        return {};
+
+    if (fDuration <= 0.0f)
+    {
+        if (auto it = s_AnimationOverrides.find(oidPlayer); it != s_AnimationOverrides.end())
+        {
+            it->second.erase(oidCreature);
+            if (it->second.empty())
+                s_AnimationOverrides.erase(it);
+        }
+        return {};
+    }
+
+    s_AnimationOverrides[oidPlayer][oidCreature] = { nAnimation, fSpeed,
+        std::chrono::steady_clock::now() + std::chrono::milliseconds((int64_t)(fDuration * 1000.0f)) };
+
+    return {};
+}
+
+// Whether an override for oCreature is showing to oPlayer: FALSE on a build
+// without them too, so the module can tell.
+NWNX_EXPORT ArgumentStack GetIsPlayingAnimationForPlayer(ArgumentStack&& args)
+{
+    const auto oidPlayer   = args.extract<ObjectID>();
+    const auto oidCreature = args.extract<ObjectID>();
+
+    auto it = s_AnimationOverrides.find(oidPlayer);
+    if (it == s_AnimationOverrides.end())
+        return (int32_t)0;
+
+    auto jt = it->second.find(oidCreature);
+    return (int32_t)(jt != it->second.end() && std::chrono::steady_clock::now() < jt->second.tUntil);
+}
+
 // ---- "[Hidden]" under a hidden item's name, for its holder only ----
 //
 // The holder needs to see which of their items /hideitem has marked, and a

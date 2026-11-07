@@ -345,6 +345,27 @@ carries. Barter (list 2) is never filtered, so nothing can be slipped into a tra
 | `NWNX_Risenholm_ClearConcealedItems(oViewer)` | Drop everything registered for `oViewer`. |
 | `NWNX_Risenholm_GetIsItemConcealedFrom(oViewer, oItem)` | Whether that registration exists. The module probes one before opening a search, so a build without concealment refuses the search rather than showing hidden items. |
 
+### An animation played for one player alone
+
+Hooks on `CNWSMessage::ComputeUpdateRequired`, `WriteGameObjUpdate_UpdateObject`,
+`StoreValuesInLastUpdateObject`, and `UpdateLastUpdateObject`, plus two exports. A pickpocket's steal
+plays for the thief, for the victim only if they notice it, and for a bystander only if they do,
+while the thief's body plays nothing. An object update carries a creature's animation as state: the
+first diffs the object's `m_nAnimation` and `m_fAnimSpeed` against that player's `CLastUpdateObject`,
+the second writes them, and the last two record them there. For a player with an override on a
+creature, all four run with the creature's animation and speed swapped for the override's, put back
+the moment each returns (the Rename plugin swaps a name around the same write), so it is sent and
+recorded for that player alone. The recorders matter as much as the diff: with them left out, the
+LUO took the real animation while the client had been sent the override, the two disagreed ever
+after, and each later update replayed the first frames of an animation. Only the diff decides that
+an override has run out, so all four agree within one update. A player who first sees the creature
+during one is sent its real animation, as a new LUO is built without these calls.
+
+| Export | |
+| --- | --- |
+| `NWNX_Risenholm_PlayAnimationForPlayer(oPlayer, oCreature, nAnimation, fSpeed, fDuration)` | Show `oPlayer` `oCreature` playing `nAnimation` (an `ANIMATION_*` constant; the wrapper translates it to the engine's number) at `fSpeed` for `fDuration` seconds. A second call for the pair replaces the first; a duration of 0 or less takes it off at once. |
+| `NWNX_Risenholm_GetIsPlayingAnimationForPlayer(oPlayer, oCreature)` | Whether one is showing: FALSE on a build without them. |
+
 ### "[Hidden]" under a hidden item's name, for its holder only
 
 Hooks on `CNWSMessage::AddActiveItemPropertiesToMessage` (every item as a panel lists it),

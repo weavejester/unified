@@ -3,6 +3,8 @@
 /// @{
 /// @file nwnx_risenholm.nss
 
+#include "nwnx_consts"
+
 const string NWNX_Risenholm = "NWNX_Risenholm"; ///< @private
 
 /// @brief Signalled through the Events plugin after an item is moved within a
@@ -289,6 +291,20 @@ void NWNX_Risenholm_ClearConcealedItems(object oViewer);
 /// @param oItem The item.
 /// @return TRUE if registered, FALSE otherwise -- including on a plugin build without concealment.
 int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem);
+
+/// @brief Show oPlayer oCreature playing nAnimation at fSpeed for fDuration seconds, whatever it is
+/// really doing; everyone else sees what it really does (a pickpocket's steal, shown to the thief and
+/// to a victim who notices it). A second call for the pair replaces the first.
+/// @param oPlayer The player to show it to (the creature's own player sees their own character this way too).
+/// @param oCreature The creature.
+/// @param nAnimation An ANIMATION_* constant, as PlayAnimation takes.
+/// @param fSpeed The animation's speed, 1.0 as made.
+/// @param fDuration Seconds to show it for; 0 or less takes an override off at once.
+void NWNX_Risenholm_PlayAnimationForPlayer(object oPlayer, object oCreature, int nAnimation, float fSpeed, float fDuration);
+
+/// @brief Whether an animation played by NWNX_Risenholm_PlayAnimationForPlayer is showing to oPlayer.
+/// @return TRUE if so, FALSE otherwise -- including on a plugin build without them.
+int NWNX_Risenholm_GetIsPlayingAnimationForPlayer(object oPlayer, object oCreature);
 
 /// @brief Set the damage bonus limit for the running module, past the 255 SetDamageBonusLimit allows.
 /// @note The engine clamps the PHYSICAL damage bonus from effects to this limit, summed across
@@ -679,6 +695,24 @@ int NWNX_Risenholm_GetIsItemConcealedFrom(object oViewer, object oItem)
     NWNXPushObject(oItem);
     NWNXPushObject(oViewer);
     NWNXCall(NWNX_Risenholm, "GetIsItemConcealedFrom");
+    return NWNXPopInt();
+}
+
+void NWNX_Risenholm_PlayAnimationForPlayer(object oPlayer, object oCreature, int nAnimation, float fSpeed, float fDuration)
+{
+    NWNXPushFloat(fDuration);
+    NWNXPushFloat(fSpeed);
+    NWNXPushInt(NWNX_Consts_TranslateNWScriptAnimation(nAnimation));
+    NWNXPushObject(oCreature);
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "PlayAnimationForPlayer");
+}
+
+int NWNX_Risenholm_GetIsPlayingAnimationForPlayer(object oPlayer, object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "GetIsPlayingAnimationForPlayer");
     return NWNXPopInt();
 }
 
