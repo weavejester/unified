@@ -7939,6 +7939,179 @@ NWNX_EXPORT ArgumentStack SetDamageLevelBase(ArgumentStack&& args)
 }
 
 
+// ---------------------------------------------------------------------------
+// Text bubble override per viewer
+// ---------------------------------------------------------------------------
+//
+// SetObjectTextBubbleOverride puts text into an object's mouse-over and TAB
+// bubble: in place of it, before it, or after the health line. It is one string
+// per object, the same for everyone. This lets a script give one viewer a text of
+// their own for one object, which the module's hover resources use
+// (pw_inc_hoverres) to show only those viewers who have read a player.
+//
+// How the engine sends it, from the 8193.37 decompilation and the client's code
+// (2026-11-08): CNWSObject holds the mode and text (m_nTextBubbleOverrideType,
+// 0x268, and m_sTextBubbleOverrideText, 0x270). Each player's CLastUpdateObject
+// keeps a copy of what that player was last sent; ComputeUpdateRequired compares
+// the two and sets flag 0x400000 on a difference, WriteGameObjUpdate_UpdateObject
+// writes the pair, and StoreValuesInLastUpdateObject (through
+// UpdateLastUpdateObject) copies it into the player's record. The client takes
+// the text as it comes, with no TLK parsing, so colour codes and newlines work,
+// and refreshes an open bubble when an update carries the flag.
+//
+// Since each of those three runs for one player and one object, the viewer's own
+// text is swapped into the object around each call and swapped back after it. The
+// player's record then holds the viewer's text, and the comparison finds a change
+// to it the next update, so nothing needs sending by hand. The swap trades the
+// string's pointer and length, so it allocates nothing; none of the three runs a
+// script, so the entry cannot move while it is swapped in. Optimizations'
+// LuoLookup calls the same three functions, so it goes through these hooks too.
+//
+// A viewer is matched on the creature its player is controlling, then on the
+// player's own character, so either may be passed. An object with no entry for a
+// viewer shows that viewer its own override, as before. Entries are held by object
+// id and not saved, and outlive a logout until ClearTextBubbleOverrides.
+static_assert(offsetof(CNWSObject, m_nTextBubbleOverrideType) == 0x268, "CNWSObject layout changed");
+static_assert(offsetof(CNWSObject, m_sTextBubbleOverrideText) == 0x270, "CNWSObject layout changed");
+static_assert(offsetof(CExoString, m_nStringLength) == 8, "CExoString layout changed");
+
+struct ViewerTextBubble
+{
+    int32_t nType;
+    CExoString sText;
+};
+
+static std::unordered_map<ObjectID, std::unordered_map<ObjectID, ViewerTextBubble>> s_ViewerTextBubbles;
+
+static ViewerTextBubble *FindViewerTextBubble(CNWSPlayer *pPlayer, CNWSObject *pObject)
+{
+    if (s_ViewerTextBubbles.empty() || !pPlayer || !pObject)
+        return nullptr;
+
+    auto it = s_ViewerTextBubbles.find(pObject->m_idSelf);
+    if (it == s_ViewerTextBubbles.end())
+        return nullptr;
+
+    auto &viewers = it->second;
+    auto v = viewers.find(pPlayer->m_oidNWSObject);
+    if (v == viewers.end())
+        v = viewers.find(pPlayer->m_oidPCObject);
+
+    return v == viewers.end() ? nullptr : &v->second;
+}
+
+static void SwapViewerTextBubble(CNWSObject *pObject, ViewerTextBubble *pEntry)
+{
+    std::swap(pObject->m_nTextBubbleOverrideType, pEntry->nType);
+    // All three fields: the engine reads the length (m_nStringLength, 0x278)
+    // as well as the pointer. Swapping the pointer and the buffer size alone
+    // sent each viewer their text cut to the length of the object's own
+    // override, so to nothing on an object without one (seen 2026-11-08).
+    std::swap(pObject->m_sTextBubbleOverrideText.m_sString, pEntry->sText.m_sString);
+    std::swap(pObject->m_sTextBubbleOverrideText.m_nStringLength, pEntry->sText.m_nStringLength);
+    std::swap(pObject->m_sTextBubbleOverrideText.m_nBufferLength, pEntry->sText.m_nBufferLength);
+}
+
+// Swaps the viewer's text in for the life of the guard.
+struct ViewerTextBubbleGuard
+{
+    CNWSObject *m_pObject;
+    ViewerTextBubble *m_pEntry;
+
+    ViewerTextBubbleGuard(CNWSPlayer *pPlayer, CNWSObject *pObject)
+        : m_pObject(pObject), m_pEntry(FindViewerTextBubble(pPlayer, pObject))
+    {
+        if (m_pEntry) SwapViewerTextBubble(m_pObject, m_pEntry);
+    }
+
+    ~ViewerTextBubbleGuard()
+    {
+        if (m_pEntry) SwapViewerTextBubble(m_pObject, m_pEntry);
+    }
+};
+
+static Hooks::Hook s_ViewerBubbleComputeHook = Hooks::HookFunction(&CNWSMessage::ComputeUpdateRequired,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO, BOOL bPlayerObject) -> uint32_t
+    {
+        ViewerTextBubbleGuard guard(pPlayer, pObject);
+        return s_ViewerBubbleComputeHook->CallOriginal<uint32_t>(pThis, pPlayer, pObject, pLUO, bPlayerObject);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_ViewerBubbleWriteHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO,
+        uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        ViewerTextBubbleGuard guard(pPlayer, pObject);
+        s_ViewerBubbleWriteHook->CallOriginal<void>(pThis, pPlayer, pObject, pLUO,
+                                                    nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_ViewerBubbleStoreHook = Hooks::HookFunction(&CNWSMessage::StoreValuesInLastUpdateObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CLastUpdateObject *pLUO, CNWSObject *pObject,
+        uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
+    {
+        ViewerTextBubbleGuard guard(pPlayer, pObject);
+        s_ViewerBubbleStoreHook->CallOriginal<void>(pThis, pPlayer, pLUO, pObject,
+                                                    nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+    }, Hooks::Order::Early);
+
+NWNX_EXPORT ArgumentStack SetTextBubbleOverrideFor(ArgumentStack&& args)
+{
+    auto oidObject = args.extract<ObjectID>();
+    auto oidViewer = args.extract<ObjectID>();
+    auto nType     = args.extract<int32_t>();
+    auto sText     = args.extract<std::string>();
+      ASSERT_OR_THROW(nType >= 0 && nType <= 3);
+
+    if (nType == 0)
+    {
+        auto it = s_ViewerTextBubbles.find(oidObject);
+        if (it != s_ViewerTextBubbles.end())
+        {
+            it->second.erase(oidViewer);
+            if (it->second.empty())
+                s_ViewerTextBubbles.erase(it);
+        }
+        return {};
+    }
+
+    auto &entry = s_ViewerTextBubbles[oidObject][oidViewer];
+    entry.nType = nType;
+    if (sText != entry.sText.CStr())
+        entry.sText = sText.c_str();
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack GetTextBubbleOverrideFor(ArgumentStack&& args)
+{
+    auto oidObject = args.extract<ObjectID>();
+    auto oidViewer = args.extract<ObjectID>();
+
+    auto it = s_ViewerTextBubbles.find(oidObject);
+    if (it == s_ViewerTextBubbles.end())
+        return std::string("");
+
+    auto v = it->second.find(oidViewer);
+    return std::string(v == it->second.end() ? "" : v->second.sText.CStr());
+}
+
+NWNX_EXPORT ArgumentStack ClearTextBubbleOverrides(ArgumentStack&& args)
+{
+    auto oidObject = args.extract<ObjectID>();
+
+    s_ViewerTextBubbles.erase(oidObject);
+
+    for (auto it = s_ViewerTextBubbles.begin(); it != s_ViewerTextBubbles.end();)
+    {
+        it->second.erase(oidObject);
+        it = it->second.empty() ? s_ViewerTextBubbles.erase(it) : std::next(it);
+    }
+
+    return {};
+}
+
+
 // ---------------------------------------------------------------------------------------------
 // Store markup above 1000%
 // ---------------------------------------------------------------------------------------------

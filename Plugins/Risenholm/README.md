@@ -585,6 +585,31 @@ their next update. 0 removes it. It is held per object id and not saved. The mod
 (`pw_inc_mood`) give each mood a block of rows with strrefs of its own, filled in per player with
 `NWNX_Player_SetTlkOverride`.
 
+### Text bubble overrides per viewer
+
+`SetObjectTextBubbleOverride` puts text into an object's mouse-over and TAB bubble (in place of it,
+before it, or after the health line), one string per object, the same for everyone.
+`NWNX_Risenholm_SetTextBubbleOverrideFor(oObject, oViewer, nMode, sText)` gives one viewer a text of
+their own; `OBJECT_UI_TEXT_BUBBLE_OVERRIDE_NONE` takes it away, and a viewer with none sees the
+object's ordinary override. `NWNX_Risenholm_ClearTextBubbleOverrides(oObject)` drops every text
+on the object and every text the object sees as a viewer, for a logout.
+`NWNX_Risenholm_GetTextBubbleOverrideFor` reads one back. The module's hover resources
+(`pw_inc_hoverres`) use it to show a player's pools only to those who have read them.
+
+The server keeps the override on the object (`m_nTextBubbleOverrideType`,
+`m_sTextBubbleOverrideText`) and a copy of what each player was last sent in that player's
+`CLastUpdateObject`. `ComputeUpdateRequired` compares the two (flag `0x400000`),
+`WriteGameObjUpdate_UpdateObject` writes the pair, and `StoreValuesInLastUpdateObject` records it.
+Each of the three runs for one player and one object, so the viewer's text is swapped into the
+object around each call and back after it (pointer and length, no allocation). The player's record
+then holds their own text, and a change to it goes out on their next update with nothing sent by
+hand. The client adds the text to the bubble as it comes, with no TLK parsing, so colour codes and
+newlines work, and redraws an open bubble when an update carries the flag (read from
+`CNWCCreature::ShowFeedbackBubbleText` and the creature update handler, 8193.37).
+
+A viewer is matched on the creature its player controls, then on the player's own character.
+Entries are held by object id and not saved.
+
 ### SetStoreMarkUp
 
 `NWNX_Risenholm_SetStoreMarkUp(oStore, nMarkUp)` replaces `NWNX_Store_SetMarkUp`, which refuses a

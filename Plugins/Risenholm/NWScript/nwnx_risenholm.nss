@@ -386,6 +386,25 @@ void NWNX_Risenholm_SetRpcResponse(string sResponse);
 /// @param nBase The first row of a five-row block, at most 251; 0 or less removes it.
 void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase);
 
+/// @brief Give oViewer alone a text bubble override on oObject, as SetObjectTextBubbleOverride
+/// gives everyone one: the mouse-over and TAB bubble's text replaced, prefixed, or followed.
+/// @note oViewer may be a player's own character or the creature they are controlling. A viewer
+/// with no override of their own sees oObject's ordinary one. Reaches the viewer on their next
+/// object update, and an open bubble redraws. Held by object id and not saved; an entry outlives
+/// a logout until NWNX_Risenholm_ClearTextBubbleOverrides.
+/// @param oObject The creature, item, or usable placeable.
+/// @param oViewer The player who sees it.
+/// @param nMode An OBJECT_UI_TEXT_BUBBLE_OVERRIDE_* constant; _NONE removes oViewer's override.
+/// @param sText The text, taken as it is: colour codes and newlines work, TLK tokens do not.
+void NWNX_Risenholm_SetTextBubbleOverrideFor(object oObject, object oViewer, int nMode, string sText);
+
+/// @brief The text of oViewer's own text bubble override on oObject, "" for none.
+/// @note An older plugin returns "" for everything, which is how pw_inc_hoverres tells.
+string NWNX_Risenholm_GetTextBubbleOverrideFor(object oObject, object oViewer);
+
+/// @brief Remove every per-viewer text bubble override on oObject, and every one oObject sees.
+void NWNX_Risenholm_ClearTextBubbleOverrides(object oObject);
+
 /// @brief Set oStore's markup, as NWNX_Store_SetMarkUp does, but up to 30000.
 /// @note Use this and NOT NWNX_Store_SetMarkUp, which refuses anything above 1000, throwing and
 /// leaving the store at its old markup. The engine itself takes up to 32767 less the customer's
@@ -790,6 +809,29 @@ void NWNX_Risenholm_SetDamageLevelBase(object oObject, int nBase)
     NWNXPushInt(nBase);
     NWNXPushObject(oObject);
     NWNXCall(NWNX_Risenholm, "SetDamageLevelBase");
+}
+
+void NWNX_Risenholm_SetTextBubbleOverrideFor(object oObject, object oViewer, int nMode, string sText)
+{
+    NWNXPushString(sText);
+    NWNXPushInt(nMode);
+    NWNXPushObject(oViewer);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "SetTextBubbleOverrideFor");
+}
+
+string NWNX_Risenholm_GetTextBubbleOverrideFor(object oObject, object oViewer)
+{
+    NWNXPushObject(oViewer);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "GetTextBubbleOverrideFor");
+    return NWNXPopString();
+}
+
+void NWNX_Risenholm_ClearTextBubbleOverrides(object oObject)
+{
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "ClearTextBubbleOverrides");
 }
 
 void NWNX_Risenholm_SetStoreMarkUp(object oStore, int nMarkUp)
