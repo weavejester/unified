@@ -59,6 +59,7 @@
 #include "API/CExoResMan.hpp"
 #include "API/CResRef.hpp"
 #include "API/CNWVisibilityNode.hpp"
+#include "API/CLoopingVisualEffect.hpp"
 #include <atomic>
 #include <future>
 #include <thread>
@@ -5955,6 +5956,188 @@ NWNX_EXPORT ArgumentStack GetIsPlayingAnimationForPlayer(ArgumentStack&& args)
 
     auto jt = it->second.find(oidCreature);
     return (int32_t)(jt != it->second.end() && std::chrono::steady_clock::now() < jt->second.tUntil);
+}
+
+// ---- A visual effect hidden from one player ----
+//
+// A pickpocket who has just robbed someone must not see that victim's worn
+// Coin Purse for a while (the module's pw_inc_pickpock, THE COOLDOWN), while
+// everyone else goes on seeing it. A creature's duration visual effects are
+// one list, m_lstLoopingVisualEffects, and every client is sent the same one.
+//
+// NWNX_Player_ApplyLoopingVisualEffectToObject shows the way, the other way
+// round: it hooks CNWSMessage::ComputeGameObjectUpdateForObject, the whole of
+// one object's update for one player (the diff against their
+// CLastUpdateObject, the write, and the copy into it, a first sight's new
+// LUO included), and adds its rows to the object for the length of that one
+// call. Here the hidden rows are taken OUT for the length of the call, so for
+// that player alone the diff finds them gone, sends a delete if they had been
+// sent, and records them as gone, and no later update sends them while the
+// hide lasts. The diff and the record are made in the one call, so they
+// cannot disagree (the trap the animation override above fell into when it
+// swapped only some of its four).
+//
+// The entries are MOVED out and back, not copied: each holds its transform
+// (scale, translate, rotate), an ObjectVisualTransformData with a std::map
+// inside, and goes back exactly as it was, at the index it had. Nothing else
+// runs in between; the server is single threaded here.
+//
+// A hide runs out by itself (tUntil), checked as each update is computed, so
+// the row comes back in the first update for that player after it ends: the
+// object then has it and their LUO does not. So the module needs no timer of
+// its own, and a hide cannot outlive what it is for. Keyed by object ids, as
+// the module's cooldown is, so it holds through either side relogging, and a
+// restart forgets it, as it does every id.
+//
+// Hooked Late: inside NWNX_Player's own (Early), so a row it adds for a
+// player can be hidden from them as well, and its additions are back off the
+// list by the time this one puts the hidden rows back.
+
+struct HiddenVisualEffect
+{
+    std::chrono::steady_clock::time_point tUntil;
+};
+
+// player -> object -> visualeffects row
+static std::unordered_map<ObjectID, std::unordered_map<ObjectID, std::unordered_map<uint16_t, HiddenVisualEffect>>> s_HiddenVisualEffects;
+
+// The rows still hidden from pPlayer on oidObject, with any run out dropped;
+// nullptr if none.
+static const std::unordered_map<uint16_t, HiddenVisualEffect> *FindHiddenVisualEffects(CNWSPlayer *pPlayer, ObjectID oidObject)
+{
+    if (s_HiddenVisualEffects.empty() || !pPlayer)
+        return nullptr;
+
+    auto it = s_HiddenVisualEffects.find(pPlayer->m_oidNWSObject);
+    if (it == s_HiddenVisualEffects.end())
+        it = s_HiddenVisualEffects.find(pPlayer->m_oidPCObject);
+    if (it == s_HiddenVisualEffects.end())
+        return nullptr;
+
+    auto jt = it->second.find(oidObject);
+    if (jt == it->second.end())
+        return nullptr;
+
+    const auto tNow = std::chrono::steady_clock::now();
+    for (auto kt = jt->second.begin(); kt != jt->second.end(); )
+        kt = tNow >= kt->second.tUntil ? jt->second.erase(kt) : std::next(kt);
+
+    if (jt->second.empty())
+    {
+        it->second.erase(jt);
+        if (it->second.empty())
+            s_HiddenVisualEffects.erase(it);
+        return nullptr;
+    }
+
+    return &jt->second;
+}
+
+static Hooks::Hook s_HiddenVisualEffectComputeHook = Hooks::HookFunction(&CNWSMessage::ComputeGameObjectUpdateForObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pPlayerGameObject, CGameObjectArray *pGameObjectArray,
+        ObjectID oidObjectToUpdate) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_HiddenVisualEffectComputeHook->CallOriginal<void>(pThis, pPlayer, pPlayerGameObject, pGameObjectArray,
+                oidObjectToUpdate);
+        };
+
+        const auto *pHidden = FindHiddenVisualEffects(pPlayer, oidObjectToUpdate);
+        auto *pObject = pHidden ? Utils::AsNWSObject(Utils::GetGameObject(oidObjectToUpdate)) : nullptr;
+        if (!pObject)
+        {
+            CallOriginal();
+            return;
+        }
+
+        auto &list = pObject->m_lstLoopingVisualEffects;
+        const int32_t nAll = list.num;
+
+        // Out: the hidden entries with their indices, the rest closed up.
+        std::vector<std::pair<int32_t, CLoopingVisualEffect>> removed;
+        int32_t nKept = 0;
+        for (int32_t i = 0; i < nAll; i++)
+        {
+            if (pHidden->count(list.element[i].m_nId))
+                removed.emplace_back(i, std::move(list.element[i]));
+            else
+            {
+                if (nKept != i)
+                    list.element[nKept] = std::move(list.element[i]);
+                nKept++;
+            }
+        }
+
+        if (removed.empty())
+        {
+            CallOriginal();
+            return;
+        }
+
+        list.num = nKept;
+        CallOriginal();
+
+        // Back: the list is as it was left, so each entry goes back where it
+        // was, filled from the end. If the update had somehow changed it, the
+        // hidden ones go on the end instead, rather than over anything.
+        if (list.num != nKept)
+        {
+            LOG_WARNING("Looping visual effects of %x changed during an update; hidden rows put back at the end", oidObjectToUpdate);
+            for (auto &entry : removed)
+                list.Add(std::move(entry.second));
+            return;
+        }
+
+        list.num = nAll;
+        int32_t nFrom = nKept - 1;
+        size_t nRemoved = removed.size();
+        for (int32_t i = nAll - 1; i >= 0; i--)
+        {
+            if (nRemoved > 0 && removed[nRemoved - 1].first == i)
+                list.element[i] = std::move(removed[--nRemoved].second);
+            else
+                list.element[i] = std::move(list.element[nFrom--]);
+        }
+    }, Hooks::Order::Late);
+
+// Hide visualeffects row nVisualEffect on oObject from oPlayer for fDuration
+// seconds; everyone else goes on seeing it. A second call for the same row
+// replaces the first; a duration of 0 or less shows it again at once. Returns
+// 1, so the module can tell a build that has this from one that does not.
+NWNX_EXPORT ArgumentStack HideVisualEffectFromPlayer(ArgumentStack&& args)
+{
+    const auto oidPlayer     = args.extract<ObjectID>();
+    const auto oidObject     = args.extract<ObjectID>();
+    const auto nVisualEffect = args.extract<int32_t>();
+    const auto fDuration     = args.extract<float>();
+
+    if (oidPlayer == Constants::OBJECT_INVALID || oidObject == Constants::OBJECT_INVALID ||
+        nVisualEffect < 0 || nVisualEffect > 65535)
+        return (int32_t)0;
+
+    const auto nRow = (uint16_t)nVisualEffect;
+
+    if (fDuration <= 0.0f)
+    {
+        if (auto it = s_HiddenVisualEffects.find(oidPlayer); it != s_HiddenVisualEffects.end())
+        {
+            if (auto jt = it->second.find(oidObject); jt != it->second.end())
+            {
+                jt->second.erase(nRow);
+                if (jt->second.empty())
+                    it->second.erase(jt);
+            }
+            if (it->second.empty())
+                s_HiddenVisualEffects.erase(it);
+        }
+        return (int32_t)1;
+    }
+
+    s_HiddenVisualEffects[oidPlayer][oidObject][nRow] = {
+        std::chrono::steady_clock::now() + std::chrono::milliseconds((int64_t)(fDuration * 1000.0f)) };
+
+    return (int32_t)1;
 }
 
 // ---- "[Hidden]" under a hidden item's name, for its holder only ----

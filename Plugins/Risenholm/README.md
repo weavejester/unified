@@ -366,6 +366,22 @@ during one is sent its real animation, as a new LUO is built without these calls
 | `NWNX_Risenholm_PlayAnimationForPlayer(oPlayer, oCreature, nAnimation, fSpeed, fDuration)` | Show `oPlayer` `oCreature` playing `nAnimation` (an `ANIMATION_*` constant; the wrapper translates it to the engine's number) at `fSpeed` for `fDuration` seconds. A second call for the pair replaces the first; a duration of 0 or less takes it off at once. |
 | `NWNX_Risenholm_GetIsPlayingAnimationForPlayer(oPlayer, oCreature)` | Whether one is showing: FALSE on a build without them. |
 
+### A visual effect hidden from one player
+
+A hook on `CNWSMessage::ComputeGameObjectUpdateForObject`, plus one export. A pickpocket who has just
+robbed someone must not see that victim's worn Coin Purse for a while, while everyone else does. A
+creature's duration visual effects are one list (`m_lstLoopingVisualEffects`), sent alike to every
+client. `NWNX_Player_ApplyLoopingVisualEffectToObject` adds rows to an object for the length of one
+player's update of it; this takes rows OUT for the same length, so for that player alone the diff
+finds them gone, sends a delete, and records them as gone in their `CLastUpdateObject`. The entries
+are moved out and back with their transforms, at the indices they had. A hide runs out by itself,
+checked as each update is computed, and the row is sent again in that player's next update. Keyed by
+object ids, so it holds through a relog on either side; a restart forgets it.
+
+| Export | |
+| --- | --- |
+| `NWNX_Risenholm_HideVisualEffectFromPlayer(oPlayer, oObject, nVisualEffect, fDuration)` | Hide `visualeffects.2da` row `nVisualEffect` on `oObject` from `oPlayer` for `fDuration` seconds. A second call for the row replaces the first; 0 or less shows it again at once. Returns TRUE, and FALSE on a build without it, so the module can tell. |
+
 ### "[Hidden]" under a hidden item's name, for its holder only
 
 Hooks on `CNWSMessage::AddActiveItemPropertiesToMessage` (every item as a panel lists it),

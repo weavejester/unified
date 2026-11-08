@@ -306,6 +306,17 @@ void NWNX_Risenholm_PlayAnimationForPlayer(object oPlayer, object oCreature, int
 /// @return TRUE if so, FALSE otherwise -- including on a plugin build without them.
 int NWNX_Risenholm_GetIsPlayingAnimationForPlayer(object oPlayer, object oCreature);
 
+/// @brief Hide a duration visual effect on oObject from oPlayer alone, for a while.
+/// @note Everyone else goes on seeing it. Hides the row however many times it is on oObject, and
+/// whatever its transform; the effect itself is untouched and comes back to oPlayer, as it is, in
+/// their next object update once the hide runs out.
+/// @param oPlayer The player not to see it.
+/// @param oObject The object it is on.
+/// @param nVisualEffect The visualeffects.2da row.
+/// @param fDuration Seconds to hide it for; 0 or less shows it again at once.
+/// @return TRUE, or FALSE on a plugin build without it.
+int NWNX_Risenholm_HideVisualEffectFromPlayer(object oPlayer, object oObject, int nVisualEffect, float fDuration);
+
 /// @brief Set the damage bonus limit for the running module, past the 255 SetDamageBonusLimit allows.
 /// @note The engine clamps the PHYSICAL damage bonus from effects to this limit, summed across
 /// every effect (CNWSCreatureStats::GetDamageRoll); elemental types are never clamped. The script
@@ -713,6 +724,16 @@ int NWNX_Risenholm_GetIsPlayingAnimationForPlayer(object oPlayer, object oCreatu
     NWNXPushObject(oCreature);
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "GetIsPlayingAnimationForPlayer");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_HideVisualEffectFromPlayer(object oPlayer, object oObject, int nVisualEffect, float fDuration)
+{
+    NWNXPushFloat(fDuration);
+    NWNXPushInt(nVisualEffect);
+    NWNXPushObject(oObject);
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "HideVisualEffectFromPlayer");
     return NWNXPopInt();
 }
 
