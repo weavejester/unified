@@ -382,6 +382,20 @@ object ids, so it holds through a relog on either side; a restart forgets it.
 | --- | --- |
 | `NWNX_Risenholm_HideVisualEffectFromPlayer(oPlayer, oObject, nVisualEffect, fDuration)` | Hide `visualeffects.2da` row `nVisualEffect` on `oObject` from `oPlayer` for `fDuration` seconds. A second call for the row replaces the first; 0 or less shows it again at once. Returns TRUE, and FALSE on a build without it, so the module can tell. |
 
+### A creature facing another way for one player alone
+
+A hook on `CNWSMessage::ComputeGameObjectUpdateForObject`, plus one export. A pickpocket must not turn
+to face their victim where everyone could see it, but a steal played facing anywhere else looks wrong;
+so the thief is shown facing the victim only to those shown the steal. A creature's facing goes out
+as `m_vOrientation`, sent to a player when it has moved off what their `CLastUpdateObject` holds, for
+their own character as for anyone's. It is swapped for the player's override for the length of that
+player's update of the object, so the diff, the write, and the record all see it. An override runs out
+by itself, checked as each update is computed, and the real facing goes out in the next update.
+
+| Export | |
+| --- | --- |
+| `NWNX_Risenholm_SetFacingForPlayer(oPlayer, oObject, fFacing, fDuration)` | Show `oObject` to `oPlayer` facing `fFacing` (degrees, as `SetFacing`) for `fDuration` seconds. A second call replaces the first; 0 or less shows its real facing again at once. Returns TRUE, and FALSE on a build without it. |
+
 ### "[Hidden]" under a hidden item's name, for its holder only
 
 Hooks on `CNWSMessage::AddActiveItemPropertiesToMessage` (every item as a panel lists it),

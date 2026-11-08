@@ -317,6 +317,17 @@ int NWNX_Risenholm_GetIsPlayingAnimationForPlayer(object oPlayer, object oCreatu
 /// @return TRUE, or FALSE on a plugin build without it.
 int NWNX_Risenholm_HideVisualEffectFromPlayer(object oPlayer, object oObject, int nVisualEffect, float fDuration);
 
+/// @brief Show oObject to oPlayer alone facing another way, for a while.
+/// @note Everyone else sees it facing as it really does, and so does oPlayer again, in their next
+/// object update, once the override runs out. The client turns to a new facing as it does for
+/// SetFacing.
+/// @param oPlayer The player to see it.
+/// @param oObject The object, usually a creature.
+/// @param fFacing The facing to show, in degrees, as SetFacing takes it.
+/// @param fDuration Seconds to show it for; 0 or less shows its real facing again at once.
+/// @return TRUE, or FALSE on a plugin build without it.
+int NWNX_Risenholm_SetFacingForPlayer(object oPlayer, object oObject, float fFacing, float fDuration);
+
 /// @brief Set the damage bonus limit for the running module, past the 255 SetDamageBonusLimit allows.
 /// @note The engine clamps the PHYSICAL damage bonus from effects to this limit, summed across
 /// every effect (CNWSCreatureStats::GetDamageRoll); elemental types are never clamped. The script
@@ -753,6 +764,16 @@ int NWNX_Risenholm_HideVisualEffectFromPlayer(object oPlayer, object oObject, in
     NWNXPushObject(oObject);
     NWNXPushObject(oPlayer);
     NWNXCall(NWNX_Risenholm, "HideVisualEffectFromPlayer");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetFacingForPlayer(object oPlayer, object oObject, float fFacing, float fDuration)
+{
+    NWNXPushFloat(fDuration);
+    NWNXPushFloat(fFacing);
+    NWNXPushObject(oObject);
+    NWNXPushObject(oPlayer);
+    NWNXCall(NWNX_Risenholm, "SetFacingForPlayer");
     return NWNXPopInt();
 }
 

@@ -6140,6 +6140,125 @@ NWNX_EXPORT ArgumentStack HideVisualEffectFromPlayer(ArgumentStack&& args)
     return (int32_t)1;
 }
 
+// ---- A creature facing another way for one player alone ----
+//
+// A pickpocket must not give themselves away by turning to face their victim
+// (the module's pw_inc_pickpock), but a steal played facing anywhere else
+// looks wrong. So the thief stays facing where they did, and is shown facing
+// the victim only to the players shown the steal: the thief, and a victim or
+// witness who noticed it.
+//
+// A creature's facing goes out as m_vOrientation. CNWSMessage::
+// ComputeUpdateRequired sends it to a player when its dot product with the
+// orientation in their CLastUpdateObject falls under a threshold, for their
+// own character as for anyone else's (read from the nwserver disassembly,
+// 2026-11-08). So, as for the hidden visual effects above, the orientation is
+// swapped for the length of ComputeGameObjectUpdateForObject, the whole of one
+// object's update for one player (the diff, the write, and the copy into the
+// LUO, a first sight's new LUO included), and the change is seen, sent, and
+// recorded for that player alone. The player's own character comes through
+// the same call (ComputeGameObjectUpdateForYourself jumps straight to it).
+//
+// An override runs out by itself (tUntil), checked as each update is computed,
+// and the creature's real facing then differs from what that player was last
+// told, and goes out to them in their next update.
+
+struct FacingOverride
+{
+    Vector vOrientation;
+    std::chrono::steady_clock::time_point tUntil;
+};
+
+static std::unordered_map<ObjectID, std::unordered_map<ObjectID, FacingOverride>> s_FacingOverrides;   // player -> object
+
+static Hooks::Hook s_FacingOverrideComputeHook = Hooks::HookFunction(&CNWSMessage::ComputeGameObjectUpdateForObject,
+    +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pPlayerGameObject, CGameObjectArray *pGameObjectArray,
+        ObjectID oidObjectToUpdate) -> void
+    {
+        auto CallOriginal = [&]()
+        {
+            s_FacingOverrideComputeHook->CallOriginal<void>(pThis, pPlayer, pPlayerGameObject, pGameObjectArray,
+                oidObjectToUpdate);
+        };
+
+        if (s_FacingOverrides.empty() || !pPlayer)
+        {
+            CallOriginal();
+            return;
+        }
+
+        auto it = s_FacingOverrides.find(pPlayer->m_oidNWSObject);
+        if (it == s_FacingOverrides.end())
+            it = s_FacingOverrides.find(pPlayer->m_oidPCObject);
+        if (it == s_FacingOverrides.end())
+        {
+            CallOriginal();
+            return;
+        }
+
+        auto jt = it->second.find(oidObjectToUpdate);
+        if (jt == it->second.end())
+        {
+            CallOriginal();
+            return;
+        }
+
+        // Run out: forgotten, so the real facing goes out on this diff.
+        if (std::chrono::steady_clock::now() >= jt->second.tUntil)
+        {
+            it->second.erase(jt);
+            if (it->second.empty())
+                s_FacingOverrides.erase(it);
+            CallOriginal();
+            return;
+        }
+
+        auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(oidObjectToUpdate));
+        if (!pObject)
+        {
+            CallOriginal();
+            return;
+        }
+
+        const Vector vOwn = pObject->m_vOrientation;
+        pObject->m_vOrientation = jt->second.vOrientation;
+        CallOriginal();
+        pObject->m_vOrientation = vOwn;
+    }, Hooks::Order::Late);
+
+// Show oPlayer oObject facing fFacing (degrees, as SetFacing takes) for
+// fDuration seconds, whatever way it really faces; everyone else sees it as it
+// is. A second call for the pair replaces the first; a duration of 0 or less
+// shows its real facing again at once. Returns 1, so the module can tell a
+// build that has this from one that does not.
+NWNX_EXPORT ArgumentStack SetFacingForPlayer(ArgumentStack&& args)
+{
+    const auto oidPlayer = args.extract<ObjectID>();
+    const auto oidObject = args.extract<ObjectID>();
+    const auto fFacing   = args.extract<float>();
+    const auto fDuration = args.extract<float>();
+
+    if (oidPlayer == Constants::OBJECT_INVALID || oidObject == Constants::OBJECT_INVALID)
+        return (int32_t)0;
+
+    if (fDuration <= 0.0f)
+    {
+        if (auto it = s_FacingOverrides.find(oidPlayer); it != s_FacingOverrides.end())
+        {
+            it->second.erase(oidObject);
+            if (it->second.empty())
+                s_FacingOverrides.erase(it);
+        }
+        return (int32_t)1;
+    }
+
+    const float fRadians = fFacing * 3.14159265f / 180.0f;
+    s_FacingOverrides[oidPlayer][oidObject] = { Vector{ std::cos(fRadians), std::sin(fRadians), 0.0f },
+        std::chrono::steady_clock::now() + std::chrono::milliseconds((int64_t)(fDuration * 1000.0f)) };
+
+    return (int32_t)1;
+}
+
 // ---- "[Hidden]" under a hidden item's name, for its holder only ----
 //
 // The holder needs to see which of their items /hideitem has marked, and a
