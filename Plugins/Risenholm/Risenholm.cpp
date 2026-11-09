@@ -45,6 +45,7 @@
 #include <unordered_set>
 #include "API/CNWSMessage.hpp"
 #include "API/CVirtualMachine.hpp"
+#include "API/CNWSVirtualMachineCommands.hpp"
 #include "API/CNWSPlayerInventoryGUI.hpp"
 #include "API/CExoLinkedListNode.hpp"
 #include "API/CNWSObjectActionNode.hpp"
@@ -2451,18 +2452,23 @@ static Hooks::Hook s_UpdateEncumbranceStateHook = Hooks::HookFunction(&CNWSCreat
 // ComputeModifiedMovementRate, which removes every such marked effect and
 // applies the right one; that is how players got rid of it.
 //
+// Script SetItemStackSize never updates anyone, bag or not. It writes the new
+// count and sends the holder, when the item's own possessor is a creature, a
+// feedback message, and that is all (ExecuteCommandSetItemStackSize, 0x6a5620).
+// An item's weight is its unit weight times its count (CNWSItem::GetWeight),
+// so every stack a script shrinks or grows leaves its carrier's weight stale:
+// the one stack the hand-in leaves when a store runs out of room among them.
+//
 // So: update the owner after any add to or remove from a bag the engine left
-// alone, and recompute the movement rate once the TURD has been eaten.
+// alone, and after any stack size a script sets, and recompute the movement
+// rate once the TURD has been eaten.
 //
 // Read from the 8193.37 decompilation and disassembly, 2026-10-29:
 // CItemRepository::AddItem and RemoveItem, CNWSItem::EventHandler,
 // UpdateEncumbranceState (0x4931a0, ComputeModifiedMovementRate behind
 // "new state != old state"), ComputeModifiedMovementRate,
-// CNWSObject::SaveEffectList, and CNWSPlayer::EatTURD.
-//
-// Not covered: SetItemStackSize on a stack inside a bag also skips the update
-// (it looks for a creature as the item's own possessor), so a partial stack
-// taken from a bag is put right at the owner's next update.
+// CNWSObject::SaveEffectList, CNWSPlayer::EatTURD, and
+// ExecuteCommandSetItemStackSize.
 static void RH_UpdateBagOwnerEncumbrance(CItemRepository *pRepository)
 {
     auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(pRepository->m_oidParent));
@@ -2497,6 +2503,37 @@ static Hooks::Hook s_BagRemoveItemHook = Hooks::HookFunction(&CItemRepository::R
             RH_UpdateBagOwnerEncumbrance(pThis);
 
         return bResult;
+    }, Hooks::Order::Late);
+
+// The item is the command's first argument, so on top of the stack: read it
+// and put it back for the original, as Plugins/Effect's ApplyEffectOnObject
+// hook does with its duration type.
+static Hooks::Hook s_SetItemStackSizeHook = Hooks::HookFunction(&CNWSVirtualMachineCommands::ExecuteCommandSetItemStackSize,
+    +[](CNWSVirtualMachineCommands *pThis, int32_t nCommandId, int32_t nParameters) -> int32_t
+    {
+        ObjectID oidItem = Constants::OBJECT_INVALID;
+
+        if (!g_pVirtualMachine->StackPopObject(&oidItem))
+            return Constants::VMError::StackUnderflow;
+
+        if (!g_pVirtualMachine->StackPushObject(oidItem))
+            return Constants::VMError::StackOverflow;
+
+        auto nResult = s_SetItemStackSizeHook->CallOriginal<int32_t>(pThis, nCommandId, nParameters);
+
+        if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem)))
+        {
+            ObjectID oidHolder = pItem->m_oidPossessor;
+
+            // In a bag: the bag's holder carries it.
+            if (auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(oidHolder)))
+                oidHolder = pBag->m_oidPossessor;
+
+            if (auto *pHolder = Utils::AsNWSCreature(Utils::GetGameObject(oidHolder)))
+                pHolder->UpdateEncumbranceState(true);
+        }
+
+        return nResult;
     }, Hooks::Order::Late);
 
 static Hooks::Hook s_EatTURDMovementHook = Hooks::HookFunction(&CNWSPlayer::EatTURD,
