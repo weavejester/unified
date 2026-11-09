@@ -19,7 +19,14 @@ void BlockDMSpawnItem()
             Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerGameObjectUpdate,
             +[](CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
             {
-                auto nMsgType = Utils::PeekMessage<uint8_t>(pMessage, 0);
+                // Minor 1 starts with a CHAR naming the console command ('A' is 65).
+                // Other minors are left unread, so a typed transport is not desynced.
+                uint8_t nMsgType = 0;
+                if (nMinor == 1)
+                {
+                    Utils::MessagePeek peek(pMessage);
+                    nMsgType = static_cast<uint8_t>(pMessage->ReadCHAR());
+                }
 
                 LOG_DEBUG("BlockDMSpawnItem: nMinor: %i, nMsgType: %i", nMinor, nMsgType);
 

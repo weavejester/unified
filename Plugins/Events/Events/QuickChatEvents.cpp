@@ -25,7 +25,12 @@ int32_t HandlePlayerToServerQuickChatMessageHook(CNWSMessage *thisPtr, CNWSPlaye
 {
     int32_t retVal;
     ObjectID oidPlayer = pPlayer ? pPlayer->m_oidNWSObject : OBJECT_INVALID;
-    std::string quickChatCommand = std::to_string(Utils::PeekMessage<int16_t>(thisPtr, 0));
+    // The engine reads a WORD; it is shown signed, as it always was.
+    std::string quickChatCommand;
+    {
+        Utils::MessagePeek peek(thisPtr);
+        quickChatCommand = std::to_string(static_cast<int16_t>(thisPtr->ReadWORD()));
+    }
 
     auto PushAndSignal = [&](const std::string& ev) -> bool {
         PushEventData("QUICKCHAT_COMMAND", quickChatCommand);

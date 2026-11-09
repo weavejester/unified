@@ -28,7 +28,13 @@ int32_t HandlePartyMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_
 
     std::string event = "NWNX_ON_PARTY_";
     ObjectID oidPlayer = pPlayer ? pPlayer->m_oidNWSObject : Constants::OBJECT_INVALID;
-    std::string sOidOther = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF);
+    // Only Leave to KickHenchman start with an object; List and the rest read none.
+    std::string sOidOther = Utils::ObjectIDToString(Constants::OBJECT_INVALID);
+    if (nMinor >= Constants::MessagePartyMinor::Leave && nMinor <= Constants::MessagePartyMinor::KickHenchman)
+    {
+        Utils::MessagePeek peek(thisPtr);
+        sOidOther = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+    }
 
     std::string argname;
     switch (nMinor)

@@ -53,7 +53,11 @@ int32_t HandlePlayerToServerBarter_StartBarterHook(CNWSMessage* pMessage, CNWSPl
     int32_t retVal;
 
     ObjectID oidPlayer = pPlayer->m_oidNWSObject;
-    ObjectID targetId = Utils::PeekMessage<ObjectID>(pMessage, 0) & 0x7FFFFFFF;
+    ObjectID targetId;
+    {
+        Utils::MessagePeek peek(pMessage);
+        targetId = pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF;
+    }
 
     auto PushAndSignal = [&](const std::string& ev) -> bool {
         PushEventData("BARTER_TARGET", Utils::ObjectIDToString(targetId));

@@ -68,8 +68,14 @@ int32_t HandlePlayerToServerGuiInventoryMessageHook(CNWSMessage *thisPtr, CNWSPl
     {
         case MessageGuiInventoryMinor::Status:
         {
-            auto target = Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF;
-            auto open = (bool)(Utils::PeekMessage<uint8_t>(thisPtr, 4) & 0x10);
+            // The engine reads the flag before the object.
+            ObjectID target;
+            bool open;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                open = thisPtr->ReadBOOL();
+                target = thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF;
+            }
 
             if (open)
             {
@@ -111,8 +117,13 @@ int32_t HandlePlayerToServerGuiInventoryMessageHook(CNWSMessage *thisPtr, CNWSPl
 
         case MessageGuiInventoryMinor::SelectPanel:
         {
-            auto selectedPanel = Utils::PeekMessage<uint8_t>(thisPtr, 0);
-            auto ownInventory = (bool)(Utils::PeekMessage<uint8_t>(thisPtr, 1) & 0x10);
+            uint8_t selectedPanel;
+            bool ownInventory;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                selectedPanel = thisPtr->ReadBYTE();
+                ownInventory = thisPtr->ReadBOOL();
+            }
 
             if (ownInventory)
             {

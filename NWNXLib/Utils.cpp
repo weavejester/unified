@@ -572,6 +572,48 @@ void UpdateClientObject(ObjectID oidObject)
     }
 }
 
+// A function-local static, so a plugin that registers from a constructor at load
+// time never meets the list before it exists.
+static std::vector<MessageReadHandler>& MessageReadHandlers()
+{
+    static std::vector<MessageReadHandler> s_handlers;
+    return s_handlers;
+}
+
+void RegisterMessageReadHandler(MessageReadHandler handler)
+{
+    MessageReadHandlers().push_back(std::move(handler));
+}
+
+MessagePeek::MessagePeek(CNWSMessage *pMessage)
+    : m_pMessage(pMessage),
+      m_nReadBufferPtr(pMessage->m_nReadBufferPtr),
+      m_nReadFragmentsBufferPtr(pMessage->m_nReadFragmentsBufferPtr),
+      m_nReadFragmentsOffset(pMessage->m_nReadFragmentsOffset),
+      m_nCurReadBit(pMessage->m_nCurReadBit),
+      m_nLastByteBits(pMessage->m_nLastByteBits)
+{
+    for (auto& handler : MessageReadHandlers())
+    {
+        if (!handler.Save)
+            continue;
+        if (auto rewind = handler.Save(pMessage))
+            m_Rewinds.push_back(std::move(rewind));
+    }
+}
+
+MessagePeek::~MessagePeek()
+{
+    m_pMessage->m_nReadBufferPtr = m_nReadBufferPtr;
+    m_pMessage->m_nReadFragmentsBufferPtr = m_nReadFragmentsBufferPtr;
+    m_pMessage->m_nReadFragmentsOffset = m_nReadFragmentsOffset;
+    m_pMessage->m_nCurReadBit = m_nCurReadBit;
+    m_pMessage->m_nLastByteBits = m_nLastByteBits;
+
+    for (auto it = m_Rewinds.rbegin(); it != m_Rewinds.rend(); ++it)
+        (*it)();
+}
+
 void ClearReadMessage()
 {
     if (auto* pMessage = Globals::AppManager()->m_pServerExoApp->GetNWSMessage())
@@ -579,6 +621,12 @@ void ClearReadMessage()
         pMessage->m_nReadBufferPtr = pMessage->m_nReadBufferSize;
         pMessage->m_nReadFragmentsBufferPtr = pMessage->m_nReadFragmentsBufferSize;
         pMessage->m_nCurReadBit = pMessage->m_nLastByteBits;
+
+        for (auto& handler : MessageReadHandlers())
+        {
+            if (handler.Clear)
+                handler.Clear(pMessage);
+        }
     }
 }
 

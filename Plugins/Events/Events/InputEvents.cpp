@@ -69,18 +69,19 @@ int32_t HandlePlayerToServerInputWalkToWaypointHook(CNWSMessage *pMessage, CNWSP
 {
     int32_t retVal;
 
-    int offset = 0;
-    std::string oidArea = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF);
-        offset += sizeof(ObjectID);
-    std::string posX = std::to_string(Utils::PeekMessage<float>(pMessage, offset));
-        offset += sizeof(float);
-    std::string posY = std::to_string(Utils::PeekMessage<float>(pMessage, offset));
-        offset += sizeof(float);
-    std::string posZ = std::to_string(Utils::PeekMessage<float>(pMessage, offset));
-        offset += sizeof(float);
-    auto clientPath = Utils::PeekMessage<uint8_t>(pMessage, offset);
-        offset += sizeof(int32_t) + sizeof(int16_t); // Yep
-    std::string runToPoint = std::to_string((bool)(Utils::PeekMessage<uint8_t>(pMessage, offset) & 0x10));
+    // The engine reads the area, x, y, z, the client path's BYTE, then "run to point" as
+    // the first of two BOOLs (then a BYTE and an object, not needed here).
+    std::string oidArea, posX, posY, posZ, runToPoint;
+    uint8_t clientPath;
+    {
+        Utils::MessagePeek peek(pMessage);
+        oidArea = Utils::ObjectIDToString(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
+        posX = std::to_string(pMessage->ReadFLOAT());
+        posY = std::to_string(pMessage->ReadFLOAT());
+        posZ = std::to_string(pMessage->ReadFLOAT());
+        clientPath = pMessage->ReadBYTE();
+        runToPoint = std::to_string((bool)pMessage->ReadBOOL());
+    }
 
     auto PushAndSignal = [&](const std::string& ev) -> bool {
         PushEventData("AREA", oidArea);
@@ -221,8 +222,12 @@ int32_t HandlePlayerToServerInputMessageHook(CNWSMessage *pMessage, CNWSPlayer *
                 return s_HandlePlayerToServerInputMessageHook->CallOriginal<int32_t>(pMessage, pPlayer, nMinor);
 
             int32_t retVal;
-            auto floatX = Utils::PeekMessage<float>(pMessage, 0);
-            auto floatY = Utils::PeekMessage<float>(pMessage, 4);
+            float floatX, floatY;
+            {
+                Utils::MessagePeek peek(pMessage);
+                floatX = pMessage->ReadFLOAT();
+                floatY = pMessage->ReadFLOAT();
+            }
 
             Vector oldOrientation = pCreature->m_vOrientation;
             Vector newOrientation = {floatX, floatY, 0.0f};
@@ -248,7 +253,17 @@ int32_t HandlePlayerToServerInputMessageHook(CNWSMessage *pMessage, CNWSPlayer *
 
             int32_t retVal;
             std::string key;
-            auto driveFlags = Utils::PeekMessage<uint8_t>(pMessage, 14);
+            // HandlePlayerToServerInputDriveControl reads two floats, an object, a WORD,
+            // and then these flags as a BYTE.
+            uint8_t driveFlags;
+            {
+                Utils::MessagePeek peek(pMessage);
+                pMessage->ReadFLOAT();
+                pMessage->ReadFLOAT();
+                pMessage->ReadOBJECTIDServer();
+                pMessage->ReadWORD();
+                driveFlags = pMessage->ReadBYTE();
+            }
 
             switch (driveFlags)
             {
@@ -310,9 +325,13 @@ int32_t HandlePlayerToServerInputMessageHook(CNWSMessage *pMessage, CNWSPlayer *
         case Constants::MessageInputMinor::PlayAnimation:
         {
             int32_t retVal;
-            int32_t offset = 0;
 
-            auto animation = Utils::PeekMessage<uint16_t>(pMessage, offset);
+            // The engine reads the animation as a WORD, then the target object.
+            uint16_t animation;
+            {
+                Utils::MessagePeek peek(pMessage);
+                animation = pMessage->ReadWORD();
+            }
             /*
             offset += sizeof(uint16_t);
             auto oidTarget = Utils::PeekMessage<ObjectID>(pMessage, offset);
@@ -352,11 +371,16 @@ int32_t HandlePlayerToServerInventoryMessageHook(CNWSMessage *pMessage, CNWSPlay
     {
         case Constants::MessageInventoryMinor::Drop:
         {
-            int32_t retVal, offset = 0;
-            ObjectID oidItem = Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF; offset += sizeof(ObjectID);
-            std::string sX = std::to_string(Utils::PeekMessage<float>(pMessage, offset)); offset += sizeof(float);
-            std::string sY = std::to_string(Utils::PeekMessage<float>(pMessage, offset)); offset += sizeof(float);
-            std::string sZ = std::to_string(Utils::PeekMessage<float>(pMessage, offset));
+            int32_t retVal;
+            ObjectID oidItem;
+            std::string sX, sY, sZ;
+            {
+                Utils::MessagePeek peek(pMessage);
+                oidItem = pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF;
+                sX = std::to_string(pMessage->ReadFLOAT());
+                sY = std::to_string(pMessage->ReadFLOAT());
+                sZ = std::to_string(pMessage->ReadFLOAT());
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("ITEM", Utils::ObjectIDToString(oidItem));

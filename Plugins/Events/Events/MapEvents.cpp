@@ -43,15 +43,16 @@ int32_t HandleMapPinSetMapPinAtMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPl
 {
     int32_t retVal;
     ObjectID oidPlayer = pPlayer ? pPlayer->m_oidNWSObject : Constants::OBJECT_INVALID;
-    int offset = 0;
-
-    // Peek at the coordinates first
-    auto x = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(x);
-    auto y = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(y);
-    auto z = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(z);
-
-    // Copy the string over
-    auto note = Utils::PeekMessage<std::string>(thisPtr, offset);
+    float x, y, z;
+    std::string note;
+    {
+        Utils::MessagePeek peek(thisPtr);
+        x = thisPtr->ReadFLOAT();
+        y = thisPtr->ReadFLOAT();
+        z = thisPtr->ReadFLOAT();
+        note = thisPtr->ReadCExoString().CStr();
+    }
+    (void)z;
 
     PushEventData("PIN_X", std::to_string(x));
     PushEventData("PIN_Y", std::to_string(y));
@@ -80,19 +81,18 @@ int32_t HandleMapPinChangePinMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlay
 {
     int32_t retVal;
     ObjectID oidPlayer = pPlayer ? pPlayer->m_oidNWSObject : Constants::OBJECT_INVALID;
-    int offset = 0;
-
-    // Peek at the coordinates first
-    auto x = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(x);
-    auto y = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(y);
-    auto z = Utils::PeekMessage<float>(thisPtr, offset); offset += sizeof(z);
-
-    // Copy the string over
-    auto note = Utils::PeekMessage<std::string>(thisPtr, offset);
-    offset += note.length() + 4;
-
-    // Copy the pin id over
-    auto pin_id = Utils::PeekMessage<int32_t>(thisPtr, offset);
+    float x, y, z;
+    std::string note;
+    int32_t pin_id;
+    {
+        Utils::MessagePeek peek(thisPtr);
+        x = thisPtr->ReadFLOAT();
+        y = thisPtr->ReadFLOAT();
+        z = thisPtr->ReadFLOAT();
+        note = thisPtr->ReadCExoString().CStr();
+        pin_id = static_cast<int32_t>(thisPtr->ReadDWORD());
+    }
+    (void)z;
 
     PushEventData("PIN_X", std::to_string(x));
     PushEventData("PIN_Y", std::to_string(y));
@@ -126,7 +126,11 @@ int32_t HandleMapPinDestroyMapPinMessageHook(CNWSMessage *thisPtr, CNWSPlayer *p
     ObjectID oidPlayer = pPlayer ? pPlayer->m_oidNWSObject : Constants::OBJECT_INVALID;
 
     // Send the pin id
-    auto pin_id = Utils::PeekMessage<int32_t>(thisPtr, 0);
+    int32_t pin_id;
+    {
+        Utils::MessagePeek peek(thisPtr);
+        pin_id = thisPtr->ReadINT();
+    }
 
     PushEventData("PIN_ID", std::to_string(pin_id));
 

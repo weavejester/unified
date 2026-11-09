@@ -32,8 +32,13 @@ int32_t HandlePlayerToServerPVPListOperationsHook(CNWSMessage *thisPtr, CNWSPlay
     }
     else
     {
-        auto target = Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF;
-        auto attitude = (bool)(Utils::PeekMessage<uint8_t>(thisPtr, 4) & 0x10);
+        ObjectID target;
+        bool attitude;
+        {
+            Utils::MessagePeek peek(thisPtr);
+            target = thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF;
+            attitude = thisPtr->ReadBOOL();
+        }
 
         auto PushAndSignal = [&](const std::string& ev) -> bool {
             PushEventData("TARGET_OBJECT_ID", Utils::ObjectIDToString(target));

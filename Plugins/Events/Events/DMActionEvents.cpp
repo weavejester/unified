@@ -41,8 +41,14 @@ int32_t HandleGiveEvent(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint8_t nMin
 {
     int32_t retVal;
     ObjectID oidDM = pPlayer ? pPlayer->m_oidNWSObject : OBJECT_INVALID;
-    std::string amount = std::to_string(Utils::PeekMessage<int32_t>(pMessage, 0));
-    std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(pMessage, 4) & 0x7FFFFFFF);
+    // GiveXP, GiveLevel, and GiveGold read an INT and then the target. The 8193.37
+    // server has no case for the alignment minors at all; they are taken to match.
+    std::string amount, target;
+    {
+        Utils::MessagePeek peek(pMessage);
+        amount = std::to_string(pMessage->ReadINT());
+        target = Utils::ObjectIDToString(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
+    }
 
     auto PushAndSignalGiveEvent = [&](const std::string& ev) -> bool {
         PushEventData("AMOUNT", amount);
@@ -74,22 +80,19 @@ int32_t HandleGroupEvent(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint8_t nMi
 {
     int32_t retVal;
     ObjectID oidDM = pPlayer ? pPlayer->m_oidNWSObject : OBJECT_INVALID;
-    int32_t offset = 0;
     int32_t groupSize = 1;
-
-    if (bGroup)
-    {
-        groupSize = Utils::PeekMessage<int32_t>(pMessage, offset);
-        offset += sizeof(groupSize);
-    }
-
     std::vector<ObjectID> targets;
-    targets.reserve(groupSize);
 
-    for (int32_t target = 0; target < groupSize; target++)
+    // A group is a DWORD count and that many objects; otherwise one object.
     {
-        targets.push_back(Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF);
-        offset += sizeof(ObjectID);
+        Utils::MessagePeek peek(pMessage);
+        if (bGroup)
+            groupSize = static_cast<int32_t>(pMessage->ReadDWORD());
+
+        targets.reserve(groupSize > 0 ? groupSize : 0);
+
+        for (int32_t target = 0; target < groupSize; target++)
+            targets.push_back(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
     }
 
     auto PushAndSignalGroupEvent = [&](const std::string& ev) -> bool {
@@ -121,7 +124,13 @@ int32_t HandleSingleTargetEvent(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint
 {
     int32_t retVal;
     ObjectID oidDM = pPlayer ? pPlayer->m_oidNWSObject : OBJECT_INVALID;
-    std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(pMessage, 0) & 0x7FFFFFFF);
+    // Goto, Possess, Impersonate, ToggleLock, and DisableTrap all start with the object,
+    // and none of them reads a group count first.
+    std::string target;
+    {
+        Utils::MessagePeek peek(pMessage);
+        target = Utils::ObjectIDToString(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
+    }
 
     auto PushAndSignalSingleTargetEvent = [&](const std::string& ev) -> bool {
         PushEventData("TARGET", target);
@@ -148,29 +157,28 @@ int32_t HandleTeleportEvent(CNWSMessage *pMessage, CNWSPlayer *pPlayer, uint8_t 
 {
     int32_t retVal;
     ObjectID oidDM = pPlayer ? pPlayer->m_oidNWSObject : OBJECT_INVALID;
-    int32_t offset = 0;
     int32_t groupSize = 1;
     std::vector<ObjectID> targets;
+    std::string targetArea, x, y, z;
 
-    std::string targetArea = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF); offset += sizeof(ObjectID);
-    std::string x = std::to_string(Utils::PeekMessage<float>(pMessage, offset)); offset += sizeof(float);
-    std::string y = std::to_string(Utils::PeekMessage<float>(pMessage, offset)); offset += sizeof(float);
-    std::string z = std::to_string(Utils::PeekMessage<float>(pMessage, offset)); offset += sizeof(float);
-
-    if (nMinor == MessageDungeonMasterMinor::GotoPointTarget)
+    // The area and x, y, z; GotoPointTarget then has its targets, a DWORD count first
+    // only when bGroup is set.
     {
-        if (bGroup)
-        {
-            groupSize = Utils::PeekMessage<int32_t>(pMessage, offset);
-            offset += sizeof(groupSize);
-        }
+        Utils::MessagePeek peek(pMessage);
+        targetArea = Utils::ObjectIDToString(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
+        x = std::to_string(pMessage->ReadFLOAT());
+        y = std::to_string(pMessage->ReadFLOAT());
+        z = std::to_string(pMessage->ReadFLOAT());
 
-        targets.reserve(groupSize);
-
-        for (int32_t target = 0; target < groupSize; target++)
+        if (nMinor == MessageDungeonMasterMinor::GotoPointTarget)
         {
-            targets.push_back(Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF);
-            offset += sizeof(ObjectID);
+            if (bGroup)
+                groupSize = static_cast<int32_t>(pMessage->ReadDWORD());
+
+            targets.reserve(groupSize > 0 ? groupSize : 0);
+
+            for (int32_t target = 0; target < groupSize; target++)
+                targets.push_back(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF);
         }
     }
 
@@ -235,14 +243,8 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         case MessageDungeonMasterMinor::SpawnPortal:
         {
             event += "SPAWN_OBJECT";
-            int32_t offset = 0;
-
-            std::string area = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF); offset += sizeof(ObjectID);
             std::string object = Utils::ObjectIDToString(Globals::AppManager()->m_pServerExoApp->GetObjectArray()->m_nNextObjectArrayID[0]);
             int32_t objectType;
-            std::string x = std::to_string(Utils::PeekMessage<float>(thisPtr, offset)); offset += sizeof(float);
-            std::string y = std::to_string(Utils::PeekMessage<float>(thisPtr, offset)); offset += sizeof(float);
-            std::string z = std::to_string(Utils::PeekMessage<float>(thisPtr, offset)); offset += sizeof(float);
 
             switch (nMinor)
             {
@@ -253,12 +255,8 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
                     objectType = ObjectType::Item;
                     break;
                 case MessageDungeonMasterMinor::SpawnPlaceable:
-                {
                     objectType = ObjectType::Placeable;
-                    // Placeables have extra orientation data
-                    offset += sizeof(float) + sizeof(float) + sizeof(float);
                     break;
-                }
                 case MessageDungeonMasterMinor::SpawnWaypoint:
                     objectType = ObjectType::Waypoint;
                     break;
@@ -276,7 +274,31 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
                     break;
             }
 
-            auto resref = Utils::PeekMessage<CResRef>(thisPtr, offset);
+            // The area and x, y, z, then a placeable's orientation (three more floats),
+            // then the resref. A waypoint or a portal sends a CExoString there instead;
+            // the byte peek this replaces read its length and first characters as a
+            // resref.
+            std::string area, x, y, z, resref;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                area = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                x = std::to_string(thisPtr->ReadFLOAT());
+                y = std::to_string(thisPtr->ReadFLOAT());
+                z = std::to_string(thisPtr->ReadFLOAT());
+
+                if (nMinor == MessageDungeonMasterMinor::SpawnPlaceable)
+                {
+                    thisPtr->ReadFLOAT();
+                    thisPtr->ReadFLOAT();
+                    thisPtr->ReadFLOAT();
+                }
+
+                if (nMinor == MessageDungeonMasterMinor::SpawnWaypoint ||
+                    nMinor == MessageDungeonMasterMinor::SpawnPortal)
+                    resref = thisPtr->ReadCExoString().CStr();
+                else
+                    resref = thisPtr->ReadCResRef().GetResRefStr();
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("AREA", area);
@@ -285,7 +307,7 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
                 PushEventData("POS_X", x);
                 PushEventData("POS_Y", y);
                 PushEventData("POS_Z", z);
-                PushEventData("RESREF", resref.GetResRefStr());
+                PushEventData("RESREF", resref);
                 return SignalEvent(ev, oidDM);
             };
 
@@ -306,7 +328,11 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "CHANGE_DIFFICULTY";
 
-            std::string difficulty = std::to_string(Utils::PeekMessage<int32_t>(thisPtr, 0));
+            std::string difficulty;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                difficulty = std::to_string(thisPtr->ReadINT());
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("DIFFICULTY_SETTING", difficulty);
@@ -330,8 +356,12 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "VIEW_INVENTORY";
 
-            std::string openInventory = std::to_string(Utils::PeekMessage<int32_t>(thisPtr, 0));
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 4) & 0x7FFFFFFF);
+            std::string openInventory, target;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                openInventory = std::to_string(thisPtr->ReadINT());
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("OPEN_INVENTORY", openInventory);
@@ -356,8 +386,12 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "SPAWN_TRAP_ON_OBJECT";
 
-            std::string area = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF);
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 4) & 0x7FFFFFFF);
+            std::string area, target;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                area = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("AREA", area);
@@ -491,16 +525,17 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "SET_FACTION";
 
-            int32_t offset = 0;
-
             int32_t factionid;
             std::string factionName;
             std::string target;
 
             if (nMinor == MessageDungeonMasterMinor::SetFaction)
             {
-                factionid = Utils::PeekMessage<int32_t>(thisPtr, offset); offset += sizeof(int32_t);
-                target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset) & 0x7FFFFFFF);
+                {
+                    Utils::MessagePeek peek(thisPtr);
+                    factionid = thisPtr->ReadINT();
+                    target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                }
 
                 auto* pFaction = Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal->m_pFactionManager->GetFaction(factionid);
                 if (pFaction)
@@ -510,8 +545,11 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
             }
             else
             {
-                target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset) & 0x7FFFFFFF); offset += sizeof(ObjectID);
-                factionName = Utils::PeekMessage<std::string>(thisPtr, offset);
+                {
+                    Utils::MessagePeek peek(thisPtr);
+                    target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                    factionName = thisPtr->ReadCExoString().CStr();
+                }
 
                 factionid = Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal->m_pFactionManager->GetFactionIdByName(factionName);
             }
@@ -540,8 +578,12 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "GIVE_ITEM";
 
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF);
-            std::string item = Utils::ObjectIDToString(Globals::AppManager()->m_pServerExoApp->GetObjectArray()->m_nNextObjectArrayID[0]);
+            std::string target;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+            }
+            std::string item =Utils::ObjectIDToString(Globals::AppManager()->m_pServerExoApp->GetObjectArray()->m_nNextObjectArrayID[0]);
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("TARGET", target);
@@ -584,12 +626,16 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "SET_STAT";
 
-            int32_t offset = 0;
-
-            int32_t stat = Utils::PeekMessage<int32_t>(thisPtr, offset); offset += sizeof(int32_t);
-            std::string value = std::to_string(Utils::PeekMessage<float>(thisPtr, offset)); offset += sizeof(float);
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset) & 0x7FFFFFFF); offset += sizeof(ObjectID);
-            std::string set = std::to_string((bool)(Utils::PeekMessage<int32_t>(thisPtr, offset) & 0x10));
+            // The engine reads the flag BEFORE the target: INT, FLOAT, BOOL, OBJECT.
+            int32_t stat;
+            std::string value, target, set;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                stat = thisPtr->ReadINT();
+                value = std::to_string(thisPtr->ReadFLOAT());
+                set = std::to_string((bool)thisPtr->ReadBOOL());
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("STAT", std::to_string(stat - 5));
@@ -616,11 +662,14 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "GET_VARIABLE";
 
-            int32_t offset = 0;
-
-            uint8_t varType = Utils::PeekMessage<uint8_t>(thisPtr, offset); offset += sizeof(uint8_t);
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset) & 0x7FFFFFFF); offset += sizeof(ObjectID);
-            std::string key = Utils::PeekMessage<std::string>(thisPtr, offset);
+            uint8_t varType;
+            std::string target, key;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                varType = thisPtr->ReadBYTE();
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                key = thisPtr->ReadCExoString().CStr();
+            }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
                 PushEventData("TYPE", std::to_string(varType));
@@ -646,27 +695,32 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         {
             event += "SET_VARIABLE";
 
-            int32_t offset = 0;
-
-            uint8_t varType = Utils::PeekMessage<uint8_t>(thisPtr, offset); offset += sizeof(uint8_t);
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset) & 0x7FFFFFFF); offset += sizeof(ObjectID);
-            std::string key = Utils::PeekMessage<std::string>(thisPtr, offset); offset += key.length() + 4;
-            std::string value;
-
-            switch (varType)
+            // The value's read is picked by the type byte, from a jump table in the
+            // engine: 0 INT, 1 FLOAT, 2 CExoString, 3 object (4, a location, is not
+            // reported here).
+            uint8_t varType;
+            std::string target, key, value;
             {
-                case 0:
-                    value = std::to_string(Utils::PeekMessage<uint32_t>(thisPtr, offset));
-                    break;
-                case 1:
-                    value = std::to_string(Utils::PeekMessage<float>(thisPtr, offset));
-                    break;
-                case 2:
-                    value = Utils::PeekMessage<std::string>(thisPtr, offset);
-                    break;
-                case 3:
-                    value = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, offset));
-                    break;
+                Utils::MessagePeek peek(thisPtr);
+                varType = thisPtr->ReadBYTE();
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                key = thisPtr->ReadCExoString().CStr();
+
+                switch (varType)
+                {
+                    case 0:
+                        value = std::to_string(static_cast<uint32_t>(thisPtr->ReadINT()));
+                        break;
+                    case 1:
+                        value = std::to_string(thisPtr->ReadFLOAT());
+                        break;
+                    case 2:
+                        value = thisPtr->ReadCExoString().CStr();
+                        break;
+                    case 3:
+                        value = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer());
+                        break;
+                }
             }
 
             auto PushAndSignal = [&](const std::string& ev) -> bool {
@@ -717,8 +771,13 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         case MessageDungeonMasterMinor::DumpLocals:
         {
             event += "DUMP_LOCALS";
-            auto type = Utils::PeekMessage<int32_t>(thisPtr, 0);
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 4) & 0x7FFFFFFF);
+            int32_t type;
+            std::string target;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                type = thisPtr->ReadINT();
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+            }
 
             auto PushAndSignalDumpLocalsEvent = [&](const std::string& ev) -> bool {
                 PushEventData("TYPE", std::to_string(type));
@@ -772,7 +831,11 @@ int32_t HandleDMMessageHook(CNWSMessage *thisPtr, CNWSPlayer *pPlayer, uint8_t n
         case Constants::MessageDungeonMasterMinor::Login:
         {
             event += "PLAYERDM_LOGIN";
-            auto password = Utils::PeekMessage<std::string>(thisPtr, 0);
+            std::string password;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                password = thisPtr->ReadCExoString().CStr();
+            }
 
             auto PushAndSignalPlayerDMLoginEvent = [&](const std::string& ev) -> bool {
                 PushEventData("PASSWORD", password);

@@ -29,12 +29,14 @@ int32_t HandlePlayerToServerCheatMessageHook(CNWSMessage *thisPtr, CNWSPlayer *p
     {
         case Constants::MessageCheatMinor::RunScript:
         {
-            int32_t offset = 0;
-            auto scriptName = Utils::PeekMessage<std::string>(thisPtr, offset);
-            offset += scriptName.length() + 4;
-
-            OBJECT_ID oidTarget = pPlayer->SatisfiesBuild(8193, 14, 0) ?
-                             Utils::PeekMessage<OBJECT_ID>(thisPtr, offset) : Constants::OBJECT_INVALID;
+            std::string scriptName;
+            OBJECT_ID oidTarget = Constants::OBJECT_INVALID;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                scriptName = thisPtr->ReadCExoString().CStr();
+                if (pPlayer->SatisfiesBuild(8193, 14, 0))
+                    oidTarget = thisPtr->ReadOBJECTIDServer();
+            }
             if (oidTarget == Constants::OBJECT_INVALID)
                 oidTarget = pPlayer->m_oidNWSObject;
 
@@ -59,16 +61,17 @@ int32_t HandlePlayerToServerCheatMessageHook(CNWSMessage *thisPtr, CNWSPlayer *p
 
         case Constants::MessageCheatMinor::RunScriptChunk:
         {
-            int32_t offset = 0;
-            auto scriptChunk = Utils::PeekMessage<std::string>(thisPtr, offset);
-            offset += scriptChunk.length() + 4;
-
-            auto oidTarget = Utils::PeekMessage<OBJECT_ID>(thisPtr, offset);
+            std::string scriptChunk;
+            OBJECT_ID oidTarget;
+            bool bWrapIntoMain;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                scriptChunk = thisPtr->ReadCExoString().CStr();
+                oidTarget = thisPtr->ReadOBJECTIDServer();
+                bWrapIntoMain = thisPtr->ReadBOOL();
+            }
             if (oidTarget == Constants::OBJECT_INVALID)
                 oidTarget = pPlayer->m_oidNWSObject;
-
-            offset += sizeof(oidTarget);
-            auto bWrapIntoMain = (bool)(Utils::PeekMessage<uint8_t>(thisPtr, offset) & 0x10);
 
             auto PushAndSignalEvent = [&](const std::string& ev) -> bool {
                 PushEventData("SCRIPT_CHUNK", scriptChunk);
@@ -92,12 +95,16 @@ int32_t HandlePlayerToServerCheatMessageHook(CNWSMessage *thisPtr, CNWSPlayer *p
 
         case Constants::MessageCheatMinor::PlayVisualEffect:
         {
-            std::string target = Utils::ObjectIDToString(Utils::PeekMessage<ObjectID>(thisPtr, 0) & 0x7FFFFFFF);
-            std::string visualEffect = std::to_string(Utils::PeekMessage<uint16_t>(thisPtr, 4));
-            std::string duration = std::to_string(Utils::PeekMessage<float>(thisPtr, 6));
-            std::string x = std::to_string(Utils::PeekMessage<float>(thisPtr, 10));
-            std::string y = std::to_string(Utils::PeekMessage<float>(thisPtr, 14));
-            std::string z = std::to_string(Utils::PeekMessage<float>(thisPtr, 18));
+            std::string target, visualEffect, duration, x, y, z;
+            {
+                Utils::MessagePeek peek(thisPtr);
+                target = Utils::ObjectIDToString(thisPtr->ReadOBJECTIDServer() & 0x7FFFFFFF);
+                visualEffect = std::to_string(thisPtr->ReadWORD());
+                duration = std::to_string(thisPtr->ReadFLOAT());
+                x = std::to_string(thisPtr->ReadFLOAT());
+                y = std::to_string(thisPtr->ReadFLOAT());
+                z = std::to_string(thisPtr->ReadFLOAT());
+            }
 
             auto PushAndSignalEvent = [&](const std::string& ev) -> bool {
                 PushEventData("TARGET_OBJECT_ID", target);

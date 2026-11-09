@@ -234,12 +234,16 @@ int32_t HandlePlayerToServerDeviceHook(CNWSMessage *pMessage, CNWSPlayer *pPlaye
     if (nMinor != Constants::MessageDeviceMinor::AdvertiseProperty)
         return s_HandlePlayerToServerDeviceHook->CallOriginal<int32_t>(pMessage, pPlayer, nMinor);
 
-    int32_t offset = 0;
-    const auto property = Utils::PeekMessage<std::string>(pMessage, offset);
-    offset += 4 + property.length();
-    const auto type = Utils::PeekMessage<int32_t>(pMessage, offset);
-    offset += 4;
-    const auto newValue = Utils::PeekMessage<int32_t>(pMessage, offset);
+    // HandlePlayerToServerDevice reads the name and the type, and an INT for type 1 only.
+    std::string property;
+    int32_t type, newValue = 0;
+    {
+        Utils::MessagePeek peek(pMessage);
+        property = pMessage->ReadCExoString().CStr();
+        type = pMessage->ReadINT();
+        if (type == 1)
+            newValue = pMessage->ReadINT();
+    }
 
     if (type != 1)// Only 1 type supported so far
         return s_HandlePlayerToServerDeviceHook->CallOriginal<int32_t>(pMessage, pPlayer, nMinor);

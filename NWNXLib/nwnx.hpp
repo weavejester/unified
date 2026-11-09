@@ -215,9 +215,6 @@ namespace Utils
     std::string ExtractLocString(CExoLocString& locStr, int32_t nID = 0, uint8_t bGender = 0);
     CExoLocString CreateLocString(const std::string& str, int32_t nID = 0, uint8_t bGender = 0);
 
-    template <typename T>
-    T PeekMessage(CNWSMessage *pMessage, int32_t offset);
-
     void AddStealthEvent(int32_t which, ObjectID oidSelf, ObjectID oidTarget);
     void AddObjectEnterAreaEvent(ObjectID oid, ObjectID oidArea);
     void AddObjectExitAreaEvent(ObjectID oid, ObjectID oidArea);

@@ -5423,12 +5423,15 @@ NWNX_EXPORT ArgumentStack SetAlwaysWalk(ArgumentStack&& args)
 // Inventory messages refuse the owner as well, since there it can only be a
 // destination repository, i.e. an item being planted on them.
 //
-// Peeked fields: the first three DWORDs of the message, as object ids -- the
+// Peeked fields: the object ids among each message's leading fields -- the
 // item, then the destination or target, in every item message these handlers
 // take (Equip: item, creature, slot; Unequip and RepositoryMove: item,
-// repository, x, y; split: item, count). A field that is not an object id is
-// vanishingly unlikely to equal one of the owner's items, and even then the
-// only cost is one refused input while a search is open.
+// repository, x, y; split: item, count). They are read with the engine's own
+// Read* calls, by a table of what each minor's handler reads first (below),
+// inside a Utils::MessagePeek. Until 2026-11-08 the first three DWORDs were
+// copied out of the read buffer as object ids, whatever the minor; that has no
+// meaning on NWNX_WSNetLayer, whose messages are lists of typed values with no
+// bytes behind them, and it read a stale buffer there (niv/NWNX_WSNetLayer#3).
 //
 // Hooked at Latest so NWNX_Events' Early hooks, and the module scripts they
 // run, still see every message as sent.
@@ -5465,16 +5468,149 @@ static ObjectID GetUntrustedOtherInventoryOwner(CNWSPlayer *pPlayer)
     return GetIsTrustedOtherInventoryOwner(pPlayer, oidOwner) ? Constants::OBJECT_INVALID : oidOwner;
 }
 
-// Utils::PeekMessage without the bounds check it does not do. Masked the way
-// NWNX_Events masks the ids it peeks.
-static bool PeekMessageObjectID(CNWSMessage *pMessage, int32_t offset, ObjectID &oid)
+// What each minor's handler reads first, one letter per Read* call, in the
+// order the engine makes them: O ReadOBJECTIDServer, F ReadFLOAT, I ReadINT,
+// D ReadDWORD, W ReadWORD, B ReadBYTE, b ReadBOOL. Indexed by the minor.
+//
+// Taken from the nwserver 8193.37 disassembly: each handler dispatches on the
+// minor through a jump table indexed by it, and these are the reads at each
+// case's target (a case that calls a sub-handler, as Input's walk and drive
+// do, has that function's reads). Each string stops once its fields cover 12
+// bytes on the UDP wire (a BOOL is a bit and takes none), the span the byte
+// scan this replaces looked at, so it does not reach a message's tail, such as
+// a group's member list. A minor whose case reads nothing has "", and so does
+// any minor past a table's end: those messages are not checked. The order
+// matters as much as the types on a typed transport: a ReadWORD where the
+// handler does ReadBYTE is a desync there.
+static const char *const s_InventoryLeadingReads[] =
 {
-    if (!pMessage || !pMessage->m_pnReadBuffer ||
-        pMessage->m_nReadBufferPtr + offset + sizeof(ObjectID) > pMessage->m_nReadBufferSize)
-        return false;
+    "",       // 0x00
+    "OOD",    // 0x01 Equip: item, creature, slot
+    "",       // 0x02 EquipCancel
+    "OFF",    // 0x03 Drop: item, x, y (, z)
+    "",       // 0x04 DropCancel
+    "OOBB",   // 0x05 Pickup
+    "",       // 0x06 PickupCancel
+    "OOBB",   // 0x07 Unequip: item, repository, x, y
+    "",       // 0x08 UnequipCancel
+    "OOBB",   // 0x09 RepositoryMove: item, repository, x, y
+    "",       // 0x0a RepositoryMoveCancel
+    "Ob",     // 0x0b EquipToggle
+    "O",      // 0x0c Use
+    "O",      // 0x0d LearnScroll
+};
 
-    oid = Utils::PeekMessage<ObjectID>(pMessage, offset) & 0x7FFFFFFF;
-    return true;
+static const char *const s_InputLeadingReads[] =
+{
+    "",       // 0x00
+    "OFF",    // 0x01 WalkToWayPoint (HandlePlayerToServerInputWalkToWaypoint)
+    "O",      // 0x02 Attack
+    "OW",     // 0x03 ChangeDoorState
+    "WOFF",   // 0x04 PlayAnimation
+    "O",      // 0x05 Examine
+    "WWO",    // 0x06 UseFeat
+    "BBOFF",  // 0x07 UseSkill
+    "O",      // 0x08 Dialog
+    "OBbBbb", // 0x09 UseItem
+    "B",      // 0x0a ToggleMode
+    "Obb",    // 0x0b UseObject
+    "O",      // 0x0c UnlockObject
+    "",       // 0x0d Rest
+    "O",      // 0x0e LockObject
+    "",       // 0x0f StopDragMode
+    "BDBBB",  // 0x10 MemorizeSpell
+    "BBB",    // 0x11 UnMemorizeSpell
+    "DBBBBF", // 0x12 CastSpell
+    "",       // 0x13 PossessFamiliar
+    "WW",     // 0x14 CancelAction
+    "O",      // 0x15 GetObjectDebugInfo
+    "OO",     // 0x16 MergeItem
+    "OW",     // 0x17 SplitItem: item, count
+    "",       // 0x18 TogglePauseRequest
+    "b",      // 0x19 SetPauseRequest
+    "b",      // 0x1a AlwaysRun
+    "OI",     // 0x1b AssociateCommand
+    "FF",     // 0x1c TurnOnSpot
+    "FFO",    // 0x1d DriveControl (HandlePlayerToServerInputDriveControl)
+    "O",      // 0x1e CancelPolymorph
+    "",       // 0x1f ExportRequest
+    "",       // 0x20 QuickSave
+    "",       // 0x21 AbortDriveControl (its sub-handler reads nothing)
+    "",       // 0x22 CancelGuiTimingEvent (likewise)
+    "DBBFF",  // 0x23 CastSpellLikeAbility
+    "I",      // 0x24 BroadcastAssociateCommand
+    "OFF",    // 0x25
+    "OFF",    // 0x26
+};
+
+static const char *const s_GroupInputLeadingReads[] =
+{
+    "",       // 0x00
+    "OFF",    // 0x01
+    "ODO",    // 0x02
+    "OW",     // 0x03
+    "WOFF",   // 0x04
+    "O",      // 0x05
+    "WWO",    // 0x06
+    "BBOFF",  // 0x07
+    "O",      // 0x08
+    "OBbBbb", // 0x09
+    "B",      // 0x0a
+    "Ob",     // 0x0b
+    "O",      // 0x0c
+    "",       // 0x0d
+    "O",      // 0x0e
+    "",       // 0x0f
+    "BDBBB",  // 0x10
+    "BBB",    // 0x11
+    "DBBBBF", // 0x12
+    "",       // 0x13
+    "WW",     // 0x14
+    "O",      // 0x15
+    "OO",     // 0x16
+    "OW",     // 0x17
+    "", "", "", // 0x18 - 0x1a
+    "OI",     // 0x1b
+    "", "", "", "", "", "", "", // 0x1c - 0x22
+    "DBBFF",  // 0x23
+};
+
+template <size_t N>
+static const char *GetLeadingReads(const char *const (&table)[N], uint8_t nMinor)
+{
+    return nMinor < N ? table[nMinor] : "";
+}
+
+struct LeadingFields
+{
+    std::vector<ObjectID> ids;   // every O, in order, masked as NWNX_Events masks them
+    std::vector<uint32_t> dwords; // every D, in order
+};
+
+// Reads the fields `reads` names and puts the read position back, so the
+// engine's handler still reads the whole message.
+static LeadingFields PeekLeadingFields(CNWSMessage *pMessage, const char *reads)
+{
+    LeadingFields fields;
+    if (!pMessage || !*reads)
+        return fields;
+
+    Utils::MessagePeek peek(pMessage);
+    for (const char *r = reads; *r; ++r)
+    {
+        switch (*r)
+        {
+            case 'O': fields.ids.push_back(pMessage->ReadOBJECTIDServer() & 0x7FFFFFFF); break;
+            case 'D': fields.dwords.push_back(pMessage->ReadDWORD()); break;
+            case 'F': pMessage->ReadFLOAT(); break;
+            case 'I': pMessage->ReadINT(); break;
+            case 'W': pMessage->ReadWORD(); break;
+            case 'B': pMessage->ReadBYTE(); break;
+            case 'b': pMessage->ReadBOOL(); break;
+            default: return fields;
+        }
+    }
+    return fields;
 }
 
 static bool GetIsOwnerOrOwnersItem(ObjectID oid, ObjectID oidOwner, bool bOwnerItself)
@@ -5493,12 +5629,11 @@ static bool GetIsOwnerOrOwnersItem(ObjectID oid, ObjectID oidOwner, bool bOwnerI
     return oidHolder == oidOwner;
 }
 
-static bool GetMessageTouchesOwner(CNWSMessage *pMessage, ObjectID oidOwner, bool bOwnerItself)
+static bool GetFieldsTouchOwner(const LeadingFields &fields, ObjectID oidOwner, bool bOwnerItself)
 {
-    for (int32_t offset = 0; offset <= 8; offset += 4)
+    for (ObjectID oid : fields.ids)
     {
-        ObjectID oid;
-        if (PeekMessageObjectID(pMessage, offset, oid) && GetIsOwnerOrOwnersItem(oid, oidOwner, bOwnerItself))
+        if (GetIsOwnerOrOwnersItem(oid, oidOwner, bOwnerItself))
             return true;
     }
 
@@ -5523,16 +5658,16 @@ static Hooks::Hook s_ReadOnlyInventoryMessageHook = Hooks::HookFunction(&CNWSMes
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
         const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
-
-        if (oidOwner == Constants::OBJECT_INVALID || !GetMessageTouchesOwner(pThis, oidOwner, true))
+        if (oidOwner == Constants::OBJECT_INVALID)
             return s_ReadOnlyInventoryMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
 
-        ObjectID oidItem = Constants::OBJECT_INVALID;
-        PeekMessageObjectID(pThis, 0, oidItem);
+        const LeadingFields fields = PeekLeadingFields(pThis, GetLeadingReads(s_InventoryLeadingReads, nMinor));
+        if (!GetFieldsTouchOwner(fields, oidOwner, true))
+            return s_ReadOnlyInventoryMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
 
-        uint32_t nSlot = 0;
-        if (pThis->m_nReadBufferPtr + 12 <= pThis->m_nReadBufferSize)
-            nSlot = Utils::PeekMessage<uint32_t>(pThis, 8);
+        // Every minor that can get here starts with the item; Equip's slot is its DWORD.
+        const ObjectID oidItem = fields.ids.empty() ? Constants::OBJECT_INVALID : fields.ids[0];
+        const uint32_t nSlot = fields.dwords.empty() ? 0 : fields.dwords[0];
 
         RefuseOtherInventoryMessage(pPlayer);
 
@@ -5554,12 +5689,15 @@ static Hooks::Hook s_ReadOnlyInputMessageHook = Hooks::HookFunction(&CNWSMessage
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, uint8_t nMinor) -> int32_t
     {
         const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
+        if (oidOwner == Constants::OBJECT_INVALID)
+            return s_ReadOnlyInputMessageHook->CallOriginal<int32_t>(pThis, pPlayer, nMinor);
 
-        if (oidOwner != Constants::OBJECT_INVALID && GetMessageTouchesOwner(pThis, oidOwner, false))
+        const LeadingFields fields = PeekLeadingFields(pThis, GetLeadingReads(s_InputLeadingReads, nMinor));
+        if (GetFieldsTouchOwner(fields, oidOwner, false))
         {
-            ObjectID oidObject;
+            // UseObject starts with the object used.
             const bool bOpeningBag = nMinor == Constants::MessageInputMinor::UseObject &&
-                                     PeekMessageObjectID(pThis, 0, oidObject) && GetIsContainerItem(oidObject);
+                                     !fields.ids.empty() && GetIsContainerItem(fields.ids[0]);
 
             if (!bOpeningBag)
             {
@@ -5576,7 +5714,8 @@ static Hooks::Hook s_ReadOnlyGroupInputMessageHook = Hooks::HookFunction(&CNWSMe
     {
         const ObjectID oidOwner = GetUntrustedOtherInventoryOwner(pPlayer);
 
-        if (oidOwner != Constants::OBJECT_INVALID && GetMessageTouchesOwner(pThis, oidOwner, false))
+        if (oidOwner != Constants::OBJECT_INVALID &&
+            GetFieldsTouchOwner(PeekLeadingFields(pThis, GetLeadingReads(s_GroupInputLeadingReads, nMinor)), oidOwner, false))
         {
             RefuseOtherInventoryMessage(pPlayer);
             return true;
