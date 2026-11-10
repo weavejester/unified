@@ -6016,8 +6016,9 @@ NWNX_EXPORT ArgumentStack GetIsPlayingAnimationForPlayer(ArgumentStack&& args)
 //
 // The entries are MOVED out and back, not copied: each holds its transform
 // (scale, translate, rotate), an ObjectVisualTransformData with a std::map
-// inside, and goes back exactly as it was, at the index it had. Nothing else
-// runs in between; the server is single threaded here.
+// inside, and goes back exactly as it was, at the index it had, never moved
+// onto itself (see the loop putting them back). Nothing else runs in between;
+// the server is single threaded here.
 //
 // A hide runs out by itself (tUntil), checked as each update is computed, so
 // the row comes back in the first update for that player after it ends: the
@@ -6126,12 +6127,21 @@ static Hooks::Hook s_HiddenVisualEffectComputeHook = Hooks::HookFunction(&CNWSMe
             return;
         }
 
+        //
+        // Below the first hidden entry nothing moved, and an entry must never
+        // be moved onto itself: libstdc++'s map move assignment clears the
+        // target before taking the source's nodes, so a map moved onto itself
+        // comes out EMPTY. Until 2026-11-10 this loop did that to every entry
+        // before the first hidden one, on every update the hide was computed
+        // for, wiping their transforms on the object itself: the victim's VFX
+        // accessories and stowed gear jumped to their anchors at scale 1, for
+        // every viewer, until re-applied. So stop once the hidden ones are in.
         list.num = nAll;
         int32_t nFrom = nKept - 1;
         size_t nRemoved = removed.size();
-        for (int32_t i = nAll - 1; i >= 0; i--)
+        for (int32_t i = nAll - 1; i >= 0 && nRemoved > 0; i--)
         {
-            if (nRemoved > 0 && removed[nRemoved - 1].first == i)
+            if (removed[nRemoved - 1].first == i)
                 list.element[i] = std::move(removed[--nRemoved].second);
             else
                 list.element[i] = std::move(list.element[nFrom--]);
