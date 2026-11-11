@@ -5082,7 +5082,7 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // 2026-09-21). The clone MUST carry the source's object state -- effects,
 // action queue, combat state -- or it does not pick up the attack animation
 // fluidly, so this serialises exactly the way NWNX's own serialiser does
-// (SaveObjectState, then SaveCreature) and only takes three things out of
+// (SaveObjectState, then SaveCreature) and only takes four things out of
 // the picture for the duration of the save:
 //
 //  * the backpack: the repository's item list is swapped for an empty one.
@@ -5094,7 +5094,21 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 //  * the local variables: the script replaced the VarTable wholesale, and a
 //    PC's class-state locals have no business on a two-second image;
 //  * the PC flags, plot, and useable bits, which the script used to patch
-//    into the JSON.
+//    into the JSON;
+//  * the area-of-effect effects. An image projects no aura of its own, and
+//    loading one is not harmless: for every AoE effect whose AoE object is
+//    gone, the engine makes a NEW one as the creature loads
+//    (CNWSEffectListHandler::OnApplyAreaOfEffect, from the nwserver
+//    decompile). The module's stealth detection used to end an aura by
+//    destroying its object and leaving its effect behind, so in a big fight
+//    on production players carried up to 290 dead ones, each of their
+//    images arrived under that many live auras, and the AI's NORMAL list,
+//    which AoE objects share with creatures in combat, went from 40
+//    objects to 15,000 while those creatures stood idle (2026-11-10). The
+//    module no longer leaves them (pw_inc_perceive's RemoveDetectionAura);
+//    this is so that nothing else that does can reach an image. Seen on
+//    dev: a source with 100 dead ones gave three images 303 objects before
+//    this, and 3 after.
 //
 // The GFF is then loaded straight back into a new creature (the same
 // DeserializeGameObject that NWNX_Object_Deserialize uses), given full hit
@@ -5114,10 +5128,11 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // across calls: the image has to reflect the source's state at the moment of
 // the attack, so a snapshot from an earlier Wave Crash is not good enough.
 //
-// Not verified here: that SaveCreature reads the backpack through
-// m_pcItemRepository->m_oidItems and nothing else. Ghidra truncates that
-// function, so the first in-game check after deploying this is that the
-// clone has no inventory and still wears its owner's gear.
+// That SaveCreature reads the backpack through m_pcItemRepository->m_oidItems
+// and nothing else could not be read from the decompile (Ghidra truncates
+// the function), but it holds: on dev a source with 140 backpack items and 9
+// equipped gave each image 10 items, the tenth a Well bottle that one of the
+// source's own effect handlers made for the image as it loaded (2026-11-10).
 
 static ObjectID s_AfterimageSource = Constants::OBJECT_INVALID;
 static std::vector<uint8_t> s_AfterimageData;
@@ -5137,9 +5152,37 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
     pSource->m_bPlotObject = true;
     pSource->m_bUseable = false;
 
+    // The effect list is read through its element pointer and count, so the
+    // save is shown a list without the AoE effects and the real one is put
+    // back after it. Nothing is added to or taken from the list in between.
+    auto &effects = pSource->m_appliedEffects;
+    CGameEffect **pAllEffects = effects.element;
+    const int32_t nAllEffects = effects.num;
+    std::vector<CGameEffect*> keptEffects;
+    keptEffects.reserve(nAllEffects > 0 ? nAllEffects : 0);
+
+    for (int32_t i = 0; i < nAllEffects; i++)
+    {
+        if (!pAllEffects[i] || pAllEffects[i]->m_nType != Constants::EffectTrueType::AreaOfEffect)
+            keptEffects.push_back(pAllEffects[i]);
+    }
+
+    const bool bEffectsSwapped = (int32_t)keptEffects.size() != nAllEffects;
+    if (bEffectsSwapped)
+    {
+        effects.element = keptEffects.data();
+        effects.num = (int32_t)keptEffects.size();
+    }
+
     // bStripPCFlags: SerializeGameObject zeroes m_bPlayerCharacter and
     // m_pStats->m_bIsPC around the save, which is the JSON path's IsPC = 0.
     std::vector<uint8_t> data = Utils::SerializeGameObject(pSource, true);
+
+    if (bEffectsSwapped)
+    {
+        effects.element = pAllEffects;
+        effects.num = nAllEffects;
+    }
 
     pSource->m_bPlotObject = bPlot;
     pSource->m_bUseable = bUseable;
