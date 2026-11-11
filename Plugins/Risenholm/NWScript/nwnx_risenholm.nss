@@ -215,11 +215,15 @@ int NWNX_Risenholm_PrepareAfterimage(object oCreature);
 void NWNX_Risenholm_ReleaseAfterimage();
 
 /// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable
-/// copy that carries oCreature's effects, action queue, and equipment but none of its backpack or
-/// local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction
-/// nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a permanent cutscene ghost, and
-/// animation speed fAnimationSpeed. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it
-/// is for this creature, and serialises on the spot otherwise.
+/// copy that carries oCreature's action queue, combat round, and equipment but none of its backpack,
+/// local variables, or stealth mode, and of its effects and its items' properties only the ones
+/// that decide how it looks (visual effects and polymorph), with full hit points, the marker locals
+/// IS_SET_PIECE and IS_VFX, faction nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a
+/// permanent cutscene ghost, and animation speed fAnimationSpeed. Uses the snapshot from
+/// NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot
+/// otherwise.
+/// @note The clone is drawn with oCreature's own head, not one set by NWNX_Risenholm_SetDisplayedHead,
+/// and does not have its DISABLE_COMBAT_SHUFFLE local: the caller sets both.
 /// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller only
 /// orders the attack and the DestroyObject.
 /// @param oCreature The creature to copy.

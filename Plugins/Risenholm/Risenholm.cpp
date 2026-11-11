@@ -5079,11 +5079,10 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // Native replacement for the ObjectToJson -> GffReplace* -> JsonToObject path
 // that pw_inc_attack's CreateAfterimageClonesToAttackTarget used to run for
 // every Wave Crash and afterimage flurry (558 ms per run on production,
-// 2026-09-21). The clone MUST carry the source's object state -- effects,
-// action queue, combat state -- or it does not pick up the attack animation
-// fluidly, so this serialises exactly the way NWNX's own serialiser does
-// (SaveObjectState, then SaveCreature) and only takes four things out of
-// the picture for the duration of the save:
+// 2026-09-21). The clone carries its source's action queue and combat round,
+// which is what lets it pick up the attack, so this serialises the way
+// NWNX's own serialiser does (SaveObjectState, then SaveCreature) and takes
+// these out of the picture for the duration of the save:
 //
 //  * the backpack: the repository's item list is swapped for an empty one.
 //    Player inventories here run to hundreds of items, and the JSON path
@@ -5092,33 +5091,63 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 //    CNWSInventory equip slots, not the repository, so the image still
 //    looks like its owner;
 //  * the local variables: the script replaced the VarTable wholesale, and a
-//    PC's class-state locals have no business on a two-second image;
+//    PC's class-state locals have no business on a two-second image. The one
+//    an image does need is DISABLE_COMBAT_SHUFFLE, which the DoCombatStep
+//    hook above reads; it is the module's switch, so the script that makes
+//    the images sets it on each (pw_inc_attack);
 //  * the PC flags, plot, and useable bits, which the script used to patch
 //    into the JSON;
-//  * the area-of-effect effects. An image projects no aura of its own, and
-//    loading one is not harmless: for every AoE effect whose AoE object is
-//    gone, the engine makes a NEW one as the creature loads
-//    (CNWSEffectListHandler::OnApplyAreaOfEffect, from the nwserver
-//    decompile). The module's stealth detection used to end an aura by
-//    destroying its object and leaving its effect behind, so in a big fight
-//    on production players carried up to 290 dead ones, each of their
-//    images arrived under that many live auras, and the AI's NORMAL list,
-//    which AoE objects share with creatures in combat, went from 40
-//    objects to 15,000 while those creatures stood idle (2026-11-10). The
-//    module no longer leaves them (pw_inc_perceive's RemoveDetectionAura);
-//    this is so that nothing else that does can reach an image. Seen on
-//    dev: a source with 100 dead ones gave three images 303 objects before
-//    this, and 3 after.
+//  * every effect but the kinds that decide what the source looks like
+//    (AfterimageKeepsEffect): visual effects, which are also how the module
+//    draws accessories and stowed gear, and polymorph. An image is there to
+//    be looked at. Until 2026-11-11 it carried them all, on the belief that
+//    it would not pick up the attack fluidly without them. It does: on dev
+//    an image of a fighter in combat carrying 61 effects swung 0.6 s after
+//    it was made, with all 61 and with only its 6 visual ones alike (30
+//    images each way, none failing to swing), and three images cost 24 ms
+//    to make with them and 7 without. The belief came from one experiment
+//    that took out the action queue, the perception list, and the
+//    reputation list along with the effects (module commits 3987cad8ce and
+//    a12c350190, 2026-09-21). What the effects did do on an image:
+//      - each ran the module's effect script as the image loaded and again
+//        as it was destroyed, and each scripted one its own apply handler,
+//        as if for a player (a Well water charge bonus made every image a
+//        Well bottle, seen on dev);
+//      - a hiding effect, like the stealth mode below, hid the image as its
+//        source was hidden, and the module's stealth detection stages every
+//        player near a hidden creature as its detector, here of one gone in
+//        two seconds;
+//      - for every AoE effect whose AoE object is gone, the engine makes a
+//        NEW one as the creature loads (OnApplyAreaOfEffect, from the
+//        nwserver decompile). The module's stealth detection used to end an
+//        aura by destroying its object and leaving its effect behind, so in
+//        a big fight on production players carried up to 290 dead ones,
+//        each of their images arrived under that many live auras, and the
+//        AI's NORMAL list, which AoE objects share with creatures in
+//        combat, went from 40 objects to 15,000 while those creatures stood
+//        idle (2026-11-10). On dev a source with 100 dead ones gave three
+//        images 303 objects with its AoE effects, and 3 without;
+//  * the equipped items' properties, all but their visual effects, and the
+//    items' own effects (their temporary properties). The items are saved
+//    inside the creature, and equipping each as the creature loads applies
+//    its properties to the creature as effects;
+//  * stealth mode, which is saved with the creature itself. On dev a source
+//    standing in stealth gave images that were not.
 //
 // The GFF is then loaded straight back into a new creature (the same
 // DeserializeGameObject that NWNX_Object_Deserialize uses), given full hit
 // points, the requested faction, a zeroed UI discovery mask, and the two
 // marker locals, and added to the area facing the way the source faces. It
 // is then dressed as an afterimage: not lootable, VFX_DUR_INVISIBILITY, a
-// permanent 100% miss chance, a permanent cutscene ghost (the source may or
-// may not be carrying one at snapshot time, and an image must never block
-// anyone), and the caller's animation speed, so the script has nothing left
-// to do per clone but order the attack and the destroy.
+// permanent 100% miss chance, a permanent cutscene ghost (an image must
+// never block anyone), and the caller's animation speed. Two things are left
+// to the script that makes it, as both are the module's own: the
+// DISABLE_COMBAT_SHUFFLE local above, and the head its source is DRAWN with
+// when that is not its own. SetDisplayedHead writes only a creature's
+// appearance, and a save keeps the head in its stats, so an image of a
+// character whose helmet is shown as its head loads bareheaded (seen on dev
+// 2026-11-11: source drawn with head 1044, images with its own head 1) until
+// the script copies the shown head over.
 //
 // The serialisation is the expensive half and a flurry wants three clones of
 // the same instant, so it is split: PrepareAfterimage serialises once into a
@@ -5137,6 +5166,44 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 static ObjectID s_AfterimageSource = Constants::OBJECT_INVALID;
 static std::vector<uint8_t> s_AfterimageData;
 
+// Whether an image keeps one of its source's effects: only the kinds that
+// decide what the source looks like.
+static bool AfterimageKeepsEffect(const CGameEffect *pEffect)
+{
+    switch (pEffect->m_nType)
+    {
+        case Constants::EffectTrueType::VisualEffect:
+        case Constants::EffectTrueType::Polymorph:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+// One equipped item's property lists and effect list as they really are,
+// while the save is shown shorter ones.
+struct AfterimageItemLists
+{
+    CNWSItem *pItem;
+    CNWItemProperty *pActive;
+    int32_t nActive;
+    CNWItemProperty *pPassive;
+    int32_t nPassive;
+    int32_t nEffects;
+    std::vector<CNWItemProperty> keptActive;
+    std::vector<CNWItemProperty> keptPassive;
+};
+
+static void AfterimageKeepVisualProperties(const CNWItemProperty *pProperties, int32_t nProperties, std::vector<CNWItemProperty> &kept)
+{
+    for (int32_t i = 0; i < nProperties; i++)
+    {
+        if (pProperties[i].m_nPropertyName == Constants::ItemProperty::VisualEffect)
+            kept.push_back(pProperties[i]);
+    }
+}
+
 static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 {
     // --- detach what the image must not carry, for the duration of the save
@@ -5149,12 +5216,15 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 
     const BOOL bPlot = pSource->m_bPlotObject;
     const BOOL bUseable = pSource->m_bUseable;
+    const uint8_t nStealthMode = pSource->m_nStealthMode;
     pSource->m_bPlotObject = true;
     pSource->m_bUseable = false;
+    pSource->m_nStealthMode = 0;
 
     // The effect list is read through its element pointer and count, so the
-    // save is shown a list without the AoE effects and the real one is put
-    // back after it. Nothing is added to or taken from the list in between.
+    // save is shown a list of only the effects an image keeps and the real
+    // one is put back after it. Nothing is added to or taken from the list
+    // in between.
     auto &effects = pSource->m_appliedEffects;
     CGameEffect **pAllEffects = effects.element;
     const int32_t nAllEffects = effects.num;
@@ -5163,7 +5233,7 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 
     for (int32_t i = 0; i < nAllEffects; i++)
     {
-        if (!pAllEffects[i] || pAllEffects[i]->m_nType != Constants::EffectTrueType::AreaOfEffect)
+        if (!pAllEffects[i] || AfterimageKeepsEffect(pAllEffects[i]))
             keptEffects.push_back(pAllEffects[i]);
     }
 
@@ -5174,9 +5244,56 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
         effects.num = (int32_t)keptEffects.size();
     }
 
+    // The same for each equipped item, which is saved inside the creature:
+    // its property lists are shown with only their visual effects, and its
+    // own effect list (its temporary properties) empty.
+    std::vector<AfterimageItemLists> itemLists;
+
+    if (pSource->m_pInventory)
+    {
+        const size_t nSlots = sizeof(pSource->m_pInventory->m_pEquipSlot) / sizeof(pSource->m_pInventory->m_pEquipSlot[0]);
+        itemLists.reserve(nSlots);
+
+        for (size_t nSlot = 0; nSlot < nSlots; nSlot++)
+        {
+            auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(pSource->m_pInventory->m_pEquipSlot[nSlot]));
+
+            if (!pItem)
+                continue;
+
+            itemLists.emplace_back();
+            auto &lists = itemLists.back();
+
+            lists.pItem = pItem;
+            lists.pActive = pItem->m_lstActiveProperties.element;
+            lists.nActive = pItem->m_lstActiveProperties.num;
+            lists.pPassive = pItem->m_lstPassiveProperties.element;
+            lists.nPassive = pItem->m_lstPassiveProperties.num;
+            lists.nEffects = pItem->m_appliedEffects.num;
+
+            AfterimageKeepVisualProperties(lists.pActive, lists.nActive, lists.keptActive);
+            AfterimageKeepVisualProperties(lists.pPassive, lists.nPassive, lists.keptPassive);
+
+            pItem->m_lstActiveProperties.element = lists.keptActive.data();
+            pItem->m_lstActiveProperties.num = (int32_t)lists.keptActive.size();
+            pItem->m_lstPassiveProperties.element = lists.keptPassive.data();
+            pItem->m_lstPassiveProperties.num = (int32_t)lists.keptPassive.size();
+            pItem->m_appliedEffects.num = 0;
+        }
+    }
+
     // bStripPCFlags: SerializeGameObject zeroes m_bPlayerCharacter and
     // m_pStats->m_bIsPC around the save, which is the JSON path's IsPC = 0.
     std::vector<uint8_t> data = Utils::SerializeGameObject(pSource, true);
+
+    for (auto &lists : itemLists)
+    {
+        lists.pItem->m_lstActiveProperties.element = lists.pActive;
+        lists.pItem->m_lstActiveProperties.num = lists.nActive;
+        lists.pItem->m_lstPassiveProperties.element = lists.pPassive;
+        lists.pItem->m_lstPassiveProperties.num = lists.nPassive;
+        lists.pItem->m_appliedEffects.num = lists.nEffects;
+    }
 
     if (bEffectsSwapped)
     {
@@ -5186,6 +5303,7 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 
     pSource->m_bPlotObject = bPlot;
     pSource->m_bUseable = bUseable;
+    pSource->m_nStealthMode = nStealthMode;
     std::swap(pSource->m_ScriptVars.m_vars, savedVars);
     if (pSource->m_pcItemRepository)
         std::swap(pSource->m_pcItemRepository->m_oidItems.m_pcExoLinkedListInternal, emptyItems.m_pcExoLinkedListInternal);
@@ -5287,24 +5405,11 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     pClone->ApplyEffect(pMiss, false, true);
 
     // ExtraordinaryEffect(EffectCutsceneGhost()), permanent: the handler
-    // reads no parameters. If the source was carrying its own temporary
-    // ghost at snapshot time the clone already has a copy, and the engine
-    // then drops ours as a duplicate (verified on dev 2026-09-21: the clone
-    // kept only the 0.7 s copy), so any inherited ghost is removed first.
-    {
-        std::vector<uint64_t> aGhostIds;
-        auto &effects = pClone->m_appliedEffects;
-
-        for (int32_t i = 0; i < effects.num; i++)
-        {
-            if (effects.element[i] && effects.element[i]->m_nType == Constants::EffectTrueType::CutsceneGhost)
-                aGhostIds.push_back(effects.element[i]->m_nID);
-        }
-
-        for (uint64_t nId : aGhostIds)
-            pClone->RemoveEffectById(nId);
-    }
-
+    // reads no parameters. The source's own temporary ghost (the script puts
+    // one on it for 0.7 s) is not among the effects an image keeps, so there
+    // is no copy on the clone for the engine to drop this one as a duplicate
+    // of, as it did while an image carried every effect (seen on dev
+    // 2026-09-21: the clone kept only the 0.7 s copy).
     auto *pGhost = new CGameEffect(true);
     pGhost->m_nType = Constants::EffectTrueType::CutsceneGhost;
     pGhost->m_nSubType = Constants::EffectSubType::Extraordinary | Constants::EffectDurationType::Permanent;
