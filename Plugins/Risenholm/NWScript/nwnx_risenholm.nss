@@ -233,6 +233,32 @@ void NWNX_Risenholm_ReleaseAfterimage();
 /// @return The clone, or OBJECT_INVALID.
 object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction, float fAnimationSpeed = 1.0);
 
+/// @brief TRUE when this build of the plugin has NWNX_Risenholm_CreateAfterimageGhost. An older build
+/// logs an error for the call and gives 0, so ask once a module load and keep the answer.
+int NWNX_Risenholm_GetAfterimageGhostsSupported();
+
+/// @brief Show an afterimage of oCreature at lLocation swinging once at oTarget, as a ghost: built as
+/// NWNX_Risenholm_CreateAfterimage builds its clone, and looking the same (it also takes the head
+/// oCreature is drawn with), but in no area and in none of the AI's lists. Nothing perceives it,
+/// no script that walks an area finds it, and it runs no script and no combat round of its own. It
+/// is written straight to the players who are being shown oCreature, with one swing that misses,
+/// and is taken away after fLifetime seconds. Uses the snapshot from
+/// NWNX_Risenholm_PrepareAfterimage when it is for this creature.
+/// @note A ghost does not walk: put it within reach of oTarget. None is made, and OBJECT_INVALID
+/// returned, for a creature holding a ranged weapon.
+/// @param oCreature The creature to show an image of.
+/// @param lLocation Where the ghost stands. It faces oTarget, or the location's facing with none.
+/// @param oTarget What it swings at.
+/// @param nFaction The ENGINE faction id (STANDARD_FACTION_* + 1).
+/// @param fAnimationSpeed OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED for the ghost; 1.0 leaves it alone.
+/// @param fLifetime Seconds it stays after its swing starts, up to 10.
+/// @param nSwingMs The swing's length in milliseconds, before fAnimationSpeed.
+/// @param nReaction What oTarget is shown doing as the swing comes in: an engine animation number,
+/// 1 (ready) for nothing, 11 for a dodge, 12 for a parry. Shown only: the target's round goes on.
+/// @param fSwingDelay Seconds it stands at the ready before it swings, up to 5; 0 swings at once.
+/// @return The ghost, which a script has no use for but to test, or OBJECT_INVALID.
+object NWNX_Risenholm_CreateAfterimageGhost(object oCreature, location lLocation, object oTarget, int nFaction, float fAnimationSpeed = 1.0, float fLifetime = 1.0, int nSwingMs = 1000, int nReaction = 1, float fSwingDelay = 0.0);
+
 /// @brief Stop or allow oCreature running, as NWNX_Player_SetAlwaysWalk does.
 /// @note Use this and NOT NWNX_Player_SetAlwaysWalk. Both drive the same engine flag, but the
 /// Player version clears it without noticing the movement-limit effect that stealth mode, Slow
@@ -681,6 +707,33 @@ object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int
     NWNXPushObject(GetAreaFromLocation(lLocation));
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "CreateAfterimage");
+    return NWNXPopObject();
+}
+
+int NWNX_Risenholm_GetAfterimageGhostsSupported()
+{
+    NWNXCall(NWNX_Risenholm, "GetAfterimageGhostsSupported");
+    return NWNXPopInt();
+}
+
+object NWNX_Risenholm_CreateAfterimageGhost(object oCreature, location lLocation, object oTarget, int nFaction, float fAnimationSpeed = 1.0, float fLifetime = 1.0, int nSwingMs = 1000, int nReaction = 1, float fSwingDelay = 0.0)
+{
+    vector vPosition = GetPositionFromLocation(lLocation);
+
+    NWNXPushFloat(fSwingDelay);
+    NWNXPushInt(nReaction);
+    NWNXPushInt(nSwingMs);
+    NWNXPushFloat(fLifetime);
+    NWNXPushFloat(fAnimationSpeed);
+    NWNXPushInt(nFaction);
+    NWNXPushObject(oTarget);
+    NWNXPushFloat(GetFacingFromLocation(lLocation));
+    NWNXPushFloat(vPosition.z);
+    NWNXPushFloat(vPosition.y);
+    NWNXPushFloat(vPosition.x);
+    NWNXPushObject(GetAreaFromLocation(lLocation));
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "CreateAfterimageGhost");
     return NWNXPopObject();
 }
 

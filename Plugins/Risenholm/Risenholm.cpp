@@ -5432,6 +5432,428 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
 
 
 // ---------------------------------------------------------------------------
+// Afterimage ghosts
+// ---------------------------------------------------------------------------
+//
+// An afterimage that is in no area. CreateAfterimage's clone is a creature in
+// the world for the second it lasts: the area's enter and exit scripts run
+// for it, everything near perceives it and runs its perception script, it
+// holds a place in the AI's lists, it fights a real combat round, which
+// pauses its target's round while the target dodges, and the module's attack
+// script runs for a swing that cannot hit. All of that is there for one
+// thing, which is that players see a figure swing. A ghost is that figure and
+// nothing more:
+//
+//  * It is built as the clone is, from the same snapshot, so it looks the
+//    same, but it is never added to an area. Its m_oidArea is set and that is
+//    all (CNWSObject::SetArea writes only that field): it is in none of the
+//    area's lists, so nothing perceives it, nothing that walks an area finds
+//    it, and nothing collides with it.
+//  * It is taken out of the AI's lists, which a creature joins in its
+//    constructor, so it has no AIUpdate: no heartbeat, no perception of its
+//    own, no actions, no combat round.
+//  * The engine's object update never reaches it, as that walks the area's
+//    object list. It is written to each player here instead, with the
+//    engine's own calls for one object: TestObjectUpdateDifferences, which
+//    makes the player's CLastUpdateObject and writes the 'A' record,
+//    WriteGameObjUpdate_UpdateObject, and StoreValuesInLastUpdateObject, as
+//    NWNX's own alternate update strings them together
+//    (Optimizations/LuoLookup.cpp), in a message of its own, sent at once.
+//  * THE ENGINE INTRODUCES A NEW CREATURE IN TWO UPDATES, so the write is
+//    done twice over. CreateNewLastUpdateObject hands back update flags
+//    0x3967 for a creature and records only those in the CLastUpdateObject;
+//    the rest go out in the next update, 200 ms on, when the diff finds them
+//    unrecorded. Among them are 0x200000, the material values (the robe and
+//    helmet slots' colours, picked colours, wetness), 0x400000, the useable
+//    bit and the UI discovery mask, and 0x800000 and 0x1000000, texture and
+//    animation swaps (a combat style). A ghost has no next update, so the
+//    first ghosts drew in the wrong colours and could be highlighted,
+//    clicked, and talked to (seen 2026-11-11). Its second pass runs here at
+//    once, and the swing is held back to it, so that the swaps are in before
+//    the attack starts (the writer puts both in one record, swaps first).
+//    Read from CreateNewLastUpdateObject and the writer's flag tests in the
+//    nwserver disassembly.
+//  * Its swing is state, not an event. An update carries a creature's
+//    animation, and for Animation::Attack the writer follows it with the
+//    latest attacks of the creature's combat round: for each, the target,
+//    its reaction and how long that takes, the swing's length, the result,
+//    and the hand. So the ghost's round is given one attack by hand, a miss,
+//    and its animation set, before it is written. Nothing is rolled, nothing
+//    is logged, and no script runs.
+//  * Its swing can wait (fSwingDelay). A flurry's three images must swing
+//    one after another, each with its own hit: clones did, as each ran a
+//    combat round of its own and the rounds drifted apart, and three ghosts
+//    swinging as one read as one figure (the user, 2026-11-11). A ghost that
+//    waits is shown at the ready, and its swing goes to each client holding
+//    it when the time comes, as an ordinary update of the attack animation.
+//    Its lifetime runs from the swing, as a clone's did from its attack.
+//  * When its time is up it is taken off each client that was shown it here
+//    too (DeleteLastUpdateObjectsForObject: the 'D' record, and the player's
+//    CLastUpdateObject gone), then its area is cleared and it is destroyed
+//    by the ordinary event. The area is cleared first because the destroy
+//    event reaches CNWSArea::RemoveObjectFromArea, which signals the area's
+//    exit script for any living creature whose GetArea() is that area, in
+//    its lists or not. A player who changes area meanwhile loses it with the
+//    rest of the old area's objects.
+//
+// Who is shown one: each player in the area whose client is being shown the
+// source, which is to say holds a CLastUpdateObject for it, and the source's
+// own player. Whoever cannot see a hidden character does not see its images.
+//
+// The writer's attack block, the two sweeps that drop a CLastUpdateObject,
+// SetArea, RemoveObjectFromArea, and the destroy event's path were read from
+// the nwserver disassembly (2026-11-11). A ghost does not walk: it swings
+// from where it is put, so the caller puts it within reach of its target.
+// One is not made for a source holding a ranged weapon, whose shot has more
+// to it than this record.
+
+struct AfterimageGhost
+{
+    ObjectID oidGhost;
+    std::chrono::steady_clock::time_point tSwing;   // when its swing goes out, if it has not yet
+    std::chrono::steady_clock::time_point tUntil;
+    bool bSwung;
+};
+
+static std::vector<AfterimageGhost> s_AfterimageGhosts;
+
+// Writes pGhost, new to every client, to each player who is being shown
+// pSource. Returns how many it went to.
+static int32_t ShowAfterimageGhost(CNWSCreature *pGhost, CNWSCreature *pSource, uint32_t *pBytes)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    int32_t nViewers = 0;
+
+    if (!pMessage)
+        return 0;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        auto *pViewer = pPlayer ? pPlayer->GetGameObject() : nullptr;
+
+        if (!pViewer || pViewer->m_oidArea != pGhost->m_oidArea)
+            continue;
+        if (pViewer->m_idSelf != pSource->m_idSelf && !pPlayer->GetLastUpdateObject(pSource->m_idSelf))
+            continue;
+
+        pMessage->CreateWriteMessage(0x2000, pPlayer->m_nPlayerID, true);
+
+        // The first pass introduces it, held at the ready, and the second
+        // sends what the first leaves for later, with the swing.
+        const int32_t nAnimation = pGhost->m_nAnimation;
+        CLastUpdateObject *pLUO = nullptr;
+        uint32_t nPassFlags[3] = {};
+
+        pGhost->m_nAnimation = Constants::Animation::Ready;
+
+        for (int32_t nPass = 0; nPass < 3; nPass++)
+        {
+            uint32_t nUpdates = 0, nAppearance = 0;
+
+            if (nPass == 1)
+                pGhost->m_nAnimation = nAnimation;
+
+            pMessage->TestObjectUpdateDifferences(pPlayer, pGhost, &pLUO, &nUpdates, &nAppearance);
+            if (!pLUO)
+                break;
+
+            nPassFlags[nPass] = nUpdates;
+            if (nUpdates || nAppearance)
+                pMessage->WriteGameObjUpdate_UpdateObject(pPlayer, pGhost, pLUO, nUpdates, nAppearance);
+            pMessage->StoreValuesInLastUpdateObject(pPlayer, pLUO, pGhost, nUpdates, nAppearance);
+
+            if (nPass >= 1 && !nUpdates && !nAppearance)
+                break;
+        }
+
+        pGhost->m_nAnimation = nAnimation;
+
+        if (!pLUO)
+            continue;
+
+        LOG_DEBUG("AfterimageGhost: %x to player %u, update flags %x then %x then %x", pGhost->m_idSelf, pPlayer->m_nPlayerID,
+            nPassFlags[0], nPassFlags[1], nPassFlags[2]);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize &&
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize))
+        {
+            nViewers++;
+            if (pBytes) *pBytes += nSize;
+        }
+    }
+
+    return nViewers;
+}
+
+// Sends what has changed about pGhost to every client holding it: its swing,
+// when that waited. Returns how many it went to.
+static int32_t UpdateAfterimageGhost(CNWSCreature *pGhost)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    int32_t nViewers = 0;
+
+    if (!pMessage)
+        return 0;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        // Only a client already shown it: with no record, the call below
+        // would introduce it afresh.
+        if (!pPlayer || !pPlayer->GetLastUpdateObject(pGhost->m_idSelf))
+            continue;
+
+        pMessage->CreateWriteMessage(0x800, pPlayer->m_nPlayerID, true);
+
+        CLastUpdateObject *pLUO = nullptr;
+        uint32_t nUpdates = 0, nAppearance = 0;
+
+        pMessage->TestObjectUpdateDifferences(pPlayer, pGhost, &pLUO, &nUpdates, &nAppearance);
+        if (!pLUO || (!nUpdates && !nAppearance))
+            continue;
+
+        pMessage->WriteGameObjUpdate_UpdateObject(pPlayer, pGhost, pLUO, nUpdates, nAppearance);
+        pMessage->StoreValuesInLastUpdateObject(pPlayer, pLUO, pGhost, nUpdates, nAppearance);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize &&
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize))
+        {
+            nViewers++;
+        }
+    }
+
+    return nViewers;
+}
+
+// Takes ghost oidGhost off every client that was shown it: the delete record,
+// and the player's CLastUpdateObject for it gone, in a message of its own.
+static void HideAfterimageGhost(ObjectID oidGhost)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+
+    if (!pMessage)
+        return;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        if (!pPlayer || !pPlayer->GetLastUpdateObject(oidGhost))
+            continue;
+
+        pMessage->CreateWriteMessage(0x40, pPlayer->m_nPlayerID, true);
+        pMessage->DeleteLastUpdateObjectsForObject(pPlayer, oidGhost);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize)
+        {
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize);
+        }
+    }
+}
+
+// 1, for a script to learn once a load that this build has ghosts: a call
+// to a function an older build lacks logs an error and gives 0.
+NWNX_EXPORT ArgumentStack GetAfterimageGhostsSupported(ArgumentStack&&)
+{
+    return 1;
+}
+
+NWNX_EXPORT ArgumentStack CreateAfterimageGhost(ArgumentStack&& args)
+{
+    auto *pSource = Utils::PopCreature(args);
+    const auto oidArea   = args.extract<ObjectID>();
+    const auto x         = args.extract<float>();
+    const auto y         = args.extract<float>();
+    const auto z         = args.extract<float>();
+    const auto fFacing   = args.extract<float>();
+    const auto oidTarget = args.extract<ObjectID>();
+    const auto nFaction  = args.extract<int32_t>();
+    const auto fAnimationSpeed = args.extract<float>();
+    const auto fLifetime = args.extract<float>();
+    const auto nSwingMs  = args.extract<int32_t>();
+    const auto nReaction = args.extract<int32_t>();
+    const auto fSwingDelay = args.extract<float>();
+
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
+
+    if (!pSource || !pArea || nSwingMs <= 0 || nSwingMs > 0xFFFF || fLifetime <= 0.0f || fLifetime > 10.0f)
+        return Constants::OBJECT_INVALID;
+    if (fSwingDelay < 0.0f || fSwingDelay > 5.0f)
+        return Constants::OBJECT_INVALID;
+    if (pSource->GetRangeWeaponEquipped())
+        return Constants::OBJECT_INVALID;
+
+    const bool bCached = (s_AfterimageSource == pSource->m_idSelf && !s_AfterimageData.empty());
+    const std::vector<uint8_t> data = bCached ? s_AfterimageData : SerializeAfterimage(pSource);
+
+    // --- build it, and keep it out of the world
+    auto *pGhost = Utils::AsNWSCreature(Utils::DeserializeGameObject(data));
+
+    if (!pGhost)
+    {
+        LOG_WARNING("CreateAfterimageGhost: could not deserialize a ghost of %x (%d bytes, %s)", pSource->m_idSelf, (int)data.size(), bCached ? "cached" : "fresh");
+        return Constants::OBJECT_INVALID;
+    }
+
+    pServer->GetServerAIMaster()->RemoveObject(pGhost);
+
+    pGhost->m_nCurrentHitPoints = pGhost->GetMaxHitPoints();
+    pGhost->m_nUiDiscoveryMask = 0;
+    pGhost->m_bLootable = false;
+
+    CExoString sSetPiece("IS_SET_PIECE");
+    CExoString sVfx("IS_VFX");
+    pGhost->m_ScriptVars.SetInt(sSetPiece, 1);
+    pGhost->m_ScriptVars.SetInt(sVfx, 1);
+
+    if (auto *pFaction = pServer->m_pcExoAppInternal->m_pFactionManager->GetFaction(nFaction))
+        pFaction->AddMember(pGhost->m_idSelf);
+
+    // The area by id only, and the place by its fields: SetPosition and
+    // AddToArea would file it in the area.
+    auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
+    const float fRadians = fFacing * (float)M_PI / 180.0f;
+    Vector vFacing{std::cos(fRadians), std::sin(fRadians), 0.0f};
+
+    if (pTarget)
+    {
+        const float dx = pTarget->m_vPosition.x - x;
+        const float dy = pTarget->m_vPosition.y - y;
+        const float fGap = std::sqrt(dx * dx + dy * dy);
+
+        if (fGap > 0.05f)
+            vFacing = Vector{dx / fGap, dy / fGap, 0.0f};
+    }
+
+    pGhost->SetArea(pArea);
+    pGhost->m_vPosition = Vector{x, y, z};
+    pGhost->SetOrientation(vFacing);
+
+    // --- dress it. VFX_DUR_INVISIBILITY goes straight into the list an
+    // update sends, where an effect of it would end up: with no effect there
+    // is no effect script, and nothing to expire.
+    pGhost->AddLoopingVisualEffect(6 /*VFX_DUR_INVISIBILITY*/, pSource->m_idSelf, 0, ObjectVisualTransformData());
+
+    // The head the source is drawn with. SetDisplayedHead writes only a
+    // creature's appearance, and the snapshot holds the head in its stats.
+    pGhost->m_cAppearance.m_nHeadVariation = pSource->m_cAppearance.m_nHeadVariation;
+
+    if (fAnimationSpeed > 0.0f && fAnimationSpeed != 1.0f)
+    {
+        if (!pGhost->m_pVisualTransformData)
+            pGhost->m_pVisualTransformData = new ObjectVisualTransformData();
+        pGhost->m_pVisualTransformData->m_scopes[0].m_animationSpeed = LerpFloat(fAnimationSpeed);
+    }
+
+    // --- the swing: one attack in the round, a miss, and the animation that
+    // has the writer send it. The hand is the engine's own choice for a first
+    // attack (CNWSCombatRound::GetWeaponAttackType): 1 with something in the
+    // right hand, 7 unarmed. nReaction is what the target is shown doing,
+    // Animation::Ready for nothing; the engine pauses a target's round for a
+    // reaction, and nothing does here.
+    if (auto *pRound = pGhost->m_pcCombatRound)
+    {
+        auto *pAttack = pRound->GetAttack(0);
+        const bool bReact = pTarget && nReaction != Constants::Animation::Ready;
+
+        pAttack->ClearAttackData();
+        pAttack->m_nAttackGroup = 1;
+        pAttack->m_nAnimationLength = (uint16_t)nSwingMs;
+        pAttack->m_oidReactObject = pTarget ? oidTarget : Constants::OBJECT_INVALID;
+        pAttack->m_nReactionDelay = 0;
+        pAttack->m_nReactionAnimation = (uint16_t)(bReact ? nReaction : Constants::Animation::Ready);
+        pAttack->m_nReactionAnimationLength = (uint16_t)(bReact ? nSwingMs : 0);
+        pAttack->m_nWeaponAttackType = (pGhost->m_pInventory && pGhost->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::RightHand)) ? 1 : 7;
+        pAttack->m_bRangedAttack = false;
+        pAttack->m_bKillingBlow = false;
+        pAttack->m_nAttackResult = 4;   // a miss
+        pAttack->m_nAttackType = 0;
+
+        pRound->m_nCurrentAttack = 1;
+    }
+
+    // Swinging now, it is shown with the attack; else at the ready, and the
+    // attack goes out when its time comes.
+    const bool bSwingNow = fSwingDelay <= 0.0f;
+    pGhost->m_nAnimation = bSwingNow ? Constants::Animation::Attack : Constants::Animation::Ready;
+
+    // --- show it, and set its swing and its end
+    uint32_t nBytes = 0;
+    const int32_t nViewers = ShowAfterimageGhost(pGhost, pSource, &nBytes);
+    const auto tNow = std::chrono::steady_clock::now();
+    const auto tSwing = tNow + std::chrono::milliseconds((int64_t)(fSwingDelay * 1000.0f));
+
+    // One nobody was shown has nothing to last for, nor to swing.
+    s_AfterimageGhosts.push_back({pGhost->m_idSelf, tSwing,
+        nViewers ? tSwing + std::chrono::milliseconds((int64_t)(fLifetime * 1000.0f)) : tNow,
+        bSwingNow || !nViewers});
+
+    LOG_DEBUG("CreateAfterimageGhost: %x of %x shown to %d (%u bytes), target %x", pGhost->m_idSelf, pSource->m_idSelf, nViewers, nBytes, oidTarget);
+
+    return pGhost->m_idSelf;
+}
+
+// Ghosts whose swing is due swing. Ghosts whose time is up: off every client,
+// out of their area by id, so that the destroy event signals no area exit,
+// and destroyed by that event, in this frame's events.
+static Hooks::Hook s_AfterimageGhostFrameHook = Hooks::HookFunction(&CServerAIMaster::UpdateState,
+    +[](CServerAIMaster *pAIMaster) -> void
+    {
+        if (!s_AfterimageGhosts.empty())
+        {
+            const auto tNow = std::chrono::steady_clock::now();
+
+            for (size_t i = 0; i < s_AfterimageGhosts.size(); )
+            {
+                auto &ghost = s_AfterimageGhosts[i];
+
+                if (!ghost.bSwung && tNow >= ghost.tSwing)
+                {
+                    ghost.bSwung = true;
+
+                    if (auto *pGhost = Utils::AsNWSCreature(Utils::GetGameObject(ghost.oidGhost)))
+                    {
+                        pGhost->m_nAnimation = Constants::Animation::Attack;
+                        UpdateAfterimageGhost(pGhost);
+                    }
+                }
+
+                if (tNow < ghost.tUntil)
+                {
+                    i++;
+                    continue;
+                }
+
+                if (auto *pGhost = Utils::AsNWSCreature(Utils::GetGameObject(s_AfterimageGhosts[i].oidGhost)))
+                {
+                    HideAfterimageGhost(pGhost->m_idSelf);
+                    pGhost->SetArea(nullptr);
+                    pAIMaster->AddEventDeltaTime(0, 0, pGhost->m_idSelf, pGhost->m_idSelf, Constants::AIMasterEvent::DestroyObject);
+                }
+
+                s_AfterimageGhosts[i] = s_AfterimageGhosts.back();
+                s_AfterimageGhosts.pop_back();
+            }
+        }
+
+        s_AfterimageGhostFrameHook->CallOriginal<void>(pAIMaster);
+    }, Hooks::Order::Early);
+
+
+// ---------------------------------------------------------------------------
 // Forced walk
 // ---------------------------------------------------------------------------
 //
