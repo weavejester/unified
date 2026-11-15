@@ -4717,6 +4717,169 @@ static Hooks::Hook s_KeepRoundClearActionHook = Hooks::HookFunction(Functions::_
         return s_KeepRoundClearActionHook->CallOriginal<BOOL>(pCreature, pNode, bIsTopmostAction);
     }, Hooks::Order::Early);
 
+// The engine's ClearHostileActionsVersus can loop forever, and was the
+// ThreadWatchdog kills production had every few days from September: one,
+// caught live with perf on 2026-11-15, had every sample in it, called from a
+// boss's Contingency (invisibility) through NWNX_Creature_DoPerceptionUpdateOnCreature.
+//
+// It runs when a creature stops perceiving another. From the 8193.37
+// disassembly (0x46e4c0): it counts the action groups ONCE, then walks them,
+// and on a group whose action (GetActionByGroupId) is an ATTACKOBJECT (12),
+// CASTSPELL (15), or 46 aimed at the creature it calls RemoveGroup and starts
+// the walk again at group 1, never 0. RemoveGroup frees a node only if
+// ClearAction returns 1, and ClearAction refuses any node whose
+// m_bInterruptable is 0, which AIActionCastSpell sets once the conjure time
+// has run and the spell is released (not as conjuring starts: a cast was
+// still clearable through its whole conjure on dev). So a released cast with
+// a group AHEAD of it (a cast added to the front, as many of the module's
+// instant casts are) is found, kept, and found again, forever. In the first
+// group it is harmless, as the walk never looks there twice, which is why
+// this is rare.
+//
+// Reproduced on dev 2026-11-15 (a cheat Cure Light Wounds at a target, an
+// instant cast added to the front 1.6 s in, the target made invisible, and
+// a perception update): with this off the server hung at 100% CPU; with it
+// on the node was skipped and the server carried on.
+//
+// The walk is left as it is. For the call, each such node outside the first
+// group has its action id swapped for one GetActionByGroupId does not accept
+// (GetAcceptableAction is false for anything from 0x3c up), and back
+// afterwards. The walk would never have freed one, and now never matches one.
+// The first group's are left alone, as the engine already copes with them,
+// unless its group id comes round again later in the queue: GetActionByGroupId
+// looks only in the first run of a group, so that later run would find the
+// same node every time.
+//
+// On unless NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n.
+static constexpr uint32_t HIDDEN_HOSTILE_ACTION_ID = 0xffffff;
+
+static bool GetSafeClearHostile()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("SAFE_CLEAR_HOSTILE", true);
+        LOG_INFO("Skip uncleanable actions in ClearHostileActionsVersus: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bSafeClearHostileLogged = (GetSafeClearHostile(), true);
+
+static ObjectID HostileActionTarget(const CNWSObjectActionNode *pNode)
+{
+    switch (pNode->m_nActionId)
+    {
+        case 12: return (ObjectID)pNode->m_pParameter[0];
+        case 15: return (ObjectID)pNode->m_pParameter[5];
+        case 46: return (ObjectID)pNode->m_pParameter[3];
+        default: return Constants::OBJECT_INVALID;
+    }
+}
+
+static_assert(offsetof(CNWSObjectActionNode, m_pParameter) == 0x38, "CNWSObjectActionNode layout changed");
+static_assert(offsetof(CNWSObjectActionNode, m_nGroupActionId) == 0x98, "CNWSObjectActionNode layout changed");
+
+static Hooks::Hook s_ClearHostileActionsHook = Hooks::HookFunction(&CNWSCreature::ClearHostileActionsVersus,
+    +[](CNWSCreature *pCreature, CNWSCreature *pTarget) -> void
+    {
+        auto *pList = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal;
+
+        if (!GetSafeClearHostile() || !pTarget || !pList || !pList->pHead || !pList->pHead->pObject)
+            return s_ClearHostileActionsHook->CallOriginal<void>(pCreature, pTarget);
+
+        const uint16_t nHeadGroup = static_cast<CNWSObjectActionNode*>(pList->pHead->pObject)->m_nGroupActionId;
+
+        // Does the first group's id come round again after its first run?
+        bool bHeadGroupRecurs = false;
+        bool bInHeadRun = true;
+        for (auto pos = pList->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode)
+                continue;
+            if (pNode->m_nGroupActionId != nHeadGroup)
+                bInHeadRun = false;
+            else if (!bInHeadRun)
+                bHeadGroupRecurs = true;
+        }
+
+        std::vector<std::pair<CNWSObjectActionNode*, uint32_t>> hidden;
+        bInHeadRun = true;
+        int32_t nGroupIndex = 0;
+        uint16_t nLastGroup = nHeadGroup;
+
+        for (auto pos = pList->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode)
+                continue;
+
+            if (pNode->m_nGroupActionId != nLastGroup)
+            {
+                nGroupIndex++;
+                nLastGroup = pNode->m_nGroupActionId;
+            }
+            if (pNode->m_nGroupActionId != nHeadGroup)
+                bInHeadRun = false;
+
+            if (pNode->m_bInterruptable || HostileActionTarget(pNode) != pTarget->m_idSelf)
+                continue;
+            if (bInHeadRun && !bHeadGroupRecurs)
+                continue;
+
+            hidden.emplace_back(pNode, pNode->m_nActionId);
+
+            // Rare, and the log is the only way to learn what put a group
+            // ahead of a conjuring cast.
+            std::string sQueue;
+            for (auto q = pList->pHead; q; q = q->pNext)
+            {
+                if (auto *pQ = static_cast<CNWSObjectActionNode*>(q->pObject))
+                {
+                    char sEntry[48];
+                    std::snprintf(sEntry, sizeof(sEntry), "%s%u/g%u%s", sQueue.empty() ? "" : " ",
+                                  pQ->m_nActionId, pQ->m_nGroupActionId, pQ->m_bInterruptable ? "" : "!");
+                    sQueue += sEntry;
+                }
+            }
+            LOG_WARNING("ClearHostileActionsVersus: %s (%x) has an action it cannot clear against %s (%x) "
+                        "in group %d (action %u, spell %d); the engine would loop on it forever, so it is skipped. "
+                        "Queue (action/group, ! = cannot clear): %s",
+                        pCreature->m_pStats ? pCreature->m_pStats->GetFullName().CStr() : "?", pCreature->m_idSelf,
+                        pTarget->m_pStats ? pTarget->m_pStats->GetFullName().CStr() : "?", pTarget->m_idSelf,
+                        nGroupIndex, pNode->m_nActionId,
+                        pNode->m_nActionId == 15 ? (int32_t)pNode->m_pParameter[0] : -1, sQueue.c_str());
+        }
+
+        for (auto &h : hidden)
+            h.first->m_nActionId = HIDDEN_HOSTILE_ACTION_ID;
+
+        s_ClearHostileActionsHook->CallOriginal<void>(pCreature, pTarget);
+
+        if (hidden.empty())
+            return;
+
+        // The walk cannot free a node it never matched, but it signals spell
+        // events, whose scripts could, so put back only what is still queued.
+        for (auto pos = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode || pNode->m_nActionId != HIDDEN_HOSTILE_ACTION_ID)
+                continue;
+
+            for (auto &h : hidden)
+            {
+                if (h.first == pNode)
+                {
+                    pNode->m_nActionId = h.second;
+                    break;
+                }
+            }
+        }
+    }, Hooks::Order::Early);
+
 static Hooks::Hook s_KeepRoundStartHook = Hooks::HookFunction(&CNWSCombatRound::StartCombatRound,
     +[](CNWSCombatRound *pRound, ObjectID oidTarget) -> void
     {

@@ -280,6 +280,19 @@ creature that has stopped being their familiar therefore gets that NPC written o
 the same way and refuses, with a warning naming the player and the creature, to write anything
 that is not a player character. The player keeps their last good file.
 
+### Hostile action clearing guard
+
+Not an export: a hook on `CNWSCreature::ClearHostileActionsVersus`, which the engine runs when a
+creature stops perceiving another, to drop its attacks and casts aimed at it. The engine (8193.37)
+restarts its walk of the action groups at group 1 after every removal, and its removal frees only
+what `ClearAction` agrees to clear. A cast that has been released (its conjure time run) cannot be
+cleared, so one with any group ahead of it, such as a cast added to the front of the queue, was
+found again forever and froze the server until the ThreadWatchdog killed it (production, every few
+days from September; caught with perf on 2026-11-15). The hook hides each such action from the
+walk for the call, by its action id, and puts it back afterwards; the cast carries on as it would
+have. Each one is logged as a warning with the creature, its target, and its action queue. On
+unless `NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n`.
+
 ### Unpossess refusal guard
 
 Not an export: a hook on `CNWSCreature::UnpossessFamiliar`. The engine (8193.37) refuses to
