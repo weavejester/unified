@@ -148,6 +148,26 @@ int NWNX_Risenholm_SetDisplayedHead(object oCreature, int nHead);
 /// @brief The head oCreature is drawn with (see SetDisplayedHead), or -1.
 int NWNX_Risenholm_GetDisplayedHead(object oCreature);
 
+/// Perception ranges, as a creature blueprint's PerceptionRange field holds them:
+/// rows of ranges.2da, with the sight and hearing distances out of combat.
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_SHORT   = 8;  ///< 5m sight, 5m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_MEDIUM  = 9;  ///< 20m sight, 20m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_LONG    = 10; ///< 35m sight, 20m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_DEFAULT = 11; ///< the appearance's PERCEPTIONDIST row
+
+/// @brief Give oCreature, already in the world, the perception range its
+/// blueprint's PerceptionRange field would have given it (one of the
+/// NWNX_RISENHOLM_PERCEPTION_RANGE_* constants), sight, hearing, and the
+/// pair it uses in combat, as the engine sets them at creation. Its next
+/// perception update uses them. Nothing else can change a creature's range
+/// once it exists. The distance is eye to eye in 3D, so from a 13m wall a
+/// medium range reaches only about 15m along the ground. Returns FALSE for a
+/// player character, or nRange outside 8-11.
+int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange);
+
+/// @brief oCreature's perception range (8-11, 12 for a player character), or -1.
+int NWNX_Risenholm_GetPerceptionRange(object oCreature);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -572,6 +592,21 @@ int NWNX_Risenholm_GetDisplayedHead(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "GetDisplayedHead");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange)
+{
+    NWNXPushInt(nRange);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SetPerceptionRange");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetPerceptionRange(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "GetPerceptionRange");
     return NWNXPopInt();
 }
 

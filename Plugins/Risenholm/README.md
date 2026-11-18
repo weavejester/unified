@@ -229,6 +229,27 @@ The module draws a worn helmet as a head this way (`pw_inc_helmslot.nss`): helme
 1000 + n, a copy of the helmet under a head's name, as SWLOR does. Seen in game 2026-10-24: head
 1044 went out and the client drew helmet 44 in the head's place.
 
+### SetPerceptionRange / GetPerceptionRange
+
+`NWNX_Risenholm_SetPerceptionRange(oCreature, nRange)` gives a creature already in the world the
+perception range its blueprint's `PerceptionRange` field would have given it: a `ranges.2da` row
+(8 short, 9 medium, 10 long), or 11 for the row its appearance's `PERCEPTIONDIST` names. Nothing
+else changes a creature's range once it exists: no script command, base-game console command, or
+other NWNX call touches it. `GetPerceptionRange` reads the field back (12 for a player character).
+
+It writes the five fields the engine does at creation, read from the 8193.37 disassembly:
+`CNWSCreatureStats::ReadStatsFromGff` stores the byte in `m_nPerceptionRange` and the row's
+`PrimaryRange` and `SecondaryRange` as `m_fSpotCheckDistance` and `m_fListenCheckDistance`;
+`CNWSCreature::PostProcess` sets `m_fMaxSpotCheckDistance` and `m_fMaxListenCheckDistance`, which
+`GetSpotCheckDistance` and `GetListenCheckDistance` use instead while `m_bCombatState` is set. A
+non-player creature takes those from row 10 if its spot distance is at least row 10's, else from
+row 13 (`PercepRngMonster`), so a medium creature sees 20m out of combat and 28m in it. A player
+character is refused, and keeps the player row.
+
+Perception is checked within the larger of the two distances, measured eye to eye in 3D, so
+height eats into it. Measured on the dev server 2026-11-18: a medium archer on the City Gates
+wall, 13m up, saw nothing more than 14m out along the ground.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the

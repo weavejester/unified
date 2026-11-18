@@ -982,6 +982,82 @@ NWNX_EXPORT ArgumentStack GetDisplayedHead(ArgumentStack&& args)
     return pCreature ? (int32_t)pCreature->m_cAppearance.m_nHeadVariation : -1;
 }
 
+// Give a creature that already exists the perception range a blueprint's
+// PerceptionRange field gives one as it is created: nRange is that field's
+// value, a ranges.2da row (8 short, 9 medium, 10 long), or 11 for the row the
+// appearance's PERCEPTIONDIST names. Nothing else changes it once a creature
+// exists. No script command, console command, or other NWNX call touches it.
+//
+// It writes what the engine does, read from the 8193.37 disassembly:
+// CNWSCreatureStats::ReadStatsFromGff stores the byte in m_nPerceptionRange,
+// and the row's PrimaryRange and SecondaryRange as the spot and listen
+// distances. CNWSCreature::PostProcess then sets the pair used while the
+// creature is in combat (GetSpotCheckDistance and GetListenCheckDistance
+// return the max pair while m_bCombatState is set). A player character or a
+// possessed familiar gets row 10. Any other creature gets row 10 if its spot
+// distance is at least row 10's, and otherwise row 13 (PercepRngMonster), so a
+// medium creature sees 20m out of combat and 28m in it. A perception update
+// reads the distances each time it runs, so the next one uses the new range.
+//
+// The distance is measured in 3D, eye to eye, so height eats into it: from a
+// 13m wall, a medium creature sees only about 15m along the ground below.
+// Returns FALSE for a player character, which keeps the player row, and for a
+// value outside 8-11 or a row whose ranges cannot be read.
+static_assert(offsetof(CNWSCreature, m_nPerceptionRange) == 0x790);
+static_assert(offsetof(CNWSCreature, m_fSpotCheckDistance) == 0x7a8);
+static_assert(offsetof(CNWSCreature, m_fMaxSpotCheckDistance) == 0x7ac);
+static_assert(offsetof(CNWSCreature, m_fListenCheckDistance) == 0x7b0);
+static_assert(offsetof(CNWSCreature, m_fMaxListenCheckDistance) == 0x7b4);
+NWNX_EXPORT ArgumentStack SetPerceptionRange(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto nRange = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pStats || pCreature->m_bPlayerCharacter) return 0;
+    if (nRange < 8 || nRange > 11) return 0;
+
+    auto *p2DAs = Globals::Rules()->m_p2DArrays;
+    C2DA *pRanges = p2DAs->GetRangesTable();
+    if (!pRanges) return 0;
+
+    int32_t nRow = nRange;
+    if (nRange == 11)
+    {
+        C2DA *pAppearance = p2DAs->GetAppearanceTable();
+        if (!pAppearance ||
+            !pAppearance->GetINTEntry(pCreature->m_pStats->m_nAppearanceType, CExoString("PERCEPTIONDIST"), &nRow))
+            return 0;
+    }
+
+    float fSpot, fListen, fLongSpot, fLongListen;
+    if (!pRanges->GetFLOATEntry(nRow, CExoString("PrimaryRange"), &fSpot) ||
+        !pRanges->GetFLOATEntry(nRow, CExoString("SecondaryRange"), &fListen) ||
+        !pRanges->GetFLOATEntry(10, CExoString("PrimaryRange"), &fLongSpot) ||
+        !pRanges->GetFLOATEntry(10, CExoString("SecondaryRange"), &fLongListen))
+        return 0;
+
+    float fMaxSpot = fLongSpot, fMaxListen = fLongListen;
+    if (!pCreature->GetIsPossessedFamiliar() && fSpot < fLongSpot &&
+        (!pRanges->GetFLOATEntry(13, CExoString("PrimaryRange"), &fMaxSpot) ||
+         !pRanges->GetFLOATEntry(13, CExoString("SecondaryRange"), &fMaxListen)))
+        return 0;
+
+    pCreature->m_nPerceptionRange = (uint8_t)nRange;
+    pCreature->m_fSpotCheckDistance = fSpot;
+    pCreature->m_fListenCheckDistance = fListen;
+    pCreature->m_fMaxSpotCheckDistance = fMaxSpot;
+    pCreature->m_fMaxListenCheckDistance = fMaxListen;
+    return 1;
+}
+
+// oCreature's perception range as SetPerceptionRange or its blueprint set it
+// (8-11), or -1 for no creature. A player character's is 12.
+NWNX_EXPORT ArgumentStack GetPerceptionRange(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    return pCreature ? (int32_t)pCreature->m_nPerceptionRange : -1;
+}
+
 NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
 {
     auto *pObject = Utils::AsNWSObject(Utils::GetGameObject(args.extract<ObjectID>()));
