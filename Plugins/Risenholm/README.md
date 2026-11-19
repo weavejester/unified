@@ -106,7 +106,12 @@ ring kept, with it.
 
 ### CreateAfterimage
 
-`NWNX_Risenholm_PrepareAfterimage(oCreature)` serialises a creature once for a batch of clones and `NWNX_Risenholm_ReleaseAfterimage()` drops that snapshot; `NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)` clones a creature natively for the afterimage attacks: object state (effects, action queue, combat state) and equipment are copied, the backpack and local variables are not, and the clone comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals, with `VFX_DUR_INVISIBILITY`, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed `fAnimationSpeed` already applied. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.
+`NWNX_Risenholm_PrepareAfterimage(oCreature)` serialises a creature once for a batch of clones and `NWNX_Risenholm_ReleaseAfterimage()` drops that snapshot; `NWNX_Risenholm_CreateAfterimage(oCreature, lLocation, nFaction, fAnimationSpeed)` clones a creature natively for the afterimage attacks: the action queue, combat round, and equipment are copied; the backpack, local variables, and stealth mode are not; of the creature's effects and its items' properties only the ones that decide how it looks (visual effects and polymorph) are kept, and no area-of-effect effect ever is, since loading one whose aura is gone makes a new aura. The clone is drawn with the creature's own head, not one set by `SetDisplayedHead`, and has no `DISABLE_COMBAT_SHUFFLE` local: the caller sets both. It comes back plot, unusable, unlootable, non-PC, at full hit points, in engine faction `nFaction`, tagged with the `IS_SET_PIECE` and `IS_VFX` locals, with `VFX_DUR_INVISIBILITY`, a permanent 100% miss chance, a permanent cutscene ghost, and animation speed `fAnimationSpeed` already applied. Replaces the `ObjectToJson`/`JsonToObject` path, which serialised the whole inventory only to discard it.
+
+### CreateAfterimageGhost
+
+`NWNX_Risenholm_CreateAfterimageGhost(oCreature, lLocation, oTarget, nFaction, fAnimationSpeed, fLifetime, nSwingMs, nReaction, fSwingDelay)` shows an afterimage as a ghost: a creature built from the same snapshot as `CreateAfterimage`'s clone, with the head the creature is drawn with, but never added to an area and taken out of the AI's lists, so nothing perceives it and it has no AI or combat round. It is written straight to each player who is being shown `oCreature`, at the ready, and swings once at `oTarget` after `fSwingDelay` seconds: a hand-made attack that misses, sent as an update of the attack animation. It is taken off those clients `fLifetime` seconds after its swing and destroyed. A ghost does not walk, and none is made of a creature holding a ranged weapon (it returns `OBJECT_INVALID`). The engine introduces a new creature to a client in two updates, the material values, UI discovery mask, and animation swaps coming in the second, so both are written at once. `NWNX_Risenholm_GetAfterimageGhostsSupported()` returns 1, for a script to learn whether the build has ghosts.
+
 ### SetAlwaysWalk
 
 `NWNX_Risenholm_SetAlwaysWalk(oCreature, bWalk)` replaces `NWNX_Player_SetAlwaysWalk`, which is
@@ -224,6 +229,27 @@ The module draws a worn helmet as a head this way (`pw_inc_helmslot.nss`): helme
 1000 + n, a copy of the helmet under a head's name, as SWLOR does. Seen in game 2026-10-24: head
 1044 went out and the client drew helmet 44 in the head's place.
 
+### SetPerceptionRange / GetPerceptionRange
+
+`NWNX_Risenholm_SetPerceptionRange(oCreature, nRange)` gives a creature already in the world the
+perception range its blueprint's `PerceptionRange` field would have given it: a `ranges.2da` row
+(8 short, 9 medium, 10 long), or 11 for the row its appearance's `PERCEPTIONDIST` names. Nothing
+else changes a creature's range once it exists: no script command, base-game console command, or
+other NWNX call touches it. `GetPerceptionRange` reads the field back (12 for a player character).
+
+It writes the five fields the engine does at creation, read from the 8193.37 disassembly:
+`CNWSCreatureStats::ReadStatsFromGff` stores the byte in `m_nPerceptionRange` and the row's
+`PrimaryRange` and `SecondaryRange` as `m_fSpotCheckDistance` and `m_fListenCheckDistance`;
+`CNWSCreature::PostProcess` sets `m_fMaxSpotCheckDistance` and `m_fMaxListenCheckDistance`, which
+`GetSpotCheckDistance` and `GetListenCheckDistance` use instead while `m_bCombatState` is set. A
+non-player creature takes those from row 10 if its spot distance is at least row 10's, else from
+row 13 (`PercepRngMonster`), so a medium creature sees 20m out of combat and 28m in it. A player
+character is refused, and keeps the player row.
+
+Perception is checked within the larger of the two distances, measured eye to eye in 3D, so
+height eats into it. Measured on the dev server 2026-11-18: a medium archer on the City Gates
+wall, 13m up, saw nothing more than 14m out along the ground.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the
@@ -274,6 +300,19 @@ creature that has stopped being their familiar therefore gets that NPC written o
 `LvlStatList` then crashed the server on every later save of it). The hook resolves the save target
 the same way and refuses, with a warning naming the player and the creature, to write anything
 that is not a player character. The player keeps their last good file.
+
+### Hostile action clearing guard
+
+Not an export: a hook on `CNWSCreature::ClearHostileActionsVersus`, which the engine runs when a
+creature stops perceiving another, to drop its attacks and casts aimed at it. The engine (8193.37)
+restarts its walk of the action groups at group 1 after every removal, and its removal frees only
+what `ClearAction` agrees to clear. A cast that has been released (its conjure time run) cannot be
+cleared, so one with any group ahead of it, such as a cast added to the front of the queue, was
+found again forever and froze the server until the ThreadWatchdog killed it (production, every few
+days from September; caught with perf on 2026-11-15). The hook hides each such action from the
+walk for the call, by its action id, and puts it back afterwards; the cast carries on as it would
+have. Each one is logged as a warning with the creature, its target, and its action queue. On
+unless `NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n`.
 
 ### Unpossess refusal guard
 

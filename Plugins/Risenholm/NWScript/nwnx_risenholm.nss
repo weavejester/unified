@@ -148,6 +148,26 @@ int NWNX_Risenholm_SetDisplayedHead(object oCreature, int nHead);
 /// @brief The head oCreature is drawn with (see SetDisplayedHead), or -1.
 int NWNX_Risenholm_GetDisplayedHead(object oCreature);
 
+/// Perception ranges, as a creature blueprint's PerceptionRange field holds them:
+/// rows of ranges.2da, with the sight and hearing distances out of combat.
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_SHORT   = 8;  ///< 5m sight, 5m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_MEDIUM  = 9;  ///< 20m sight, 20m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_LONG    = 10; ///< 35m sight, 20m hearing
+const int NWNX_RISENHOLM_PERCEPTION_RANGE_DEFAULT = 11; ///< the appearance's PERCEPTIONDIST row
+
+/// @brief Give oCreature, already in the world, the perception range its
+/// blueprint's PerceptionRange field would have given it (one of the
+/// NWNX_RISENHOLM_PERCEPTION_RANGE_* constants), sight, hearing, and the
+/// pair it uses in combat, as the engine sets them at creation. Its next
+/// perception update uses them. Nothing else can change a creature's range
+/// once it exists. The distance is eye to eye in 3D, so from a 13m wall a
+/// medium range reaches only about 15m along the ground. Returns FALSE for a
+/// player character, or nRange outside 8-11.
+int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange);
+
+/// @brief oCreature's perception range (8-11, 12 for a player character), or -1.
+int NWNX_Risenholm_GetPerceptionRange(object oCreature);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -215,11 +235,15 @@ int NWNX_Risenholm_PrepareAfterimage(object oCreature);
 void NWNX_Risenholm_ReleaseAfterimage();
 
 /// @brief Create an afterimage clone of oCreature at lLocation: a plot, unusable, non-PC, unlootable
-/// copy that carries oCreature's effects, action queue, and equipment but none of its backpack or
-/// local variables, with full hit points, the marker locals IS_SET_PIECE and IS_VFX, faction
-/// nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a permanent cutscene ghost, and
-/// animation speed fAnimationSpeed. Uses the snapshot from NWNX_Risenholm_PrepareAfterimage when it
-/// is for this creature, and serialises on the spot otherwise.
+/// copy that carries oCreature's action queue, combat round, and equipment but none of its backpack,
+/// local variables, or stealth mode, and of its effects and its items' properties only the ones
+/// that decide how it looks (visual effects and polymorph), with full hit points, the marker locals
+/// IS_SET_PIECE and IS_VFX, faction nFaction, VFX_DUR_INVISIBILITY, a permanent 100% miss chance, a
+/// permanent cutscene ghost, and animation speed fAnimationSpeed. Uses the snapshot from
+/// NWNX_Risenholm_PrepareAfterimage when it is for this creature, and serialises on the spot
+/// otherwise.
+/// @note The clone is drawn with oCreature's own head, not one set by NWNX_Risenholm_SetDisplayedHead,
+/// and does not have its DISABLE_COMBAT_SHUFFLE local: the caller sets both.
 /// @note Native replacement for the ObjectToJson/JsonToObject afterimage path. The caller only
 /// orders the attack and the DestroyObject.
 /// @param oCreature The creature to copy.
@@ -228,6 +252,32 @@ void NWNX_Risenholm_ReleaseAfterimage();
 /// @param fAnimationSpeed OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED for the clone; 1.0 leaves it alone.
 /// @return The clone, or OBJECT_INVALID.
 object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int nFaction, float fAnimationSpeed = 1.0);
+
+/// @brief TRUE when this build of the plugin has NWNX_Risenholm_CreateAfterimageGhost. An older build
+/// logs an error for the call and gives 0, so ask once a module load and keep the answer.
+int NWNX_Risenholm_GetAfterimageGhostsSupported();
+
+/// @brief Show an afterimage of oCreature at lLocation swinging once at oTarget, as a ghost: built as
+/// NWNX_Risenholm_CreateAfterimage builds its clone, and looking the same (it also takes the head
+/// oCreature is drawn with), but in no area and in none of the AI's lists. Nothing perceives it,
+/// no script that walks an area finds it, and it runs no script and no combat round of its own. It
+/// is written straight to the players who are being shown oCreature, with one swing that misses,
+/// and is taken away after fLifetime seconds. Uses the snapshot from
+/// NWNX_Risenholm_PrepareAfterimage when it is for this creature.
+/// @note A ghost does not walk: put it within reach of oTarget. None is made, and OBJECT_INVALID
+/// returned, for a creature holding a ranged weapon.
+/// @param oCreature The creature to show an image of.
+/// @param lLocation Where the ghost stands. It faces oTarget, or the location's facing with none.
+/// @param oTarget What it swings at.
+/// @param nFaction The ENGINE faction id (STANDARD_FACTION_* + 1).
+/// @param fAnimationSpeed OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED for the ghost; 1.0 leaves it alone.
+/// @param fLifetime Seconds it stays after its swing starts, up to 10.
+/// @param nSwingMs The swing's length in milliseconds, before fAnimationSpeed.
+/// @param nReaction What oTarget is shown doing as the swing comes in: an engine animation number,
+/// 1 (ready) for nothing, 11 for a dodge, 12 for a parry. Shown only: the target's round goes on.
+/// @param fSwingDelay Seconds it stands at the ready before it swings, up to 5; 0 swings at once.
+/// @return The ghost, which a script has no use for but to test, or OBJECT_INVALID.
+object NWNX_Risenholm_CreateAfterimageGhost(object oCreature, location lLocation, object oTarget, int nFaction, float fAnimationSpeed = 1.0, float fLifetime = 1.0, int nSwingMs = 1000, int nReaction = 1, float fSwingDelay = 0.0);
 
 /// @brief Stop or allow oCreature running, as NWNX_Player_SetAlwaysWalk does.
 /// @note Use this and NOT NWNX_Player_SetAlwaysWalk. Both drive the same engine flag, but the
@@ -545,6 +595,21 @@ int NWNX_Risenholm_GetDisplayedHead(object oCreature)
     return NWNXPopInt();
 }
 
+int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange)
+{
+    NWNXPushInt(nRange);
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "SetPerceptionRange");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_GetPerceptionRange(object oCreature)
+{
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "GetPerceptionRange");
+    return NWNXPopInt();
+}
+
 string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld)
 {
     NWNXPushString(sOld);
@@ -677,6 +742,33 @@ object NWNX_Risenholm_CreateAfterimage(object oCreature, location lLocation, int
     NWNXPushObject(GetAreaFromLocation(lLocation));
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "CreateAfterimage");
+    return NWNXPopObject();
+}
+
+int NWNX_Risenholm_GetAfterimageGhostsSupported()
+{
+    NWNXCall(NWNX_Risenholm, "GetAfterimageGhostsSupported");
+    return NWNXPopInt();
+}
+
+object NWNX_Risenholm_CreateAfterimageGhost(object oCreature, location lLocation, object oTarget, int nFaction, float fAnimationSpeed = 1.0, float fLifetime = 1.0, int nSwingMs = 1000, int nReaction = 1, float fSwingDelay = 0.0)
+{
+    vector vPosition = GetPositionFromLocation(lLocation);
+
+    NWNXPushFloat(fSwingDelay);
+    NWNXPushInt(nReaction);
+    NWNXPushInt(nSwingMs);
+    NWNXPushFloat(fLifetime);
+    NWNXPushFloat(fAnimationSpeed);
+    NWNXPushInt(nFaction);
+    NWNXPushObject(oTarget);
+    NWNXPushFloat(GetFacingFromLocation(lLocation));
+    NWNXPushFloat(vPosition.z);
+    NWNXPushFloat(vPosition.y);
+    NWNXPushFloat(vPosition.x);
+    NWNXPushObject(GetAreaFromLocation(lLocation));
+    NWNXPushObject(oCreature);
+    NWNXCall(NWNX_Risenholm, "CreateAfterimageGhost");
     return NWNXPopObject();
 }
 

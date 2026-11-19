@@ -45,6 +45,7 @@
 #include <unordered_set>
 #include "API/CNWSMessage.hpp"
 #include "API/CVirtualMachine.hpp"
+#include "API/CNWSVirtualMachineCommands.hpp"
 #include "API/CNWSPlayerInventoryGUI.hpp"
 #include "API/CExoLinkedListNode.hpp"
 #include "API/CNWSObjectActionNode.hpp"
@@ -979,6 +980,82 @@ NWNX_EXPORT ArgumentStack GetDisplayedHead(ArgumentStack&& args)
 {
     auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
     return pCreature ? (int32_t)pCreature->m_cAppearance.m_nHeadVariation : -1;
+}
+
+// Give a creature that already exists the perception range a blueprint's
+// PerceptionRange field gives one as it is created: nRange is that field's
+// value, a ranges.2da row (8 short, 9 medium, 10 long), or 11 for the row the
+// appearance's PERCEPTIONDIST names. Nothing else changes it once a creature
+// exists. No script command, console command, or other NWNX call touches it.
+//
+// It writes what the engine does, read from the 8193.37 disassembly:
+// CNWSCreatureStats::ReadStatsFromGff stores the byte in m_nPerceptionRange,
+// and the row's PrimaryRange and SecondaryRange as the spot and listen
+// distances. CNWSCreature::PostProcess then sets the pair used while the
+// creature is in combat (GetSpotCheckDistance and GetListenCheckDistance
+// return the max pair while m_bCombatState is set). A player character or a
+// possessed familiar gets row 10. Any other creature gets row 10 if its spot
+// distance is at least row 10's, and otherwise row 13 (PercepRngMonster), so a
+// medium creature sees 20m out of combat and 28m in it. A perception update
+// reads the distances each time it runs, so the next one uses the new range.
+//
+// The distance is measured in 3D, eye to eye, so height eats into it: from a
+// 13m wall, a medium creature sees only about 15m along the ground below.
+// Returns FALSE for a player character, which keeps the player row, and for a
+// value outside 8-11 or a row whose ranges cannot be read.
+static_assert(offsetof(CNWSCreature, m_nPerceptionRange) == 0x790);
+static_assert(offsetof(CNWSCreature, m_fSpotCheckDistance) == 0x7a8);
+static_assert(offsetof(CNWSCreature, m_fMaxSpotCheckDistance) == 0x7ac);
+static_assert(offsetof(CNWSCreature, m_fListenCheckDistance) == 0x7b0);
+static_assert(offsetof(CNWSCreature, m_fMaxListenCheckDistance) == 0x7b4);
+NWNX_EXPORT ArgumentStack SetPerceptionRange(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    const auto nRange = args.extract<int32_t>();
+
+    if (!pCreature || !pCreature->m_pStats || pCreature->m_bPlayerCharacter) return 0;
+    if (nRange < 8 || nRange > 11) return 0;
+
+    auto *p2DAs = Globals::Rules()->m_p2DArrays;
+    C2DA *pRanges = p2DAs->GetRangesTable();
+    if (!pRanges) return 0;
+
+    int32_t nRow = nRange;
+    if (nRange == 11)
+    {
+        C2DA *pAppearance = p2DAs->GetAppearanceTable();
+        if (!pAppearance ||
+            !pAppearance->GetINTEntry(pCreature->m_pStats->m_nAppearanceType, CExoString("PERCEPTIONDIST"), &nRow))
+            return 0;
+    }
+
+    float fSpot, fListen, fLongSpot, fLongListen;
+    if (!pRanges->GetFLOATEntry(nRow, CExoString("PrimaryRange"), &fSpot) ||
+        !pRanges->GetFLOATEntry(nRow, CExoString("SecondaryRange"), &fListen) ||
+        !pRanges->GetFLOATEntry(10, CExoString("PrimaryRange"), &fLongSpot) ||
+        !pRanges->GetFLOATEntry(10, CExoString("SecondaryRange"), &fLongListen))
+        return 0;
+
+    float fMaxSpot = fLongSpot, fMaxListen = fLongListen;
+    if (!pCreature->GetIsPossessedFamiliar() && fSpot < fLongSpot &&
+        (!pRanges->GetFLOATEntry(13, CExoString("PrimaryRange"), &fMaxSpot) ||
+         !pRanges->GetFLOATEntry(13, CExoString("SecondaryRange"), &fMaxListen)))
+        return 0;
+
+    pCreature->m_nPerceptionRange = (uint8_t)nRange;
+    pCreature->m_fSpotCheckDistance = fSpot;
+    pCreature->m_fListenCheckDistance = fListen;
+    pCreature->m_fMaxSpotCheckDistance = fMaxSpot;
+    pCreature->m_fMaxListenCheckDistance = fMaxListen;
+    return 1;
+}
+
+// oCreature's perception range as SetPerceptionRange or its blueprint set it
+// (8-11), or -1 for no creature. A player character's is 12.
+NWNX_EXPORT ArgumentStack GetPerceptionRange(ArgumentStack&& args)
+{
+    auto *pCreature = Utils::AsNWSCreature(Utils::GetGameObject(args.extract<ObjectID>()));
+    return pCreature ? (int32_t)pCreature->m_nPerceptionRange : -1;
 }
 
 NWNX_EXPORT ArgumentStack GetAnimationReplace(ArgumentStack&& args)
@@ -2451,18 +2528,23 @@ static Hooks::Hook s_UpdateEncumbranceStateHook = Hooks::HookFunction(&CNWSCreat
 // ComputeModifiedMovementRate, which removes every such marked effect and
 // applies the right one; that is how players got rid of it.
 //
+// Script SetItemStackSize never updates anyone, bag or not. It writes the new
+// count and sends the holder, when the item's own possessor is a creature, a
+// feedback message, and that is all (ExecuteCommandSetItemStackSize, 0x6a5620).
+// An item's weight is its unit weight times its count (CNWSItem::GetWeight),
+// so every stack a script shrinks or grows leaves its carrier's weight stale:
+// the one stack the hand-in leaves when a store runs out of room among them.
+//
 // So: update the owner after any add to or remove from a bag the engine left
-// alone, and recompute the movement rate once the TURD has been eaten.
+// alone, and after any stack size a script sets, and recompute the movement
+// rate once the TURD has been eaten.
 //
 // Read from the 8193.37 decompilation and disassembly, 2026-10-29:
 // CItemRepository::AddItem and RemoveItem, CNWSItem::EventHandler,
 // UpdateEncumbranceState (0x4931a0, ComputeModifiedMovementRate behind
 // "new state != old state"), ComputeModifiedMovementRate,
-// CNWSObject::SaveEffectList, and CNWSPlayer::EatTURD.
-//
-// Not covered: SetItemStackSize on a stack inside a bag also skips the update
-// (it looks for a creature as the item's own possessor), so a partial stack
-// taken from a bag is put right at the owner's next update.
+// CNWSObject::SaveEffectList, CNWSPlayer::EatTURD, and
+// ExecuteCommandSetItemStackSize.
 static void RH_UpdateBagOwnerEncumbrance(CItemRepository *pRepository)
 {
     auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(pRepository->m_oidParent));
@@ -2497,6 +2579,37 @@ static Hooks::Hook s_BagRemoveItemHook = Hooks::HookFunction(&CItemRepository::R
             RH_UpdateBagOwnerEncumbrance(pThis);
 
         return bResult;
+    }, Hooks::Order::Late);
+
+// The item is the command's first argument, so on top of the stack: read it
+// and put it back for the original, as Plugins/Effect's ApplyEffectOnObject
+// hook does with its duration type.
+static Hooks::Hook s_SetItemStackSizeHook = Hooks::HookFunction(&CNWSVirtualMachineCommands::ExecuteCommandSetItemStackSize,
+    +[](CNWSVirtualMachineCommands *pThis, int32_t nCommandId, int32_t nParameters) -> int32_t
+    {
+        ObjectID oidItem = Constants::OBJECT_INVALID;
+
+        if (!g_pVirtualMachine->StackPopObject(&oidItem))
+            return Constants::VMError::StackUnderflow;
+
+        if (!g_pVirtualMachine->StackPushObject(oidItem))
+            return Constants::VMError::StackOverflow;
+
+        auto nResult = s_SetItemStackSizeHook->CallOriginal<int32_t>(pThis, nCommandId, nParameters);
+
+        if (auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(oidItem)))
+        {
+            ObjectID oidHolder = pItem->m_oidPossessor;
+
+            // In a bag: the bag's holder carries it.
+            if (auto *pBag = Utils::AsNWSItem(Utils::GetGameObject(oidHolder)))
+                oidHolder = pBag->m_oidPossessor;
+
+            if (auto *pHolder = Utils::AsNWSCreature(Utils::GetGameObject(oidHolder)))
+                pHolder->UpdateEncumbranceState(true);
+        }
+
+        return nResult;
     }, Hooks::Order::Late);
 
 static Hooks::Hook s_EatTURDMovementHook = Hooks::HookFunction(&CNWSPlayer::EatTURD,
@@ -4680,6 +4793,169 @@ static Hooks::Hook s_KeepRoundClearActionHook = Hooks::HookFunction(Functions::_
         return s_KeepRoundClearActionHook->CallOriginal<BOOL>(pCreature, pNode, bIsTopmostAction);
     }, Hooks::Order::Early);
 
+// The engine's ClearHostileActionsVersus can loop forever, and was the
+// ThreadWatchdog kills production had every few days from September: one,
+// caught live with perf on 2026-11-15, had every sample in it, called from a
+// boss's Contingency (invisibility) through NWNX_Creature_DoPerceptionUpdateOnCreature.
+//
+// It runs when a creature stops perceiving another. From the 8193.37
+// disassembly (0x46e4c0): it counts the action groups ONCE, then walks them,
+// and on a group whose action (GetActionByGroupId) is an ATTACKOBJECT (12),
+// CASTSPELL (15), or 46 aimed at the creature it calls RemoveGroup and starts
+// the walk again at group 1, never 0. RemoveGroup frees a node only if
+// ClearAction returns 1, and ClearAction refuses any node whose
+// m_bInterruptable is 0, which AIActionCastSpell sets once the conjure time
+// has run and the spell is released (not as conjuring starts: a cast was
+// still clearable through its whole conjure on dev). So a released cast with
+// a group AHEAD of it (a cast added to the front, as many of the module's
+// instant casts are) is found, kept, and found again, forever. In the first
+// group it is harmless, as the walk never looks there twice, which is why
+// this is rare.
+//
+// Reproduced on dev 2026-11-15 (a cheat Cure Light Wounds at a target, an
+// instant cast added to the front 1.6 s in, the target made invisible, and
+// a perception update): with this off the server hung at 100% CPU; with it
+// on the node was skipped and the server carried on.
+//
+// The walk is left as it is. For the call, each such node outside the first
+// group has its action id swapped for one GetActionByGroupId does not accept
+// (GetAcceptableAction is false for anything from 0x3c up), and back
+// afterwards. The walk would never have freed one, and now never matches one.
+// The first group's are left alone, as the engine already copes with them,
+// unless its group id comes round again later in the queue: GetActionByGroupId
+// looks only in the first run of a group, so that later run would find the
+// same node every time.
+//
+// On unless NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n.
+static constexpr uint32_t HIDDEN_HOSTILE_ACTION_ID = 0xffffff;
+
+static bool GetSafeClearHostile()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("SAFE_CLEAR_HOSTILE", true);
+        LOG_INFO("Skip uncleanable actions in ClearHostileActionsVersus: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bSafeClearHostileLogged = (GetSafeClearHostile(), true);
+
+static ObjectID HostileActionTarget(const CNWSObjectActionNode *pNode)
+{
+    switch (pNode->m_nActionId)
+    {
+        case 12: return (ObjectID)pNode->m_pParameter[0];
+        case 15: return (ObjectID)pNode->m_pParameter[5];
+        case 46: return (ObjectID)pNode->m_pParameter[3];
+        default: return Constants::OBJECT_INVALID;
+    }
+}
+
+static_assert(offsetof(CNWSObjectActionNode, m_pParameter) == 0x38, "CNWSObjectActionNode layout changed");
+static_assert(offsetof(CNWSObjectActionNode, m_nGroupActionId) == 0x98, "CNWSObjectActionNode layout changed");
+
+static Hooks::Hook s_ClearHostileActionsHook = Hooks::HookFunction(&CNWSCreature::ClearHostileActionsVersus,
+    +[](CNWSCreature *pCreature, CNWSCreature *pTarget) -> void
+    {
+        auto *pList = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal;
+
+        if (!GetSafeClearHostile() || !pTarget || !pList || !pList->pHead || !pList->pHead->pObject)
+            return s_ClearHostileActionsHook->CallOriginal<void>(pCreature, pTarget);
+
+        const uint16_t nHeadGroup = static_cast<CNWSObjectActionNode*>(pList->pHead->pObject)->m_nGroupActionId;
+
+        // Does the first group's id come round again after its first run?
+        bool bHeadGroupRecurs = false;
+        bool bInHeadRun = true;
+        for (auto pos = pList->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode)
+                continue;
+            if (pNode->m_nGroupActionId != nHeadGroup)
+                bInHeadRun = false;
+            else if (!bInHeadRun)
+                bHeadGroupRecurs = true;
+        }
+
+        std::vector<std::pair<CNWSObjectActionNode*, uint32_t>> hidden;
+        bInHeadRun = true;
+        int32_t nGroupIndex = 0;
+        uint16_t nLastGroup = nHeadGroup;
+
+        for (auto pos = pList->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode)
+                continue;
+
+            if (pNode->m_nGroupActionId != nLastGroup)
+            {
+                nGroupIndex++;
+                nLastGroup = pNode->m_nGroupActionId;
+            }
+            if (pNode->m_nGroupActionId != nHeadGroup)
+                bInHeadRun = false;
+
+            if (pNode->m_bInterruptable || HostileActionTarget(pNode) != pTarget->m_idSelf)
+                continue;
+            if (bInHeadRun && !bHeadGroupRecurs)
+                continue;
+
+            hidden.emplace_back(pNode, pNode->m_nActionId);
+
+            // Rare, and the log is the only way to learn what put a group
+            // ahead of a conjuring cast.
+            std::string sQueue;
+            for (auto q = pList->pHead; q; q = q->pNext)
+            {
+                if (auto *pQ = static_cast<CNWSObjectActionNode*>(q->pObject))
+                {
+                    char sEntry[48];
+                    std::snprintf(sEntry, sizeof(sEntry), "%s%u/g%u%s", sQueue.empty() ? "" : " ",
+                                  pQ->m_nActionId, pQ->m_nGroupActionId, pQ->m_bInterruptable ? "" : "!");
+                    sQueue += sEntry;
+                }
+            }
+            LOG_WARNING("ClearHostileActionsVersus: %s (%x) has an action it cannot clear against %s (%x) "
+                        "in group %d (action %u, spell %d); the engine would loop on it forever, so it is skipped. "
+                        "Queue (action/group, ! = cannot clear): %s",
+                        pCreature->m_pStats ? pCreature->m_pStats->GetFullName().CStr() : "?", pCreature->m_idSelf,
+                        pTarget->m_pStats ? pTarget->m_pStats->GetFullName().CStr() : "?", pTarget->m_idSelf,
+                        nGroupIndex, pNode->m_nActionId,
+                        pNode->m_nActionId == 15 ? (int32_t)pNode->m_pParameter[0] : -1, sQueue.c_str());
+        }
+
+        for (auto &h : hidden)
+            h.first->m_nActionId = HIDDEN_HOSTILE_ACTION_ID;
+
+        s_ClearHostileActionsHook->CallOriginal<void>(pCreature, pTarget);
+
+        if (hidden.empty())
+            return;
+
+        // The walk cannot free a node it never matched, but it signals spell
+        // events, whose scripts could, so put back only what is still queued.
+        for (auto pos = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal->pHead; pos; pos = pos->pNext)
+        {
+            auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+            if (!pNode || pNode->m_nActionId != HIDDEN_HOSTILE_ACTION_ID)
+                continue;
+
+            for (auto &h : hidden)
+            {
+                if (h.first == pNode)
+                {
+                    pNode->m_nActionId = h.second;
+                    break;
+                }
+            }
+        }
+    }, Hooks::Order::Early);
+
 static Hooks::Hook s_KeepRoundStartHook = Hooks::HookFunction(&CNWSCombatRound::StartCombatRound,
     +[](CNWSCombatRound *pRound, ObjectID oidTarget) -> void
     {
@@ -5042,11 +5318,10 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // Native replacement for the ObjectToJson -> GffReplace* -> JsonToObject path
 // that pw_inc_attack's CreateAfterimageClonesToAttackTarget used to run for
 // every Wave Crash and afterimage flurry (558 ms per run on production,
-// 2026-09-21). The clone MUST carry the source's object state -- effects,
-// action queue, combat state -- or it does not pick up the attack animation
-// fluidly, so this serialises exactly the way NWNX's own serialiser does
-// (SaveObjectState, then SaveCreature) and only takes three things out of
-// the picture for the duration of the save:
+// 2026-09-21). The clone carries its source's action queue and combat round,
+// which is what lets it pick up the attack, so this serialises the way
+// NWNX's own serialiser does (SaveObjectState, then SaveCreature) and takes
+// these out of the picture for the duration of the save:
 //
 //  * the backpack: the repository's item list is swapped for an empty one.
 //    Player inventories here run to hundreds of items, and the JSON path
@@ -5055,19 +5330,63 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 //    CNWSInventory equip slots, not the repository, so the image still
 //    looks like its owner;
 //  * the local variables: the script replaced the VarTable wholesale, and a
-//    PC's class-state locals have no business on a two-second image;
+//    PC's class-state locals have no business on a two-second image. The one
+//    an image does need is DISABLE_COMBAT_SHUFFLE, which the DoCombatStep
+//    hook above reads; it is the module's switch, so the script that makes
+//    the images sets it on each (pw_inc_attack);
 //  * the PC flags, plot, and useable bits, which the script used to patch
-//    into the JSON.
+//    into the JSON;
+//  * every effect but the kinds that decide what the source looks like
+//    (AfterimageKeepsEffect): visual effects, which are also how the module
+//    draws accessories and stowed gear, and polymorph. An image is there to
+//    be looked at. Until 2026-11-11 it carried them all, on the belief that
+//    it would not pick up the attack fluidly without them. It does: on dev
+//    an image of a fighter in combat carrying 61 effects swung 0.6 s after
+//    it was made, with all 61 and with only its 6 visual ones alike (30
+//    images each way, none failing to swing), and three images cost 24 ms
+//    to make with them and 7 without. The belief came from one experiment
+//    that took out the action queue, the perception list, and the
+//    reputation list along with the effects (module commits 3987cad8ce and
+//    a12c350190, 2026-09-21). What the effects did do on an image:
+//      - each ran the module's effect script as the image loaded and again
+//        as it was destroyed, and each scripted one its own apply handler,
+//        as if for a player (a Well water charge bonus made every image a
+//        Well bottle, seen on dev);
+//      - a hiding effect, like the stealth mode below, hid the image as its
+//        source was hidden, and the module's stealth detection stages every
+//        player near a hidden creature as its detector, here of one gone in
+//        two seconds;
+//      - for every AoE effect whose AoE object is gone, the engine makes a
+//        NEW one as the creature loads (OnApplyAreaOfEffect, from the
+//        nwserver decompile). The module's stealth detection used to end an
+//        aura by destroying its object and leaving its effect behind, so in
+//        a big fight on production players carried up to 290 dead ones,
+//        each of their images arrived under that many live auras, and the
+//        AI's NORMAL list, which AoE objects share with creatures in
+//        combat, went from 40 objects to 15,000 while those creatures stood
+//        idle (2026-11-10). On dev a source with 100 dead ones gave three
+//        images 303 objects with its AoE effects, and 3 without;
+//  * the equipped items' properties, all but their visual effects, and the
+//    items' own effects (their temporary properties). The items are saved
+//    inside the creature, and equipping each as the creature loads applies
+//    its properties to the creature as effects;
+//  * stealth mode, which is saved with the creature itself. On dev a source
+//    standing in stealth gave images that were not.
 //
 // The GFF is then loaded straight back into a new creature (the same
 // DeserializeGameObject that NWNX_Object_Deserialize uses), given full hit
 // points, the requested faction, a zeroed UI discovery mask, and the two
 // marker locals, and added to the area facing the way the source faces. It
 // is then dressed as an afterimage: not lootable, VFX_DUR_INVISIBILITY, a
-// permanent 100% miss chance, a permanent cutscene ghost (the source may or
-// may not be carrying one at snapshot time, and an image must never block
-// anyone), and the caller's animation speed, so the script has nothing left
-// to do per clone but order the attack and the destroy.
+// permanent 100% miss chance, a permanent cutscene ghost (an image must
+// never block anyone), and the caller's animation speed. Two things are left
+// to the script that makes it, as both are the module's own: the
+// DISABLE_COMBAT_SHUFFLE local above, and the head its source is DRAWN with
+// when that is not its own. SetDisplayedHead writes only a creature's
+// appearance, and a save keeps the head in its stats, so an image of a
+// character whose helmet is shown as its head loads bareheaded (seen on dev
+// 2026-11-11: source drawn with head 1044, images with its own head 1) until
+// the script copies the shown head over.
 //
 // The serialisation is the expensive half and a flurry wants three clones of
 // the same instant, so it is split: PrepareAfterimage serialises once into a
@@ -5077,13 +5396,52 @@ static Hooks::Hook s_GetCanUseSkillHook = Hooks::HookFunction(&CNWSCreatureStats
 // across calls: the image has to reflect the source's state at the moment of
 // the attack, so a snapshot from an earlier Wave Crash is not good enough.
 //
-// Not verified here: that SaveCreature reads the backpack through
-// m_pcItemRepository->m_oidItems and nothing else. Ghidra truncates that
-// function, so the first in-game check after deploying this is that the
-// clone has no inventory and still wears its owner's gear.
+// That SaveCreature reads the backpack through m_pcItemRepository->m_oidItems
+// and nothing else could not be read from the decompile (Ghidra truncates
+// the function), but it holds: on dev a source with 140 backpack items and 9
+// equipped gave each image 10 items, the tenth a Well bottle that one of the
+// source's own effect handlers made for the image as it loaded (2026-11-10).
 
 static ObjectID s_AfterimageSource = Constants::OBJECT_INVALID;
 static std::vector<uint8_t> s_AfterimageData;
+
+// Whether an image keeps one of its source's effects: only the kinds that
+// decide what the source looks like.
+static bool AfterimageKeepsEffect(const CGameEffect *pEffect)
+{
+    switch (pEffect->m_nType)
+    {
+        case Constants::EffectTrueType::VisualEffect:
+        case Constants::EffectTrueType::Polymorph:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+// One equipped item's property lists and effect list as they really are,
+// while the save is shown shorter ones.
+struct AfterimageItemLists
+{
+    CNWSItem *pItem;
+    CNWItemProperty *pActive;
+    int32_t nActive;
+    CNWItemProperty *pPassive;
+    int32_t nPassive;
+    int32_t nEffects;
+    std::vector<CNWItemProperty> keptActive;
+    std::vector<CNWItemProperty> keptPassive;
+};
+
+static void AfterimageKeepVisualProperties(const CNWItemProperty *pProperties, int32_t nProperties, std::vector<CNWItemProperty> &kept)
+{
+    for (int32_t i = 0; i < nProperties; i++)
+    {
+        if (pProperties[i].m_nPropertyName == Constants::ItemProperty::VisualEffect)
+            kept.push_back(pProperties[i]);
+    }
+}
 
 static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 {
@@ -5097,15 +5455,94 @@ static std::vector<uint8_t> SerializeAfterimage(CNWSCreature *pSource)
 
     const BOOL bPlot = pSource->m_bPlotObject;
     const BOOL bUseable = pSource->m_bUseable;
+    const uint8_t nStealthMode = pSource->m_nStealthMode;
     pSource->m_bPlotObject = true;
     pSource->m_bUseable = false;
+    pSource->m_nStealthMode = 0;
+
+    // The effect list is read through its element pointer and count, so the
+    // save is shown a list of only the effects an image keeps and the real
+    // one is put back after it. Nothing is added to or taken from the list
+    // in between.
+    auto &effects = pSource->m_appliedEffects;
+    CGameEffect **pAllEffects = effects.element;
+    const int32_t nAllEffects = effects.num;
+    std::vector<CGameEffect*> keptEffects;
+    keptEffects.reserve(nAllEffects > 0 ? nAllEffects : 0);
+
+    for (int32_t i = 0; i < nAllEffects; i++)
+    {
+        if (!pAllEffects[i] || AfterimageKeepsEffect(pAllEffects[i]))
+            keptEffects.push_back(pAllEffects[i]);
+    }
+
+    const bool bEffectsSwapped = (int32_t)keptEffects.size() != nAllEffects;
+    if (bEffectsSwapped)
+    {
+        effects.element = keptEffects.data();
+        effects.num = (int32_t)keptEffects.size();
+    }
+
+    // The same for each equipped item, which is saved inside the creature:
+    // its property lists are shown with only their visual effects, and its
+    // own effect list (its temporary properties) empty.
+    std::vector<AfterimageItemLists> itemLists;
+
+    if (pSource->m_pInventory)
+    {
+        const size_t nSlots = sizeof(pSource->m_pInventory->m_pEquipSlot) / sizeof(pSource->m_pInventory->m_pEquipSlot[0]);
+        itemLists.reserve(nSlots);
+
+        for (size_t nSlot = 0; nSlot < nSlots; nSlot++)
+        {
+            auto *pItem = Utils::AsNWSItem(Utils::GetGameObject(pSource->m_pInventory->m_pEquipSlot[nSlot]));
+
+            if (!pItem)
+                continue;
+
+            itemLists.emplace_back();
+            auto &lists = itemLists.back();
+
+            lists.pItem = pItem;
+            lists.pActive = pItem->m_lstActiveProperties.element;
+            lists.nActive = pItem->m_lstActiveProperties.num;
+            lists.pPassive = pItem->m_lstPassiveProperties.element;
+            lists.nPassive = pItem->m_lstPassiveProperties.num;
+            lists.nEffects = pItem->m_appliedEffects.num;
+
+            AfterimageKeepVisualProperties(lists.pActive, lists.nActive, lists.keptActive);
+            AfterimageKeepVisualProperties(lists.pPassive, lists.nPassive, lists.keptPassive);
+
+            pItem->m_lstActiveProperties.element = lists.keptActive.data();
+            pItem->m_lstActiveProperties.num = (int32_t)lists.keptActive.size();
+            pItem->m_lstPassiveProperties.element = lists.keptPassive.data();
+            pItem->m_lstPassiveProperties.num = (int32_t)lists.keptPassive.size();
+            pItem->m_appliedEffects.num = 0;
+        }
+    }
 
     // bStripPCFlags: SerializeGameObject zeroes m_bPlayerCharacter and
     // m_pStats->m_bIsPC around the save, which is the JSON path's IsPC = 0.
     std::vector<uint8_t> data = Utils::SerializeGameObject(pSource, true);
 
+    for (auto &lists : itemLists)
+    {
+        lists.pItem->m_lstActiveProperties.element = lists.pActive;
+        lists.pItem->m_lstActiveProperties.num = lists.nActive;
+        lists.pItem->m_lstPassiveProperties.element = lists.pPassive;
+        lists.pItem->m_lstPassiveProperties.num = lists.nPassive;
+        lists.pItem->m_appliedEffects.num = lists.nEffects;
+    }
+
+    if (bEffectsSwapped)
+    {
+        effects.element = pAllEffects;
+        effects.num = nAllEffects;
+    }
+
     pSource->m_bPlotObject = bPlot;
     pSource->m_bUseable = bUseable;
+    pSource->m_nStealthMode = nStealthMode;
     std::swap(pSource->m_ScriptVars.m_vars, savedVars);
     if (pSource->m_pcItemRepository)
         std::swap(pSource->m_pcItemRepository->m_oidItems.m_pcExoLinkedListInternal, emptyItems.m_pcExoLinkedListInternal);
@@ -5207,24 +5644,11 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
     pClone->ApplyEffect(pMiss, false, true);
 
     // ExtraordinaryEffect(EffectCutsceneGhost()), permanent: the handler
-    // reads no parameters. If the source was carrying its own temporary
-    // ghost at snapshot time the clone already has a copy, and the engine
-    // then drops ours as a duplicate (verified on dev 2026-09-21: the clone
-    // kept only the 0.7 s copy), so any inherited ghost is removed first.
-    {
-        std::vector<uint64_t> aGhostIds;
-        auto &effects = pClone->m_appliedEffects;
-
-        for (int32_t i = 0; i < effects.num; i++)
-        {
-            if (effects.element[i] && effects.element[i]->m_nType == Constants::EffectTrueType::CutsceneGhost)
-                aGhostIds.push_back(effects.element[i]->m_nID);
-        }
-
-        for (uint64_t nId : aGhostIds)
-            pClone->RemoveEffectById(nId);
-    }
-
+    // reads no parameters. The source's own temporary ghost (the script puts
+    // one on it for 0.7 s) is not among the effects an image keeps, so there
+    // is no copy on the clone for the engine to drop this one as a duplicate
+    // of, as it did while an image carried every effect (seen on dev
+    // 2026-09-21: the clone kept only the 0.7 s copy).
     auto *pGhost = new CGameEffect(true);
     pGhost->m_nType = Constants::EffectTrueType::CutsceneGhost;
     pGhost->m_nSubType = Constants::EffectSubType::Extraordinary | Constants::EffectDurationType::Permanent;
@@ -5244,6 +5668,428 @@ NWNX_EXPORT ArgumentStack CreateAfterimage(ArgumentStack&& args)
 
     return pClone->m_idSelf;
 }
+
+
+// ---------------------------------------------------------------------------
+// Afterimage ghosts
+// ---------------------------------------------------------------------------
+//
+// An afterimage that is in no area. CreateAfterimage's clone is a creature in
+// the world for the second it lasts: the area's enter and exit scripts run
+// for it, everything near perceives it and runs its perception script, it
+// holds a place in the AI's lists, it fights a real combat round, which
+// pauses its target's round while the target dodges, and the module's attack
+// script runs for a swing that cannot hit. All of that is there for one
+// thing, which is that players see a figure swing. A ghost is that figure and
+// nothing more:
+//
+//  * It is built as the clone is, from the same snapshot, so it looks the
+//    same, but it is never added to an area. Its m_oidArea is set and that is
+//    all (CNWSObject::SetArea writes only that field): it is in none of the
+//    area's lists, so nothing perceives it, nothing that walks an area finds
+//    it, and nothing collides with it.
+//  * It is taken out of the AI's lists, which a creature joins in its
+//    constructor, so it has no AIUpdate: no heartbeat, no perception of its
+//    own, no actions, no combat round.
+//  * The engine's object update never reaches it, as that walks the area's
+//    object list. It is written to each player here instead, with the
+//    engine's own calls for one object: TestObjectUpdateDifferences, which
+//    makes the player's CLastUpdateObject and writes the 'A' record,
+//    WriteGameObjUpdate_UpdateObject, and StoreValuesInLastUpdateObject, as
+//    NWNX's own alternate update strings them together
+//    (Optimizations/LuoLookup.cpp), in a message of its own, sent at once.
+//  * THE ENGINE INTRODUCES A NEW CREATURE IN TWO UPDATES, so the write is
+//    done twice over. CreateNewLastUpdateObject hands back update flags
+//    0x3967 for a creature and records only those in the CLastUpdateObject;
+//    the rest go out in the next update, 200 ms on, when the diff finds them
+//    unrecorded. Among them are 0x200000, the material values (the robe and
+//    helmet slots' colours, picked colours, wetness), 0x400000, the useable
+//    bit and the UI discovery mask, and 0x800000 and 0x1000000, texture and
+//    animation swaps (a combat style). A ghost has no next update, so the
+//    first ghosts drew in the wrong colours and could be highlighted,
+//    clicked, and talked to (seen 2026-11-11). Its second pass runs here at
+//    once, and the swing is held back to it, so that the swaps are in before
+//    the attack starts (the writer puts both in one record, swaps first).
+//    Read from CreateNewLastUpdateObject and the writer's flag tests in the
+//    nwserver disassembly.
+//  * Its swing is state, not an event. An update carries a creature's
+//    animation, and for Animation::Attack the writer follows it with the
+//    latest attacks of the creature's combat round: for each, the target,
+//    its reaction and how long that takes, the swing's length, the result,
+//    and the hand. So the ghost's round is given one attack by hand, a miss,
+//    and its animation set, before it is written. Nothing is rolled, nothing
+//    is logged, and no script runs.
+//  * Its swing can wait (fSwingDelay). A flurry's three images must swing
+//    one after another, each with its own hit: clones did, as each ran a
+//    combat round of its own and the rounds drifted apart, and three ghosts
+//    swinging as one read as one figure (the user, 2026-11-11). A ghost that
+//    waits is shown at the ready, and its swing goes to each client holding
+//    it when the time comes, as an ordinary update of the attack animation.
+//    Its lifetime runs from the swing, as a clone's did from its attack.
+//  * When its time is up it is taken off each client that was shown it here
+//    too (DeleteLastUpdateObjectsForObject: the 'D' record, and the player's
+//    CLastUpdateObject gone), then its area is cleared and it is destroyed
+//    by the ordinary event. The area is cleared first because the destroy
+//    event reaches CNWSArea::RemoveObjectFromArea, which signals the area's
+//    exit script for any living creature whose GetArea() is that area, in
+//    its lists or not. A player who changes area meanwhile loses it with the
+//    rest of the old area's objects.
+//
+// Who is shown one: each player in the area whose client is being shown the
+// source, which is to say holds a CLastUpdateObject for it, and the source's
+// own player. Whoever cannot see a hidden character does not see its images.
+//
+// The writer's attack block, the two sweeps that drop a CLastUpdateObject,
+// SetArea, RemoveObjectFromArea, and the destroy event's path were read from
+// the nwserver disassembly (2026-11-11). A ghost does not walk: it swings
+// from where it is put, so the caller puts it within reach of its target.
+// One is not made for a source holding a ranged weapon, whose shot has more
+// to it than this record.
+
+struct AfterimageGhost
+{
+    ObjectID oidGhost;
+    std::chrono::steady_clock::time_point tSwing;   // when its swing goes out, if it has not yet
+    std::chrono::steady_clock::time_point tUntil;
+    bool bSwung;
+};
+
+static std::vector<AfterimageGhost> s_AfterimageGhosts;
+
+// Writes pGhost, new to every client, to each player who is being shown
+// pSource. Returns how many it went to.
+static int32_t ShowAfterimageGhost(CNWSCreature *pGhost, CNWSCreature *pSource, uint32_t *pBytes)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    int32_t nViewers = 0;
+
+    if (!pMessage)
+        return 0;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        auto *pViewer = pPlayer ? pPlayer->GetGameObject() : nullptr;
+
+        if (!pViewer || pViewer->m_oidArea != pGhost->m_oidArea)
+            continue;
+        if (pViewer->m_idSelf != pSource->m_idSelf && !pPlayer->GetLastUpdateObject(pSource->m_idSelf))
+            continue;
+
+        pMessage->CreateWriteMessage(0x2000, pPlayer->m_nPlayerID, true);
+
+        // The first pass introduces it, held at the ready, and the second
+        // sends what the first leaves for later, with the swing.
+        const int32_t nAnimation = pGhost->m_nAnimation;
+        CLastUpdateObject *pLUO = nullptr;
+        uint32_t nPassFlags[3] = {};
+
+        pGhost->m_nAnimation = Constants::Animation::Ready;
+
+        for (int32_t nPass = 0; nPass < 3; nPass++)
+        {
+            uint32_t nUpdates = 0, nAppearance = 0;
+
+            if (nPass == 1)
+                pGhost->m_nAnimation = nAnimation;
+
+            pMessage->TestObjectUpdateDifferences(pPlayer, pGhost, &pLUO, &nUpdates, &nAppearance);
+            if (!pLUO)
+                break;
+
+            nPassFlags[nPass] = nUpdates;
+            if (nUpdates || nAppearance)
+                pMessage->WriteGameObjUpdate_UpdateObject(pPlayer, pGhost, pLUO, nUpdates, nAppearance);
+            pMessage->StoreValuesInLastUpdateObject(pPlayer, pLUO, pGhost, nUpdates, nAppearance);
+
+            if (nPass >= 1 && !nUpdates && !nAppearance)
+                break;
+        }
+
+        pGhost->m_nAnimation = nAnimation;
+
+        if (!pLUO)
+            continue;
+
+        LOG_DEBUG("AfterimageGhost: %x to player %u, update flags %x then %x then %x", pGhost->m_idSelf, pPlayer->m_nPlayerID,
+            nPassFlags[0], nPassFlags[1], nPassFlags[2]);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize &&
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize))
+        {
+            nViewers++;
+            if (pBytes) *pBytes += nSize;
+        }
+    }
+
+    return nViewers;
+}
+
+// Sends what has changed about pGhost to every client holding it: its swing,
+// when that waited. Returns how many it went to.
+static int32_t UpdateAfterimageGhost(CNWSCreature *pGhost)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+    int32_t nViewers = 0;
+
+    if (!pMessage)
+        return 0;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        // Only a client already shown it: with no record, the call below
+        // would introduce it afresh.
+        if (!pPlayer || !pPlayer->GetLastUpdateObject(pGhost->m_idSelf))
+            continue;
+
+        pMessage->CreateWriteMessage(0x800, pPlayer->m_nPlayerID, true);
+
+        CLastUpdateObject *pLUO = nullptr;
+        uint32_t nUpdates = 0, nAppearance = 0;
+
+        pMessage->TestObjectUpdateDifferences(pPlayer, pGhost, &pLUO, &nUpdates, &nAppearance);
+        if (!pLUO || (!nUpdates && !nAppearance))
+            continue;
+
+        pMessage->WriteGameObjUpdate_UpdateObject(pPlayer, pGhost, pLUO, nUpdates, nAppearance);
+        pMessage->StoreValuesInLastUpdateObject(pPlayer, pLUO, pGhost, nUpdates, nAppearance);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize &&
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize))
+        {
+            nViewers++;
+        }
+    }
+
+    return nViewers;
+}
+
+// Takes ghost oidGhost off every client that was shown it: the delete record,
+// and the player's CLastUpdateObject for it gone, in a message of its own.
+static void HideAfterimageGhost(ObjectID oidGhost)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pMessage = pServer->GetNWSMessage();
+
+    if (!pMessage)
+        return;
+
+    for (auto *pPlayer : pServer->GetPlayerList())
+    {
+        if (!pPlayer || !pPlayer->GetLastUpdateObject(oidGhost))
+            continue;
+
+        pMessage->CreateWriteMessage(0x40, pPlayer->m_nPlayerID, true);
+        pMessage->DeleteLastUpdateObjectsForObject(pPlayer, oidGhost);
+
+        uint8_t *pData = nullptr;
+        uint32_t nSize = 0;
+
+        if (pMessage->GetWriteMessage(&pData, &nSize) && nSize)
+        {
+            pMessage->SendServerToPlayerMessage(pPlayer->m_nPlayerID, Constants::MessageMajor::GameObjectUpdate,
+                Constants::MessageGameObjectUpdateMinor::ObjectList, pData, nSize);
+        }
+    }
+}
+
+// 1, for a script to learn once a load that this build has ghosts: a call
+// to a function an older build lacks logs an error and gives 0.
+NWNX_EXPORT ArgumentStack GetAfterimageGhostsSupported(ArgumentStack&&)
+{
+    return 1;
+}
+
+NWNX_EXPORT ArgumentStack CreateAfterimageGhost(ArgumentStack&& args)
+{
+    auto *pSource = Utils::PopCreature(args);
+    const auto oidArea   = args.extract<ObjectID>();
+    const auto x         = args.extract<float>();
+    const auto y         = args.extract<float>();
+    const auto z         = args.extract<float>();
+    const auto fFacing   = args.extract<float>();
+    const auto oidTarget = args.extract<ObjectID>();
+    const auto nFaction  = args.extract<int32_t>();
+    const auto fAnimationSpeed = args.extract<float>();
+    const auto fLifetime = args.extract<float>();
+    const auto nSwingMs  = args.extract<int32_t>();
+    const auto nReaction = args.extract<int32_t>();
+    const auto fSwingDelay = args.extract<float>();
+
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+    auto *pArea = Utils::AsNWSArea(Utils::GetGameObject(oidArea));
+
+    if (!pSource || !pArea || nSwingMs <= 0 || nSwingMs > 0xFFFF || fLifetime <= 0.0f || fLifetime > 10.0f)
+        return Constants::OBJECT_INVALID;
+    if (fSwingDelay < 0.0f || fSwingDelay > 5.0f)
+        return Constants::OBJECT_INVALID;
+    if (pSource->GetRangeWeaponEquipped())
+        return Constants::OBJECT_INVALID;
+
+    const bool bCached = (s_AfterimageSource == pSource->m_idSelf && !s_AfterimageData.empty());
+    const std::vector<uint8_t> data = bCached ? s_AfterimageData : SerializeAfterimage(pSource);
+
+    // --- build it, and keep it out of the world
+    auto *pGhost = Utils::AsNWSCreature(Utils::DeserializeGameObject(data));
+
+    if (!pGhost)
+    {
+        LOG_WARNING("CreateAfterimageGhost: could not deserialize a ghost of %x (%d bytes, %s)", pSource->m_idSelf, (int)data.size(), bCached ? "cached" : "fresh");
+        return Constants::OBJECT_INVALID;
+    }
+
+    pServer->GetServerAIMaster()->RemoveObject(pGhost);
+
+    pGhost->m_nCurrentHitPoints = pGhost->GetMaxHitPoints();
+    pGhost->m_nUiDiscoveryMask = 0;
+    pGhost->m_bLootable = false;
+
+    CExoString sSetPiece("IS_SET_PIECE");
+    CExoString sVfx("IS_VFX");
+    pGhost->m_ScriptVars.SetInt(sSetPiece, 1);
+    pGhost->m_ScriptVars.SetInt(sVfx, 1);
+
+    if (auto *pFaction = pServer->m_pcExoAppInternal->m_pFactionManager->GetFaction(nFaction))
+        pFaction->AddMember(pGhost->m_idSelf);
+
+    // The area by id only, and the place by its fields: SetPosition and
+    // AddToArea would file it in the area.
+    auto *pTarget = Utils::AsNWSObject(Utils::GetGameObject(oidTarget));
+    const float fRadians = fFacing * (float)M_PI / 180.0f;
+    Vector vFacing{std::cos(fRadians), std::sin(fRadians), 0.0f};
+
+    if (pTarget)
+    {
+        const float dx = pTarget->m_vPosition.x - x;
+        const float dy = pTarget->m_vPosition.y - y;
+        const float fGap = std::sqrt(dx * dx + dy * dy);
+
+        if (fGap > 0.05f)
+            vFacing = Vector{dx / fGap, dy / fGap, 0.0f};
+    }
+
+    pGhost->SetArea(pArea);
+    pGhost->m_vPosition = Vector{x, y, z};
+    pGhost->SetOrientation(vFacing);
+
+    // --- dress it. VFX_DUR_INVISIBILITY goes straight into the list an
+    // update sends, where an effect of it would end up: with no effect there
+    // is no effect script, and nothing to expire.
+    pGhost->AddLoopingVisualEffect(6 /*VFX_DUR_INVISIBILITY*/, pSource->m_idSelf, 0, ObjectVisualTransformData());
+
+    // The head the source is drawn with. SetDisplayedHead writes only a
+    // creature's appearance, and the snapshot holds the head in its stats.
+    pGhost->m_cAppearance.m_nHeadVariation = pSource->m_cAppearance.m_nHeadVariation;
+
+    if (fAnimationSpeed > 0.0f && fAnimationSpeed != 1.0f)
+    {
+        if (!pGhost->m_pVisualTransformData)
+            pGhost->m_pVisualTransformData = new ObjectVisualTransformData();
+        pGhost->m_pVisualTransformData->m_scopes[0].m_animationSpeed = LerpFloat(fAnimationSpeed);
+    }
+
+    // --- the swing: one attack in the round, a miss, and the animation that
+    // has the writer send it. The hand is the engine's own choice for a first
+    // attack (CNWSCombatRound::GetWeaponAttackType): 1 with something in the
+    // right hand, 7 unarmed. nReaction is what the target is shown doing,
+    // Animation::Ready for nothing; the engine pauses a target's round for a
+    // reaction, and nothing does here.
+    if (auto *pRound = pGhost->m_pcCombatRound)
+    {
+        auto *pAttack = pRound->GetAttack(0);
+        const bool bReact = pTarget && nReaction != Constants::Animation::Ready;
+
+        pAttack->ClearAttackData();
+        pAttack->m_nAttackGroup = 1;
+        pAttack->m_nAnimationLength = (uint16_t)nSwingMs;
+        pAttack->m_oidReactObject = pTarget ? oidTarget : Constants::OBJECT_INVALID;
+        pAttack->m_nReactionDelay = 0;
+        pAttack->m_nReactionAnimation = (uint16_t)(bReact ? nReaction : Constants::Animation::Ready);
+        pAttack->m_nReactionAnimationLength = (uint16_t)(bReact ? nSwingMs : 0);
+        pAttack->m_nWeaponAttackType = (pGhost->m_pInventory && pGhost->m_pInventory->GetItemInSlot(Constants::EquipmentSlot::RightHand)) ? 1 : 7;
+        pAttack->m_bRangedAttack = false;
+        pAttack->m_bKillingBlow = false;
+        pAttack->m_nAttackResult = 4;   // a miss
+        pAttack->m_nAttackType = 0;
+
+        pRound->m_nCurrentAttack = 1;
+    }
+
+    // Swinging now, it is shown with the attack; else at the ready, and the
+    // attack goes out when its time comes.
+    const bool bSwingNow = fSwingDelay <= 0.0f;
+    pGhost->m_nAnimation = bSwingNow ? Constants::Animation::Attack : Constants::Animation::Ready;
+
+    // --- show it, and set its swing and its end
+    uint32_t nBytes = 0;
+    const int32_t nViewers = ShowAfterimageGhost(pGhost, pSource, &nBytes);
+    const auto tNow = std::chrono::steady_clock::now();
+    const auto tSwing = tNow + std::chrono::milliseconds((int64_t)(fSwingDelay * 1000.0f));
+
+    // One nobody was shown has nothing to last for, nor to swing.
+    s_AfterimageGhosts.push_back({pGhost->m_idSelf, tSwing,
+        nViewers ? tSwing + std::chrono::milliseconds((int64_t)(fLifetime * 1000.0f)) : tNow,
+        bSwingNow || !nViewers});
+
+    LOG_DEBUG("CreateAfterimageGhost: %x of %x shown to %d (%u bytes), target %x", pGhost->m_idSelf, pSource->m_idSelf, nViewers, nBytes, oidTarget);
+
+    return pGhost->m_idSelf;
+}
+
+// Ghosts whose swing is due swing. Ghosts whose time is up: off every client,
+// out of their area by id, so that the destroy event signals no area exit,
+// and destroyed by that event, in this frame's events.
+static Hooks::Hook s_AfterimageGhostFrameHook = Hooks::HookFunction(&CServerAIMaster::UpdateState,
+    +[](CServerAIMaster *pAIMaster) -> void
+    {
+        if (!s_AfterimageGhosts.empty())
+        {
+            const auto tNow = std::chrono::steady_clock::now();
+
+            for (size_t i = 0; i < s_AfterimageGhosts.size(); )
+            {
+                auto &ghost = s_AfterimageGhosts[i];
+
+                if (!ghost.bSwung && tNow >= ghost.tSwing)
+                {
+                    ghost.bSwung = true;
+
+                    if (auto *pGhost = Utils::AsNWSCreature(Utils::GetGameObject(ghost.oidGhost)))
+                    {
+                        pGhost->m_nAnimation = Constants::Animation::Attack;
+                        UpdateAfterimageGhost(pGhost);
+                    }
+                }
+
+                if (tNow < ghost.tUntil)
+                {
+                    i++;
+                    continue;
+                }
+
+                if (auto *pGhost = Utils::AsNWSCreature(Utils::GetGameObject(s_AfterimageGhosts[i].oidGhost)))
+                {
+                    HideAfterimageGhost(pGhost->m_idSelf);
+                    pGhost->SetArea(nullptr);
+                    pAIMaster->AddEventDeltaTime(0, 0, pGhost->m_idSelf, pGhost->m_idSelf, Constants::AIMasterEvent::DestroyObject);
+                }
+
+                s_AfterimageGhosts[i] = s_AfterimageGhosts.back();
+                s_AfterimageGhosts.pop_back();
+            }
+        }
+
+        s_AfterimageGhostFrameHook->CallOriginal<void>(pAIMaster);
+    }, Hooks::Order::Early);
 
 
 // ---------------------------------------------------------------------------
@@ -6118,8 +6964,9 @@ NWNX_EXPORT ArgumentStack GetIsPlayingAnimationForPlayer(ArgumentStack&& args)
 //
 // The entries are MOVED out and back, not copied: each holds its transform
 // (scale, translate, rotate), an ObjectVisualTransformData with a std::map
-// inside, and goes back exactly as it was, at the index it had. Nothing else
-// runs in between; the server is single threaded here.
+// inside, and goes back exactly as it was, at the index it had, never moved
+// onto itself (see the loop putting them back). Nothing else runs in between;
+// the server is single threaded here.
 //
 // A hide runs out by itself (tUntil), checked as each update is computed, so
 // the row comes back in the first update for that player after it ends: the
@@ -6228,12 +7075,21 @@ static Hooks::Hook s_HiddenVisualEffectComputeHook = Hooks::HookFunction(&CNWSMe
             return;
         }
 
+        //
+        // Below the first hidden entry nothing moved, and an entry must never
+        // be moved onto itself: libstdc++'s map move assignment clears the
+        // target before taking the source's nodes, so a map moved onto itself
+        // comes out EMPTY. Until 2026-11-10 this loop did that to every entry
+        // before the first hidden one, on every update the hide was computed
+        // for, wiping their transforms on the object itself: the victim's VFX
+        // accessories and stowed gear jumped to their anchors at scale 1, for
+        // every viewer, until re-applied. So stop once the hidden ones are in.
         list.num = nAll;
         int32_t nFrom = nKept - 1;
         size_t nRemoved = removed.size();
-        for (int32_t i = nAll - 1; i >= 0; i--)
+        for (int32_t i = nAll - 1; i >= 0 && nRemoved > 0; i--)
         {
-            if (nRemoved > 0 && removed[nRemoved - 1].first == i)
+            if (removed[nRemoved - 1].first == i)
                 list.element[i] = std::move(removed[--nRemoved].second);
             else
                 list.element[i] = std::move(list.element[nFrom--]);
