@@ -38,6 +38,7 @@
 #include "API/CServerExoAppInternal.hpp"
 #include "API/CNetLayer.hpp"
 #include "API/CNetLayerPlayerInfo.hpp"
+#include "API/CNetLayerWindow.hpp"
 #include "API/CServerInfo.hpp"
 #include "API/CNWSFaction.hpp"
 #include "API/CFactionManager.hpp"
@@ -9533,3 +9534,273 @@ static Hooks::Hook s_EffectLossUnsummonHook = Hooks::HookFunction(&CNWSCreature:
 
         s_EffectLossUnsummonHook->CallOriginal<void>(pThis);
     }, Hooks::Order::Earliest);
+
+// ---------------------------------------------------------------------------
+// Stuck client guard
+// ---------------------------------------------------------------------------
+//
+// One client can take every other player's input away. All the netlayer's
+// windows keep their frames in ONE store (CNetLayerInternal's
+// CExoNetExtendableBuffer, at +0xa4e10): 256 blocks of 64, 16,384 frames in
+// all, and it never grows past that. A frame waiting to go to a client stays
+// there until the client acknowledges it, and nothing in the engine limits how
+// many one client may have waiting. Its only cut-off is the 60 s in-frame
+// timeout, and every frame a client sends restarts that, whether or not the
+// frame acknowledges anything.
+//
+// Production, 2026-11-21: one client stopped acknowledging at about 08:00 but
+// went on sending a frame every 1.7 s or so. By 10:11:45 its queue (16,067
+// frames, 16,128 held in all) had filled the store, and from then on
+// CNetLayerWindow::FrameReceive found no free frame for anything any client
+// sent and dropped it (GetUnusedFrame gives 0xffff, and the assert it logs is
+// at a level no server prints). The server heard nothing from anyone: players
+// froze and timed out, and rejoins got as far as "Joined as Player", whose
+// packets bypass the store, and no further. Tick rate, scripts, and SQL ran on
+// as normal, and neither log had a word of it. All of this was read from the
+// live process's memory. A firewall drop of that one client, which let the
+// timeout take it, emptied the store (338 frames held) and everyone's input
+// came back, with no restart.
+//
+// Once a second, after the engine's own UpdateStatusLoop (where that timeout
+// runs), a window in use is disconnected when:
+//   - frames are in flight to it and its acknowledgement has not moved for
+//     NWNX_RISENHOLM_NET_GUARD_STALL seconds (default 120, twice the engine's
+//     own timeout, so a client is given longer to acknowledge than it would
+//     be given to send anything at all);
+//   - it has NWNX_RISENHOLM_NET_GUARD_QUEUE frames or more waiting to go
+//     (default 4096, a quarter of the store; the largest NUI window, about
+//     165 KB, is under 200);
+//   - or, failing both, when the store is NWNX_RISENHOLM_NET_GUARD_STORE
+//     percent full (default 75): the window with the most frames waiting, if
+//     that is at least 256, as a full store with no one queueing much is not
+//     something a disconnect would mend.
+// It is disconnected exactly as the timeout does it: CNetLayerWindow::
+// FrameTimeout (8193.37, 0x2a9e8d) calls CNetLayerInternal::DisconnectPlayer
+// (id, 5838, 1, 1, ""), and CNetLayer::DisconnectPlayer(id, 5838, TRUE, "")
+// passes exactly that on (0x293110). So the player leaves as from a timeout,
+// OnClientLeave and all, and the window's ShutDown hands every frame it held
+// back to the store. Each disconnect is a warning in the log, and so is the
+// store passing each quarter of its size on the way up.
+//
+// Tested on dev 2026-11-21 through a UDP relay in front of the server, which
+// could hold back the server's frames while passing the client's, and resend
+// the client's last frame once it went quiet. That resend kept the connection
+// open past the 60 s timeout, as on production. Each rule fired at a test
+// setting (10 s; 16 frames; 10% of the store, at 1,715 held) and the player
+// left as from a timeout, OnClientLeave and all. A healthy client entering the
+// game had 134 frames waiting on dev, which the 16-frame test setting caught,
+// so keep the queue limit far above a login. Production with 8 players,
+// sampled for 5 minutes, peaked at 77 frames waiting for one client, a 2.8 s
+// wait for an acknowledgement, and 458 frames in the store.
+//
+// On unless NWNX_RISENHOLM_NET_GUARD=n.
+namespace NetGuard
+{
+
+// CNetLayerInternal is not in NWNXLib. Its windows are at +0x68, one per
+// player slot (ProcessReceivedFrames refuses a slot over 0xfe), and the frame
+// store pointer at +0xa4e10 (FrameReceive), the offsets Plugins/Experimental's
+// UFMHotfix mirrors too.
+static constexpr size_t   WINDOWS_OFFSET       = 0x68;
+static constexpr size_t   FRAME_STORE_OFFSET   = 0xa4e10;
+static constexpr uint32_t NUM_WINDOWS          = 255;
+static constexpr uint32_t APPLICATION_SERVER   = 0x800000;
+static constexpr uint32_t DISCONNECT_STRREF    = 5838;
+static constexpr uint32_t STORE_DROP_MINIMUM   = 256;
+static constexpr uint32_t FRAME_STORE_CAPACITY = 256 * 64;
+
+static_assert(sizeof(CNetLayerWindow) == 0x960, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_bWindowInUse) == 0x10, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_nPlayerId) == 0x14, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_nConnectionId) == 0x18, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_nAckExpected) == 0x1c, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_nNextFrameToSend) == 0x20, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_nNumBuffered) == 0x2c, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_lQueueOutgoingHiFrames) == 0x168, "CNetLayerWindow layout changed");
+static_assert(offsetof(CNetLayerWindow, m_lQueueOutgoingLoFrames) == 0x178, "CNetLayerWindow layout changed");
+
+// The head of CExoNetExtendableBuffer: frames held at +8 (GetCurrentUsage) and
+// the most ever held at +0xc (GetMaximumUsage).
+struct FrameStore
+{
+    uint16_t m_nFirstUsedFrame;
+    uint32_t m_nCurrentBlock;
+    uint32_t m_nFramesUsed;
+    uint32_t m_nMostFramesUsed;
+    uint32_t m_nBlocks;
+    uint32_t m_nMostBlocks;
+};
+static_assert(offsetof(FrameStore, m_nFramesUsed) == 0x8, "FrameStore layout");
+static_assert(offsetof(FrameStore, m_nMostFramesUsed) == 0xc, "FrameStore layout");
+
+struct Settings
+{
+    bool bOn;
+    int32_t nStallSeconds;
+    uint32_t nQueueLimit;
+    uint32_t nStoreLimit;
+};
+
+static const Settings &GetSettings()
+{
+    static const Settings s_settings = []() -> Settings
+    {
+        Settings s;
+        s.bOn = Config::Get<bool>("NET_GUARD", true);
+        s.nStallSeconds = std::max(5, Config::Get<int>("NET_GUARD_STALL", 120));
+        s.nQueueLimit = (uint32_t)std::max(16, Config::Get<int>("NET_GUARD_QUEUE", 4096));
+        int nStorePercent = std::clamp(Config::Get<int>("NET_GUARD_STORE", 75), 10, 100);
+        s.nStoreLimit = FRAME_STORE_CAPACITY * nStorePercent / 100;
+        LOG_INFO("Stuck client guard: %s (acknowledgement stalled %d s, %u frames waiting, frame store %d%% full)",
+            s.bOn ? "on" : "off", s.nStallSeconds, s.nQueueLimit, nStorePercent);
+        return s;
+    }();
+
+    return s_settings;
+}
+
+static const bool s_bSettingsLogged = (GetSettings(), true);
+
+struct Watch
+{
+    bool bTracking = false;
+    uint32_t nConnectionId = 0;
+    uint32_t nAckExpected = 0;
+    std::chrono::steady_clock::time_point tProgress;
+};
+
+static Watch s_aWatch[NUM_WINDOWS];
+static std::chrono::steady_clock::time_point s_tLastCheck;
+static uint32_t s_nStoreQuarter = 0;
+
+static std::string Label(uint32_t nPlayerId)
+{
+    auto *pServer = Globals::AppManager()->m_pServerExoApp;
+
+    if (auto *pPlayer = pServer->GetClientObjectByPlayerId(nPlayerId))
+        return GetNuiPlayerLabel(pPlayer);
+
+    if (auto *pInfo = pServer->GetNetLayer()->GetPlayerInfo(nPlayerId))
+        return "(" + std::string(pInfo->m_sPlayerName.CStr()) + ")";
+
+    return "(unknown)";
+}
+
+static uint32_t FramesWaiting(const CNetLayerWindow *pWindow)
+{
+    return (uint32_t)std::max(0, pWindow->m_lQueueOutgoingHiFrames.num) +
+           (uint32_t)std::max(0, pWindow->m_lQueueOutgoingLoFrames.num);
+}
+
+static void Check(CNetLayer *pNetLayer)
+{
+    const auto &settings = GetSettings();
+    const auto now = std::chrono::steady_clock::now();
+
+    if (now - s_tLastCheck < std::chrono::seconds(1))
+        return;
+    s_tLastCheck = now;
+
+    auto *pInternal = reinterpret_cast<uint8_t*>(pNetLayer->m_pcNetLayerInternal);
+    if (!pInternal)
+        return;
+
+    auto *pStore = *reinterpret_cast<FrameStore**>(pInternal + FRAME_STORE_OFFSET);
+    auto *pWindows = reinterpret_cast<CNetLayerWindow*>(pInternal + WINDOWS_OFFSET);
+    const uint32_t nHeld = pStore ? pStore->m_nFramesUsed : 0;
+
+    struct Drop { uint32_t nWindow; std::string sWhy; };
+    std::vector<Drop> drops;
+    uint32_t nBiggestWindow = NUM_WINDOWS;
+    uint32_t nBiggestWaiting = 0;
+
+    for (uint32_t i = 0; i < NUM_WINDOWS; i++)
+    {
+        CNetLayerWindow *pWindow = &pWindows[i];
+        Watch &watch = s_aWatch[i];
+
+        if (!pWindow->m_bWindowInUse)
+        {
+            watch.bTracking = false;
+            continue;
+        }
+
+        const uint32_t nWaiting = FramesWaiting(pWindow);
+
+        // A fresh connection in the slot, or one with nothing in flight, or
+        // one whose acknowledgement has moved, is not stalled.
+        if (!watch.bTracking || watch.nConnectionId != pWindow->m_nConnectionId ||
+            pWindow->m_nNumBuffered == 0 || watch.nAckExpected != pWindow->m_nAckExpected)
+        {
+            watch.bTracking = true;
+            watch.nConnectionId = pWindow->m_nConnectionId;
+            watch.nAckExpected = pWindow->m_nAckExpected;
+            watch.tProgress = now;
+        }
+
+        const auto nStalled = std::chrono::duration_cast<std::chrono::seconds>(now - watch.tProgress).count();
+
+        if (nStalled >= settings.nStallSeconds)
+            drops.push_back({i, "no acknowledgement for " + std::to_string(nStalled) + " s"});
+        else if (nWaiting >= settings.nQueueLimit)
+            drops.push_back({i, std::to_string(nWaiting) + " frames waiting to go"});
+
+        if (nWaiting > nBiggestWaiting)
+        {
+            nBiggestWaiting = nWaiting;
+            nBiggestWindow = i;
+        }
+    }
+
+    if (drops.empty() && nHeld >= settings.nStoreLimit && nBiggestWaiting >= STORE_DROP_MINIMUM)
+        drops.push_back({nBiggestWindow, "frame store " + std::to_string(nHeld) + " of " +
+            std::to_string(FRAME_STORE_CAPACITY) + " full, most of it waiting for this client"});
+
+    const uint32_t nQuarter = nHeld * 4 / FRAME_STORE_CAPACITY;
+    if (nQuarter > s_nStoreQuarter)
+    {
+        if (nBiggestWindow < NUM_WINDOWS)
+            LOG_WARNING("Stuck client guard: network frame store holds %u of %u frames; most waiting: %u for %s (window %u)",
+                nHeld, FRAME_STORE_CAPACITY, nBiggestWaiting, Label(pWindows[nBiggestWindow].m_nPlayerId).c_str(), nBiggestWindow);
+        else
+            LOG_WARNING("Stuck client guard: network frame store holds %u of %u frames, none of them waiting to go",
+                nHeld, FRAME_STORE_CAPACITY);
+    }
+    else if (nQuarter < s_nStoreQuarter)
+    {
+        LOG_INFO("Stuck client guard: network frame store back down to %u of %u frames", nHeld, FRAME_STORE_CAPACITY);
+    }
+    s_nStoreQuarter = nQuarter;
+
+    // After the walk, as a disconnect shuts its window down.
+    for (const auto &drop : drops)
+    {
+        CNetLayerWindow *pWindow = &pWindows[drop.nWindow];
+        if (!pWindow->m_bWindowInUse)
+            continue;
+
+        const uint32_t nPlayerId = pWindow->m_nPlayerId;
+        LOG_WARNING("Stuck client guard: disconnecting %s (player %u, window %u): %s; acknowledged up to %u of %u sent, %u frames waiting, frame store %u of %u",
+            Label(nPlayerId).c_str(), nPlayerId, drop.nWindow, drop.sWhy.c_str(),
+            pWindow->m_nAckExpected, pWindow->m_nNextFrameToSend, FramesWaiting(pWindow), nHeld, FRAME_STORE_CAPACITY);
+
+        pNetLayer->DisconnectPlayer(nPlayerId, DISCONNECT_STRREF, true, "");
+        s_aWatch[drop.nWindow].bTracking = false;
+
+        if (pWindow->m_bWindowInUse)
+            LOG_WARNING("Stuck client guard: window %u still in use after the disconnect", drop.nWindow);
+    }
+}
+
+}
+
+static Hooks::Hook s_NetGuardHook = Hooks::HookFunction(&CNetLayer::UpdateStatusLoop,
+    +[](CNetLayer *pNetLayer, uint32_t nApplicationType) -> BOOL
+    {
+        BOOL bRet = s_NetGuardHook->CallOriginal<BOOL>(pNetLayer, nApplicationType);
+
+        if (nApplicationType == NetGuard::APPLICATION_SERVER && NetGuard::GetSettings().bOn)
+            NetGuard::Check(pNetLayer);
+
+        return bRet;
+    }, Hooks::Order::Late);

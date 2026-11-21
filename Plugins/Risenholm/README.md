@@ -314,6 +314,33 @@ walk for the call, by its action id, and puts it back afterwards; the cast carri
 have. Each one is logged as a warning with the creature, its target, and its action queue. On
 unless `NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n`.
 
+### Stuck client guard
+
+Not an export: a hook on `CNetLayer::UpdateStatusLoop`, after the engine's own netlayer upkeep. The
+engine (8193.37) keeps every window's frames in one store of 16,384 frames, lets a client have any
+number waiting to go to it, and times a client out only for sending nothing for 60 s, which any
+frame it sends resets, acknowledged or not. A client that stopped acknowledging but kept sending
+therefore had its frames pile up until the store was full, and from then on the server dropped
+every frame any player sent: all input stopped, players timed out, and rejoins never got past
+"Joined as Player", with nothing in either log (production, 2026-11-21: one client held 16,128
+frames after two hours; read from the live process). Once a second, a client is disconnected,
+exactly as the engine's timeout does it (`DisconnectPlayer` with strref 5838, so the player leaves
+as from a timeout), when:
+
+- frames are in flight to it and it has acknowledged none for `NWNX_RISENHOLM_NET_GUARD_STALL`
+  seconds (default 120);
+- it has `NWNX_RISENHOLM_NET_GUARD_QUEUE` frames or more waiting to go (default 4096);
+- or, failing both, the store is `NWNX_RISENHOLM_NET_GUARD_STORE` percent full (default 75): the
+  client with the most frames waiting, if that is 256 or more.
+
+Each disconnect is a warning naming the player and why, and so is the store passing each quarter
+of its size. For scale, production with 8 players over 5 minutes peaked at 77 frames waiting for
+one client, a 2.8 s wait for an acknowledgement, and 458 frames in the store, and a client entering
+the game on dev had 134 frames waiting, so keep the queue limit far above that. All three rules were
+tested on dev through a UDP relay that holds the server's frames back while passing the client's,
+and replays the client's last frame once it goes quiet, which also keeps the engine's timeout from
+ever firing, as on production. On unless `NWNX_RISENHOLM_NET_GUARD=n`.
+
 ### Unpossess refusal guard
 
 Not an export: a hook on `CNWSCreature::UnpossessFamiliar`. The engine (8193.37) refuses to
