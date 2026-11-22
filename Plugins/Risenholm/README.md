@@ -264,6 +264,24 @@ for a frame (2026-10-06). The limit caps one message only, so raising it sends n
 total. `pw_mod_load.nss` sets it at module load, as it does the damage bonus limit; the loading
 limit is left alone.
 
+## Set2DACacheSize
+
+`NWNX_Risenholm_Set2DACacheSize(nUser, nEngine)` sets how many 2DAs the server keeps parsed and
+returns the previous limit for scripts. `CTwoDimArrays` keeps two most-recently-used lists: one
+for `Get2DAString` (`m_nUser2daCacheSize`, 10) and one for the engine's own lookups
+(`m_n2daCacheSize`, 11: item property builders, level-up, spell levels, item visual effects).
+A 2DA dropped from its list is parsed from its file again the next time it is asked for. On dev
+(2026-11-22) a script's eleventh distinct 2DA dropped the first: `visualeffects.2da` (33,502
+rows) then took 30 to 48 ms to read where it had taken 1 to 6 microseconds, `progfx.2da` 30 ms,
+and `spells.2da` 17 to 30 ms. GEARMOD reads the first two for every piece it draws.
+
+`settings.tml`'s `server.tweaks.2da-user-cache-size` and `2da-engine-cache-size` do not help.
+The constructor sets 10 and 11, and the settings' callbacks store only the low byte of the value
+(`mov %dl`) and run only when a value changes, so dev, with both at 1000, still dropped at ten.
+Both limits are one byte, so 1 to 255; 0 or less leaves one as it is. A smaller limit takes
+effect a 2DA at a time, since `Update2DACache` drops one tail per insert. `pw_mod_load.nss` sets
+both to 255 at module load.
+
 ### UseItemInstant
 
 `NWNX_Risenholm_UseItemInstant(oCreature, oItem, oTarget)` uses a single-use Cast Spell property

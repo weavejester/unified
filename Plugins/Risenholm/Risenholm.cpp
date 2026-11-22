@@ -4243,6 +4243,36 @@ NWNX_EXPORT ArgumentStack SetObjectUpdateMessageLimit(ArgumentStack&& args)
     return nOld;
 }
 
+// How many 2DAs the server keeps parsed: nUser for scripts (Get2DAString),
+// nEngine for its own lookups (item property builders, level-up, spell levels,
+// item visual effects). CTwoDimArrays keeps each as a most-recently-used list
+// and parses a 2DA again from its file whenever one it dropped is asked for.
+// The constructor sets 10 and 11 (m_nUser2daCacheSize, m_n2daCacheSize), and
+// settings.tml's server.tweaks.2da-user-cache-size and 2da-engine-cache-size
+// never reach them at startup: on dev, with both at 1000, a script's eleventh
+// 2DA still dropped the first. Their config callbacks store only the low byte
+// (mov %dl), and only when the value changes. A dropped visualeffects.2da
+// (33,502 rows) took 30 to 48 ms to parse again, progfx.2da 30 ms, spells.2da
+// 17 to 30 ms; GEARMOD reads both of the first two for every piece it draws, so
+// a server running other 2DA-heavy scripts paid that per piece (2026-11-22).
+// Both limits are one byte, so 1 to 255; 0 or less leaves one as it is. A
+// smaller limit takes effect a 2DA at a time, as Update2DACache drops one tail
+// per insert. Returns the previous user limit.
+NWNX_EXPORT ArgumentStack Set2DACacheSize(ArgumentStack&& args)
+{
+    auto nUser   = args.extract<int32_t>();
+    auto nEngine = args.extract<int32_t>();
+    auto *p2DAs  = Globals::Rules()->m_p2DArrays;
+    int32_t nOld = p2DAs->m_nUser2daCacheSize;
+
+    if (nUser > 0)
+        p2DAs->m_nUser2daCacheSize = static_cast<uint8_t>(std::min(nUser, 255));
+    if (nEngine > 0)
+        p2DAs->m_n2daCacheSize = static_cast<uint8_t>(std::min(nEngine, 255));
+
+    return nOld;
+}
+
 NWNX_EXPORT ArgumentStack ExecuteCommand(ArgumentStack&& args)
 {
     auto cmdPath = args.extract<std::string>();

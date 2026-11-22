@@ -79,6 +79,15 @@ void NWNX_Risenholm_FlushObjectUpdates(object oPlayer);
 /// @return The previous limit.
 int NWNX_Risenholm_SetObjectUpdateMessageLimit(int nLimit);
 
+/// @brief Set how many 2DAs the server keeps parsed, for scripts and for its own lookups.
+/// @note 10 and 11 by default, whatever settings.tml's 2da-user-cache-size and
+/// 2da-engine-cache-size say. A 2DA dropped from the cache is parsed from its file again when
+/// next asked for: 30 to 48 ms for visualeffects.2da.
+/// @param nUser The limit for Get2DAString, 1 to 255; 0 or less leaves it as it is.
+/// @param nEngine The limit for the engine's own lookups, 1 to 255; 0 or less leaves it.
+/// @return The previous limit for Get2DAString.
+int NWNX_Risenholm_Set2DACacheSize(int nUser, int nEngine = 0);
+
 /// @brief Executes an external command in a child process and returns STDOUT as a string.
 /// @note Use only when necessary, keep user-alterable data to a minimum, or ideally zero.
 /// @param sCmd The path of the command to execute
@@ -641,6 +650,14 @@ int NWNX_Risenholm_SetObjectUpdateMessageLimit(int nLimit)
 {
     NWNXPushInt(nLimit);
     NWNXCall(NWNX_Risenholm, "SetObjectUpdateMessageLimit");
+    return NWNXPopInt();
+}
+
+int NWNX_Risenholm_Set2DACacheSize(int nUser, int nEngine = 0)
+{
+    NWNXPushInt(nEngine);
+    NWNXPushInt(nUser);
+    NWNXCall(NWNX_Risenholm, "Set2DACacheSize");
     return NWNXPopInt();
 }
 
