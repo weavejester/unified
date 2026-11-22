@@ -341,6 +341,45 @@ tested on dev through a UDP relay that holds the server's frames back while pass
 and replays the client's last frame once it goes quiet, which also keeps the engine's timeout from
 ever firing, as on production. On unless `NWNX_RISENHOLM_NET_GUARD=n`.
 
+### UDP receive buffer
+
+Not an export: done from the same `CNetLayer::UpdateStatusLoop` hook as the stuck client guard,
+once the server's UDP socket exists, and again if it is ever made anew. The engine (8193.37) never
+sizes that socket's receive buffer, so it gets the kernel's `net.core.rmem_default`, 212,992 bytes.
+Every client's frames wait there for the main loop's next netlayer pass, so a long frame lets it
+fill and the kernel drops what arrives after. With 70 players in one area, production dropped 550
+datagrams in the 14 minutes after a restart, in bursts of 50 to 75 (2026-11-22; the `drops` column
+of `/proc/<pid>/net/udp`). Each one is a player's input or acknowledgement, and the netlayer gets
+it back only when the other side asks for it again or its 3.5 s resend timer runs out; three such
+timeouts in a row also halve that player's window. The socket is given
+`NWNX_RISENHOLM_UDP_RECEIVE_BUFFER` bytes (default 2097152, at most 256 MiB; 0 leaves the kernel's
+default). The kernel caps it at `net.core.rmem_max`, which is 4 MiB inside production's container,
+and reports back twice what it kept. The result is logged at startup; a warning means
+`rmem_max` capped it. A bigger buffer is no cure by itself: the engine takes in only so many
+datagrams a pass (see UDP drain), and under a steady overload any size fills, so a large one only
+makes input wait longer before the same drops. With the drain emptying it each pass, it has only
+to hold what arrives during one long frame.
+
+### UDP drain
+
+Not an export: a hook on `CExoNetInternal::StartIncomingMessageProcessing`, found by its exported
+symbol. The engine (8193.37) takes in at most 16 datagrams per main-loop pass: its receive thread
+reads into a pool of 16 buffers and waits for the main thread's netlayer pass to give them back,
+and that pass takes at most 16 (`PumpUdpMessageQueue`, one bulk dequeue). Anything more waits in
+the kernel's socket buffer and is dropped when that is full, so intake is 16 times the tick rate.
+Production, 2026-11-22, with 70 players fighting at about 70 passes a second: 900-1,500
+datagrams a second arrived, 100-430 a second were dropped, the receive thread was waiting for a
+buffer in every sample, and the engine's own store had never held more than 16 frames. Every
+dropped datagram is a player's input or acknowledgement (see UDP receive buffer).
+
+Before the engine's own pass starts, the hook runs the pump again for as long as the socket has
+datagrams waiting and the pass's budget lasts (`NWNX_RISENHOLM_UDP_DRAIN_BUDGET` microseconds,
+default 2000, 100 to 20000), each time once the receive thread has refilled the pool. What it takes
+in is stored as usual and read by the same pass, so nothing runs at a new point in the frame. A
+summary is logged each minute the drain took anything in: frames stored (junk the engine discards
+is pumped but not counted), extra pumps, passes, the most in one pass, and how often the budget ran
+out with datagrams still waiting. On unless `NWNX_RISENHOLM_UDP_DRAIN=n`.
+
 ### Unpossess refusal guard
 
 Not an export: a hook on `CNWSCreature::UnpossessFamiliar`. The engine (8193.37) refuses to

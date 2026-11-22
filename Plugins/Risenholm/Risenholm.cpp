@@ -56,6 +56,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cerrno>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <sched.h>
+#include <atomic>
 #include <memory>
 #include "External/httplib.h"
 #include "API/CExoResMan.hpp"
@@ -9794,12 +9799,374 @@ static void Check(CNetLayer *pNetLayer)
 
 }
 
+// ---------------------------------------------------------------------------
+// UDP receive buffer
+// ---------------------------------------------------------------------------
+//
+// The engine makes its one UDP socket (CExoNetInternal::InitializeUDP: socket,
+// bind, SO_BROADCAST) and never sizes its receive buffer, so the kernel gives
+// it net.core.rmem_default, 212,992 bytes. Every client's frames land in it
+// and wait there until the main loop's next netlayer pass reads them, so a
+// frame that runs long lets it fill, and the kernel then drops whatever
+// arrives. Production, 2026-11-22, with 70 players in one area: the socket
+// dropped 550 datagrams in the 14 minutes after a restart and over 1,500 in
+// 25, in bursts of 50 to 75, and its queue was seen at 148,800 bytes during
+// one (`/proc/<pid>/net/udp`'s drops column, `ss -uam`'s skmem). Sends were
+// fine: SndbufErrors stayed 0.
+//
+// A dropped datagram is a frame of a player's input, or an acknowledgement,
+// and the netlayer gets it back only when the other side notices a gap and
+// asks for it again, or when its 3.5 s resend timer runs out
+// (CNetLayerWindow::FrameTimeout, m_nPacketTimeout 0xdac). Three of those
+// timeouts in a row also halve that player's window (CutOutgoingBufferSize,
+// down to 4 frames in flight), and a window doubles back only after 100
+// clean acknowledgements.
+//
+// So the socket is given NWNX_RISENHOLM_UDP_RECEIVE_BUFFER bytes, 2 MiB by
+// default, once it exists, and again should it ever be made anew. The kernel
+// caps the request at net.core.rmem_max (4 MiB inside production's container)
+// and reports back twice what it kept, for its own bookkeeping. 0 leaves the
+// kernel's default alone. A bigger buffer is no cure by itself: the engine
+// takes in only so many datagrams a pass (see UDP drain), and under a steady
+// overload any size fills, so a large one only makes every player's input
+// wait longer before the same drops. With the drain emptying it each pass, it
+// has only to hold what arrives during one long frame.
+namespace UdpBuffer
+{
+
+// CNetLayerInternal +0x58 holds its CExoNet (ProcessReceivedFrames hands it
+// to CExoNet::EndIncomingMessageProcessing), CExoNet +8 its CExoNetInternal
+// (every CExoNet wrapper passes that on), and CExoNetInternal +0x60 the UDP
+// socket and +0x64 its port (InitializeUDP, whose assert names m_nUdpSocket).
+// None of the three is in NWNXLib. Read from the 8193.37-17 decompile, and
+// checked on production 2026-11-22: the chain gave fd 9 and port 5121, the
+// socket /proc lists as bound to 5121.
+static constexpr size_t EXONET_OFFSET          = 0x58;
+static constexpr size_t EXONET_INTERNAL_OFFSET = 0x8;
+static constexpr size_t UDP_SOCKET_OFFSET      = 0x60;
+static constexpr size_t UDP_PORT_OFFSET        = 0x64;
+
+static int GetRequestedSize()
+{
+    static const int s_nSize = []()
+    {
+        // At most 256 MiB, so twice it still fits an int.
+        int nSize = std::clamp(Config::Get<int>("UDP_RECEIVE_BUFFER", 2 * 1024 * 1024), 0, 256 * 1024 * 1024);
+        if (nSize)
+            LOG_INFO("UDP receive buffer: %d bytes asked for", nSize);
+        else
+            LOG_INFO("UDP receive buffer: left at the kernel's default");
+        return nSize;
+    }();
+
+    return s_nSize;
+}
+
+static int s_nSizedSocket = -1;
+
+static void Apply(CNetLayer *pNetLayer)
+{
+    const int nSize = GetRequestedSize();
+    if (nSize == 0)
+        return;
+
+    auto *pInternal = reinterpret_cast<uint8_t*>(pNetLayer->m_pcNetLayerInternal);
+    if (!pInternal)
+        return;
+
+    auto *pExoNet = *reinterpret_cast<uint8_t**>(pInternal + EXONET_OFFSET);
+    if (!pExoNet)
+        return;
+
+    auto *pExoNetInternal = *reinterpret_cast<uint8_t**>(pExoNet + EXONET_INTERNAL_OFFSET);
+    if (!pExoNetInternal)
+        return;
+
+    const int nSocket = *reinterpret_cast<int32_t*>(pExoNetInternal + UDP_SOCKET_OFFSET);
+    if (nSocket < 0 || nSocket == s_nSizedSocket)
+        return;
+
+    // Once per socket, whatever the outcome, so a refusal is logged once.
+    s_nSizedSocket = nSocket;
+    const uint32_t nPort = *reinterpret_cast<uint32_t*>(pExoNetInternal + UDP_PORT_OFFSET);
+
+    int nBefore = 0;
+    socklen_t nLength = sizeof(nBefore);
+    getsockopt(nSocket, SOL_SOCKET, SO_RCVBUF, &nBefore, &nLength);
+
+    if (setsockopt(nSocket, SOL_SOCKET, SO_RCVBUF, &nSize, sizeof(nSize)) != 0)
+    {
+        LOG_WARNING("UDP receive buffer: setting %d bytes on port %u failed: %s", nSize, nPort, strerror(errno));
+        return;
+    }
+
+    int nAfter = 0;
+    nLength = sizeof(nAfter);
+    getsockopt(nSocket, SOL_SOCKET, SO_RCVBUF, &nAfter, &nLength);
+
+    // A set keeps min(asked, rmem_max) and reports it doubled; the default
+    // (nBefore) is reported as it is. Both are logged as the kernel gives them.
+    if (nAfter < 2 * (int64_t)nSize)
+        LOG_WARNING("UDP receive buffer: port %u is %d (asked for %d, doubled %d; was %d): net.core.rmem_max caps it",
+            nPort, nAfter, nSize, nSize * 2, nBefore);
+    else
+        LOG_INFO("UDP receive buffer: port %u is %d (asked for %d; was %d)", nPort, nAfter, nSize, nBefore);
+}
+
+}
+
+// ---------------------------------------------------------------------------
+// UDP drain
+// ---------------------------------------------------------------------------
+//
+// The server takes in at most 16 datagrams per main-loop pass. Its receive
+// thread (CExoNetInternal::UdpReceiveThread) recvfrom()s into a pool of 16
+// buffers (CExoNetInternal +0x80, 0x10018 bytes each) and queues each one
+// filled; the main thread's netlayer pass (CNetLayerInternal::
+// ProcessReceivedFrames -> StartIncomingMessageProcessing ->
+// PumpUdpMessageQueue) takes up to 16 off that queue in one bulk dequeue,
+// hands each to UdpMessageArrived (address lookup, decryption, then
+// StoreMessage into ExoNet's own frame store at +0x48), and gives the buffers
+// back through a semaphore. Between two passes the thread can fill 16 and
+// then waits; everything else waits in the kernel's socket buffer, and is
+// dropped when that is full. So intake is 16 times the tick rate: ample at
+// 300 passes a second, short at 70 with 70 players fighting, who sent
+// 900-1,500 datagrams a second (production, 2026-11-22). Sampled over 30 s,
+// 100-430 a second were dropped, the socket queue sat at 140-195 KB of its
+// 212,992, the semaphore read -1 (the thread waiting for a buffer) in 400
+// samples of 400, and ExoNet's store had never held more than 16 frames.
+// Each dropped datagram is input or an acknowledgement, recovered only when
+// the other side asks again or a 3.5 s resend timer runs out, and three such
+// timeouts halve that player's window (see UDP receive buffer).
+//
+// So, just before the engine's own pass starts, the pump is run again for as
+// long as the socket has datagrams waiting and the pass's budget lasts
+// (NWNX_RISENHOLM_UDP_DRAIN_BUDGET microseconds, default 2000): wait until
+// the receive thread has refilled the pool (the semaphore at +0x100460 is 0
+// or less, every free buffer taken), pump, and again. What a pump takes in is
+// stored as it always is and read by the same pass that follows, so nothing
+// runs at a new point in the frame; the engine's own pump, in
+// StartIncomingMessageProcessing, then takes the last of it. Never while a
+// pass is walking the store (+0x50 set), which this cannot be called inside
+// anyway. A summary is logged each minute that the drain took anything in.
+// On unless NWNX_RISENHOLM_UDP_DRAIN=n.
+namespace UdpDrain
+{
+
+// CExoNetInternal fields, from the 8193.37-17 decompile and disassembly:
+// +0x48 ExoNet's frame store (CExoNetExtendableBuffer; frames held at +8),
+// +0x50 set from StartIncomingMessageProcessing to EndIncomingMessageProcessing,
+// +0x60 the UDP socket (InitializeUDP), +0x100460 the receive pool's
+// semaphore (moodycamel LightweightSemaphore: the count, an int64, first;
+// PumpUdpMessageQueue adds one per buffer given back and posts if it was
+// below 0, the receive thread takes one per buffer and waits below 1).
+// Read on production 2026-11-22: fd 9 (the socket bound to 5121), flag 0
+// between passes, the semaphore at -1, the store separate from the netlayer's.
+static constexpr size_t STORE_OFFSET      = 0x48;
+static constexpr size_t PROCESSING_OFFSET = 0x50;
+static constexpr size_t UDP_SOCKET_OFFSET = 0x60;
+static constexpr size_t SEMAPHORE_OFFSET  = 0x100460;
+static constexpr size_t STORE_HELD_OFFSET = 0x8;
+
+// How long the receive thread may leave the free-buffer count unchanged, with
+// the socket not empty, before a pass stops waiting on it.
+static constexpr std::chrono::microseconds STALL(200);
+
+struct Settings
+{
+    bool bOn;
+    std::chrono::microseconds budget;
+};
+
+static const Settings &GetSettings()
+{
+    static const Settings s_settings = []() -> Settings
+    {
+        Settings s;
+        s.bOn = Config::Get<bool>("UDP_DRAIN", true);
+        s.budget = std::chrono::microseconds(std::clamp(Config::Get<int>("UDP_DRAIN_BUDGET", 2000), 100, 20000));
+        LOG_INFO("UDP drain: %s (budget %lld us a pass)", s.bOn ? "on" : "off", (long long)s.budget.count());
+        return s;
+    }();
+
+    return s_settings;
+}
+
+using PumpFn = void (*)(void *);
+static PumpFn s_pPump = nullptr;
+
+// Over the current minute, for the log.
+static uint64_t s_nPumps = 0;
+static uint64_t s_nFrames = 0;
+static uint64_t s_nPasses = 0;
+static uint32_t s_nMostInPass = 0;
+static uint64_t s_nBudgetHits = 0;
+static uint64_t s_nStalls = 0;
+static std::chrono::steady_clock::time_point s_tReport;
+
+static bool SocketHasData(int nSocket)
+{
+    // For UDP, the size of the next datagram waiting, or 0 for none.
+    int nNext = 0;
+    return ioctl(nSocket, FIONREAD, &nNext) == 0 && nNext > 0;
+}
+
+static void Report(std::chrono::steady_clock::time_point now)
+{
+    if (s_tReport.time_since_epoch().count() == 0)
+        s_tReport = now;
+
+    if (now - s_tReport < std::chrono::seconds(60))
+        return;
+
+    if (s_nPumps)
+        LOG_INFO("UDP drain: last %lld s, %llu frames stored by %llu extra pumps in %llu passes (most in one pass %u), budget reached %llu times, receive thread stalled %llu times",
+            (long long)std::chrono::duration_cast<std::chrono::seconds>(now - s_tReport).count(),
+            (unsigned long long)s_nFrames, (unsigned long long)s_nPumps, (unsigned long long)s_nPasses,
+            s_nMostInPass, (unsigned long long)s_nBudgetHits, (unsigned long long)s_nStalls);
+
+    s_tReport = now;
+    s_nPumps = s_nFrames = s_nPasses = s_nBudgetHits = s_nStalls = 0;
+    s_nMostInPass = 0;
+}
+
+static void Drain(uint8_t *pExoNetInternal)
+{
+    const auto &settings = GetSettings();
+    const auto tStart = std::chrono::steady_clock::now();
+    Report(tStart);
+
+    if (*reinterpret_cast<int32_t*>(pExoNetInternal + PROCESSING_OFFSET) != 0)
+        return;
+
+    const int nSocket = *reinterpret_cast<int32_t*>(pExoNetInternal + UDP_SOCKET_OFFSET);
+    auto *pCount = *reinterpret_cast<std::atomic<int64_t>**>(pExoNetInternal + SEMAPHORE_OFFSET);
+    auto *pStore = *reinterpret_cast<uint8_t**>(pExoNetInternal + STORE_OFFSET);
+    if (nSocket < 0 || !pCount || !pStore)
+        return;
+
+    const auto tEnd = tStart + settings.budget;
+    uint32_t nPumps = 0;
+    uint32_t nFrames = 0;
+
+    while (SocketHasData(nSocket))
+    {
+        // Let the receive thread refill the pool first, so each pump takes a
+        // full 16. It takes the buffers as fast as datagrams are there; if the
+        // socket runs dry first, the engine's own pump takes what it has. If
+        // the count stops falling with the socket still not empty, what waits
+        // there is something the thread discards without taking a buffer (it
+        // queues only the engine's own packet types, B C I M R r), or the
+        // thread is not getting the CPU: take what there is and stop for this
+        // pass, rather than spin out the budget.
+        bool bOutOfTime = false;
+        bool bStalled = false;
+        int64_t nFree = pCount->load(std::memory_order_acquire);
+        auto tChanged = std::chrono::steady_clock::now();
+        for (uint32_t nSpin = 0; nFree > 0; nSpin++)
+        {
+            if ((nSpin & 31) == 31)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (!SocketHasData(nSocket))
+                    break;
+                if (now >= tEnd)
+                {
+                    bOutOfTime = true;
+                    break;
+                }
+                if (now - tChanged >= STALL)
+                {
+                    bStalled = true;
+                    break;
+                }
+                sched_yield();
+            }
+            else
+            {
+                __builtin_ia32_pause();
+            }
+
+            const int64_t nNow = pCount->load(std::memory_order_acquire);
+            if (nNow != nFree)
+            {
+                nFree = nNow;
+                tChanged = std::chrono::steady_clock::now();
+            }
+        }
+
+        if (bOutOfTime)
+        {
+            s_nBudgetHits++;
+            break;
+        }
+
+        const uint32_t nHeldBefore = *reinterpret_cast<uint32_t*>(pStore + STORE_HELD_OFFSET);
+        s_pPump(pExoNetInternal);
+        const uint32_t nHeldAfter = *reinterpret_cast<uint32_t*>(pStore + STORE_HELD_OFFSET);
+
+        nPumps++;
+        if (nHeldAfter > nHeldBefore)
+            nFrames += nHeldAfter - nHeldBefore;
+
+        if (bStalled)
+        {
+            s_nStalls++;
+            break;
+        }
+
+        if (std::chrono::steady_clock::now() >= tEnd)
+        {
+            if (SocketHasData(nSocket))
+                s_nBudgetHits++;
+            break;
+        }
+    }
+
+    if (nPumps)
+    {
+        s_nPumps += nPumps;
+        s_nFrames += nFrames;
+        s_nPasses++;
+        s_nMostInPass = std::max(s_nMostInPass, nFrames);
+    }
+}
+
+}
+
+static Hooks::Hook s_UdpDrainHook = []() -> Hooks::Hook
+{
+    if (!UdpDrain::GetSettings().bOn)
+        return nullptr;
+
+    void *pStart = dlsym(RTLD_DEFAULT, "_ZN15CExoNetInternal30StartIncomingMessageProcessingEv");
+    UdpDrain::s_pPump = reinterpret_cast<UdpDrain::PumpFn>(dlsym(RTLD_DEFAULT, "_ZN15CExoNetInternal19PumpUdpMessageQueueEv"));
+
+    if (!pStart || !UdpDrain::s_pPump)
+    {
+        LOG_ERROR("UDP drain: CExoNetInternal symbols not found; the drain is off");
+        return nullptr;
+    }
+
+    return Hooks::HookFunction(pStart,
+        (void*)+[](uint8_t *pExoNetInternal) -> int32_t
+        {
+            UdpDrain::Drain(pExoNetInternal);
+            return s_UdpDrainHook->CallOriginal<int32_t>(pExoNetInternal);
+        }, Hooks::Order::Early);
+}();
+
 static Hooks::Hook s_NetGuardHook = Hooks::HookFunction(&CNetLayer::UpdateStatusLoop,
     +[](CNetLayer *pNetLayer, uint32_t nApplicationType) -> BOOL
     {
         BOOL bRet = s_NetGuardHook->CallOriginal<BOOL>(pNetLayer, nApplicationType);
 
-        if (nApplicationType == NetGuard::APPLICATION_SERVER && NetGuard::GetSettings().bOn)
+        if (nApplicationType != NetGuard::APPLICATION_SERVER)
+            return bRet;
+
+        UdpBuffer::Apply(pNetLayer);
+
+        if (NetGuard::GetSettings().bOn)
             NetGuard::Check(pNetLayer);
 
         return bRet;
