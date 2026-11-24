@@ -177,6 +177,18 @@ int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange);
 /// @brief oCreature's perception range (8-11, 12 for a player character), or -1.
 int NWNX_Risenholm_GetPerceptionRange(object oCreature);
 
+/// @brief Give oMirror every drive oDriver is given from a player's drive
+/// message (movement by W A S D Q E), with the same position, facing, and keys,
+/// in the same frame, so the server moves the two alike and other players see
+/// them move together. oMirror OBJECT_INVALID stops it. A driver has one mirror
+/// at most. Only drives from a message are mirrored, in the same area only;
+/// collisions are the caller's to turn off. Returns FALSE if oDriver is no
+/// creature, or oMirror is neither a creature nor OBJECT_INVALID, or is oDriver.
+int NWNX_Risenholm_SetDriveMirror(object oDriver, object oMirror);
+
+/// @brief The creature oDriver's drives are mirrored to, or OBJECT_INVALID.
+object NWNX_Risenholm_GetDriveMirror(object oDriver);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -617,6 +629,21 @@ int NWNX_Risenholm_GetPerceptionRange(object oCreature)
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "GetPerceptionRange");
     return NWNXPopInt();
+}
+
+int NWNX_Risenholm_SetDriveMirror(object oDriver, object oMirror)
+{
+    NWNXPushObject(oMirror);
+    NWNXPushObject(oDriver);
+    NWNXCall(NWNX_Risenholm, "SetDriveMirror");
+    return NWNXPopInt();
+}
+
+object NWNX_Risenholm_GetDriveMirror(object oDriver)
+{
+    NWNXPushObject(oDriver);
+    NWNXCall(NWNX_Risenholm, "GetDriveMirror");
+    return NWNXPopObject();
 }
 
 string NWNX_Risenholm_GetAnimationReplace(object oObject, string sOld)
