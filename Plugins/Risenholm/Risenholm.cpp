@@ -1101,9 +1101,40 @@ NWNX_EXPORT ArgumentStack GetPerceptionRange(ArgumentStack&& args)
 static std::unordered_map<ObjectID, ObjectID> s_DriveMirrors;
 static int s_nDriveFromMessage = 0;
 
+// TRUE if oid is some driver's mirror. A mirror is carried, and its own player's
+// keys must not move it: the module once held such a rider with a cutscene
+// immobilize, which stops the client sending its keys, but it also stopped the
+// walks the module gives the rider beside its carrier's (AIActionMoveToPoint
+// tests the AI state bit 0x2 the immobilize clears, and AIActionDrive does
+// not), so the rider was dragged along by the module's position copies,
+// behind its carrier (seen in game 2026-11-24). So a mirror's own drive and
+// abort messages are dropped here instead: its client still moves it a moment
+// on its own screen, and the server puts it back. Dropped whole, as the
+// handler would also clear its actions, the walk beside its carrier with them.
+static bool IsDriveMirror(ObjectID oid)
+{
+    for (const auto &kv : s_DriveMirrors)
+    {
+        if (kv.second == oid)
+            return true;
+    }
+    return false;
+}
+
+static bool IsDriveMirrorPlayer(CNWSPlayer *pPlayer)
+{
+    if (s_DriveMirrors.empty() || !pPlayer)
+        return false;
+    auto *pCreature = Utils::AsNWSCreature(pPlayer->GetGameObject());
+    return pCreature && IsDriveMirror(pCreature->m_idSelf);
+}
+
 static Hooks::Hook s_DriveMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInputDriveControl,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer) -> BOOL
     {
+        if (IsDriveMirrorPlayer(pPlayer))
+            return true;
+
         s_nDriveFromMessage++;
         auto bRet = s_DriveMessageHook->CallOriginal<BOOL>(pThis, pPlayer);
         s_nDriveFromMessage--;
@@ -1167,6 +1198,11 @@ static constexpr uint32_t DRIVE_ACTION_ID = 0x33;
 static Hooks::Hook s_AbortDriveMessageHook = Hooks::HookFunction(&CNWSMessage::HandlePlayerToServerInputAbortDriveControl,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer) -> BOOL
     {
+        // A mirror letting go of its own keys must not end the drive its
+        // driver gave it (see IsDriveMirror).
+        if (IsDriveMirrorPlayer(pPlayer))
+            return true;
+
         auto bRet = s_AbortDriveMessageHook->CallOriginal<BOOL>(pThis, pPlayer);
 
         if (s_DriveMirrors.empty() || !pPlayer)

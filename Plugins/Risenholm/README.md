@@ -272,6 +272,12 @@ Letting go of the keys sends `AbortDriveControl`, which ends the drive at the he
 creature's queue by zeroing its steps left, and the plugin does the same to the mirror's. Without
 that, the mirror drove on for about a metre after its driver stopped.
 
+A mirror's own drive and abort messages are dropped: a mirror is carried, and its player's keys
+must not move it. Holding a carried player with a cutscene immobilize instead stopped the walks
+the module gives it beside its carrier's (`AIActionMoveToPoint` tests the AI state bit the
+immobilize clears; `AIActionDrive` does not), so it lagged behind on position copies. Its own
+client still moves it a moment on its own screen, and the server puts it back.
+
 Read from the 8193.37 disassembly, 2026-11-23 and 24. Seen in game 2026-11-24 with two players:
 the drift watchers saw between a carrier and the carried creature, copied on a timer, was mostly
 gone.
