@@ -250,32 +250,6 @@ Perception is checked within the larger of the two distances, measured eye to ey
 height eats into it. Measured on the dev server 2026-11-18: a medium archer on the City Gates
 wall, 13m up, saw nothing more than 14m out along the ground.
 
-### SetDriveMirror / GetDriveMirror
-
-`NWNX_Risenholm_SetDriveMirror(oDriver, oMirror)` gives `oMirror` every drive `oDriver` is given
-from a player's drive message, with the same arguments, in the same frame; `OBJECT_INVALID` stops
-it. `GetDriveMirror` reads it back. It is for one creature carrying another: copied from its
-carrier on a timer, the carried creature is always a little behind, and other clients draw it
-jumping rather than walking.
-
-A player moving by W A S D Q E is moved on their own client at once, and the client tells the
-server in a drive message (position, area, facing, a path counter, the key flags), when the keys
-change and otherwise about every half second. `CNWSMessage::HandlePlayerToServerInputDriveControl`
-clears the creature's actions and calls `CNWSCreature::AddDriveAction`, and `AIActionDrive` then
-moves it each AI update from the key flags. The plugin hooks both: inside the handler, an
-`AddDriveAction` on a creature with a mirror is repeated on the mirror after `ClearAllActions`.
-`AIActionDrive` calls `AddDriveAction` itself as it goes, and those are not mirrored. The drive
-code reads only the creature, its area, and its walk and run rates, so an NPC is driven as a PC
-is. Only a mirror in the driver's area is driven, and collisions are the caller's to turn off.
-
-Letting go of the keys sends `AbortDriveControl`, which ends the drive at the head of the
-creature's queue by zeroing its steps left, and the plugin does the same to the mirror's. Without
-that, the mirror drove on for about a metre after its driver stopped.
-
-Read from the 8193.37 disassembly, 2026-11-23 and 24. Seen in game 2026-11-24 with two players:
-the drift watchers saw between a carrier and the carried creature, copied on a timer, was mostly
-gone.
-
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the
