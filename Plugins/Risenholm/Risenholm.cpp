@@ -67,6 +67,8 @@
 #include "API/CResRef.hpp"
 #include "API/CNWVisibilityNode.hpp"
 #include "API/CLoopingVisualEffect.hpp"
+#include "API/CNWSpell.hpp"
+#include "API/CNWSpellArray.hpp"
 #include <atomic>
 #include <future>
 #include <thread>
@@ -4893,9 +4895,17 @@ static ObjectID HostileActionTarget(const CNWSObjectActionNode *pNode)
 static_assert(offsetof(CNWSObjectActionNode, m_pParameter) == 0x38, "CNWSObjectActionNode layout changed");
 static_assert(offsetof(CNWSObjectActionNode, m_nGroupActionId) == 0x98, "CNWSObjectActionNode layout changed");
 
+// Below, with "a cast stops when its target hides".
+static void RetargetCastsToDecoy(CNWSCreature *pCreature, CNWSCreature *pTarget);
+
 static Hooks::Hook s_ClearHostileActionsHook = Hooks::HookFunction(&CNWSCreature::ClearHostileActionsVersus,
     +[](CNWSCreature *pCreature, CNWSCreature *pTarget) -> void
     {
+        // A hostile cast at a creature with a decoy goes to the decoy before
+        // the walk below can find it aimed at the creature.
+        if (pTarget)
+            RetargetCastsToDecoy(pCreature, pTarget);
+
         auto *pList = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal;
 
         if (!GetSafeClearHostile() || !pTarget || !pList || !pList->pHead || !pList->pHead->pObject)
@@ -4990,6 +5000,303 @@ static Hooks::Hook s_ClearHostileActionsHook = Hooks::HookFunction(&CNWSCreature
                 }
             }
         }
+    }, Hooks::Order::Early);
+
+// RISENHOLM MODIFICATION: a cast stops when its target hides from its caster,
+// until the spell is let go, or goes to the target's decoy.
+//
+// The engine drops a cast aimed at a creature that turns invisible to its
+// caster, or that its caster fails to spot as it hides in plain sight
+// (ClearHostileActionsVersus, above, from DoPerceptionUpdateOnCreature), but
+// only while the conjure runs. The clear goes through ClearAction, which
+// refuses the node once AIActionCastSpell has set m_bInterruptable to 0 at the
+// end of the conjure (8193.37, 0x5bd8e0), and the spell is let go
+// (SpellCastAndImpact) 500 ms after that. Measured on dev 2026-11-26 with a
+// cheat Magic Missile (1,500 ms conjure) at a commoner made invisible, or
+// hidden with Hide in Plain Sight: 0.6 s in, the cast was dropped; 1.7 s in,
+// the missiles landed. A Shadow Step goes off 500 ms after it is pressed, so
+// one pressed in answer to a spell's telegraph often fell in that half second.
+//
+// So each frame of a cast at another creature, until the spell is let go
+// (m_bLastSpellCast, which the cast clears on its first frame and
+// SpellCastAndImpact sets), asks whether the caster still sees its target: the
+// node for it in the caster's VisibleList, m_bSeen. A target the caster has
+// seen during the cast that is now unseen AND hidden -- in stealth mode,
+// invisible to the caster (GetInvisible, which knows See Invisibility and the
+// rest), or the caster blind, the three the perception update counts as
+// hidden -- stops the cast there, as the engine's own line of sight failure
+// stops one: feedback 21 ("cast lost target"), the spell taken out of the
+// round. The slot is kept if the conjure had not run, and spent if it had,
+// as with the engine's failures after that point.
+//
+// A target that only walked out of the caster's perception range, or behind
+// a wall, is left alone, as before (the engine checks line of sight once, as
+// the conjure ends): spells reach 40 m and most creatures perceive 20 m, so
+// counting those would let anyone cancel a spell by running from it. Nor is a
+// cast begun at a creature the caster did not see (one it only heard, or a
+// script's cast) stopped, until the caster has seen it and lost it.
+//
+// A decoy: a hostile spell (spells.2da HostileSetting) at a creature carrying
+// a CAST_DECOY local object that is a living creature in the caster's area
+// goes to the decoy instead of stopping, both here and in the engine's own
+// clear, which the hook above hands to RetargetCastsToDecoy first so that its
+// walk no longer finds them. The caster then runs pw_cast_decoy at the top of
+// the next frame, with CAST_DECOY_FROM and CAST_DECOY_TARGET locals naming the
+// old target and the decoy, for the module to move what it had tied to the
+// old target (the spell's telegraph follows it). Shadow Clone sets CAST_DECOY
+// to the clone. A friendly spell is never given to a decoy; it stops.
+//
+// Item casts (AIActionItemCastSpell) and instant casts are left alone. On
+// unless NWNX_RISENHOLM_CAST_LOSES_SIGHT=n.
+static bool GetCastLosesSight()
+{
+    static const bool s_bOn = []() -> bool
+    {
+        bool b = Config::Get<bool>("CAST_LOSES_SIGHT", true);
+        LOG_INFO("A cast stops when its target hides, until the spell is let go: %s", b ? "on" : "off");
+        return b;
+    }();
+
+    return s_bOn;
+}
+
+static const bool s_bCastLosesSightLogged = (GetCastLosesSight(), true);
+
+static_assert(offsetof(CNWSObject, m_bLastSpellCast) == 0x21c, "CNWSObject layout changed");
+static_assert(offsetof(CNWSCreature, m_nStealthMode) == 0x6e5, "CNWSCreature layout changed");
+static_assert(offsetof(CNWSCreature, m_bLastSpellUnReadied) == 0x814, "CNWSCreature layout changed");
+static_assert(offsetof(CNWSObjectActionNode, m_bInterruptable) == 0x9c, "CNWSObjectActionNode layout changed");
+
+// A cast's parameters, as AIActionCastSpell reads them: the spell, its target,
+// the target's position (three floats, each in the low half of its slot), and
+// the flags, in which 0x40000000 is an instant cast.
+static constexpr int32_t CAST_PARAM_SPELL = 0;
+static constexpr int32_t CAST_PARAM_TARGET = 5;
+static constexpr int32_t CAST_PARAM_TARGET_X = 6;
+static constexpr int32_t CAST_PARAM_FLAGS = 9;
+static constexpr uint32_t CAST_FLAG_INSTANT = 0x40000000;
+
+static constexpr uint16_t FEEDBACK_CAST_LOST_TARGET = 21;
+// The animation the engine's own cast failures set.
+static constexpr int32_t CAST_STOPPED_ANIMATION = 1;
+
+struct CastSight
+{
+    CNWSObjectActionNode *pNode;    // compared only: it may be gone
+    ObjectID oidTarget;
+    bool bSeen;                     // the caster has seen the target during the cast
+};
+
+// By caster. An entry goes when its cast ends, fails, or is cleared.
+static std::unordered_map<ObjectID, CastSight> s_CastSight;
+
+static CExoString s_sCastDecoy = "CAST_DECOY";
+static CExoString s_sCastDecoyFrom = "CAST_DECOY_FROM";
+static CExoString s_sCastDecoyTarget = "CAST_DECOY_TARGET";
+
+// A copy: GetFullName returns a temporary.
+static std::string CastName(CNWSCreature *pCreature)
+{
+    return pCreature && pCreature->m_pStats ? std::string(pCreature->m_pStats->GetFullName().CStr()) : "?";
+}
+
+static bool GetCastSeesTarget(CNWSCreature *pCaster, ObjectID oidTarget)
+{
+    auto *pVisible = pCaster->GetVisibleListElement(oidTarget);
+    return pVisible && pVisible->m_bSeen;
+}
+
+static bool GetCastTargetHidden(CNWSCreature *pCaster, CNWSCreature *pTarget)
+{
+    return pTarget->m_nStealthMode || pCaster->GetBlind() || pTarget->GetInvisible(pCaster);
+}
+
+static bool GetCastSpellHostile(const CNWSObjectActionNode *pNode)
+{
+    auto *pSpell = Globals::Rules()->m_pSpellArray->GetSpell((int32_t)pNode->m_pParameter[CAST_PARAM_SPELL]);
+    return pSpell && pSpell->m_bHostile;
+}
+
+// The living creature in the caster's area that a cast at pTarget goes to
+// instead, or null.
+static CNWSCreature *GetCastDecoy(CNWSCreature *pCaster, CNWSCreature *pTarget)
+{
+    const ObjectID oidDecoy = pTarget->m_ScriptVars.GetObject(s_sCastDecoy);
+
+    if (oidDecoy == Constants::OBJECT_INVALID || oidDecoy == pCaster->m_idSelf || oidDecoy == pTarget->m_idSelf)
+        return nullptr;
+
+    auto *pDecoy = Utils::AsNWSCreature(Utils::GetGameObject(oidDecoy));
+
+    if (!pDecoy || pDecoy->m_oidArea != pCaster->m_oidArea || pDecoy->GetDead())
+        return nullptr;
+
+    return pDecoy;
+}
+
+// Points the cast in pNode at pDecoy, and has the module told next frame.
+// The creature's own copies of the target are moved only where they still
+// name the old one; the next cast's first frame sets them afresh anyway.
+static void RetargetCast(CNWSCreature *pCaster, CNWSObjectActionNode *pNode, ObjectID oidFrom, CNWSCreature *pDecoy)
+{
+    const ObjectID oidCaster = pCaster->m_idSelf;
+    const ObjectID oidDecoy = pDecoy->m_idSelf;
+    const Vector vDecoy = pDecoy->m_vPosition;
+
+    pNode->m_pParameter[CAST_PARAM_TARGET] = (intptr_t)oidDecoy;
+    *reinterpret_cast<float*>(&pNode->m_pParameter[CAST_PARAM_TARGET_X])     = vDecoy.x;
+    *reinterpret_cast<float*>(&pNode->m_pParameter[CAST_PARAM_TARGET_X + 1]) = vDecoy.y;
+    *reinterpret_cast<float*>(&pNode->m_pParameter[CAST_PARAM_TARGET_X + 2]) = vDecoy.z;
+
+    if (pCaster->m_oidLastSpellTarget == oidFrom)
+    {
+        pCaster->m_oidLastSpellTarget = oidDecoy;
+        pCaster->m_vLastSpellTarget = vDecoy;
+    }
+    if (pCaster->m_oidSpellTarget == oidFrom)
+        pCaster->m_oidSpellTarget = oidDecoy;
+    if (pCaster->m_oidAttemptedSpellTarget == oidFrom)
+        pCaster->m_oidAttemptedSpellTarget = oidDecoy;
+
+    pCaster->m_ScriptVars.SetObject(s_sCastDecoyFrom, oidFrom);
+    pCaster->m_ScriptVars.SetObject(s_sCastDecoyTarget, oidDecoy);
+
+    auto *pFrom = Utils::AsNWSCreature(Utils::GetGameObject(oidFrom));
+    LOG_INFO("Cast lost sight: %s (%x) lost sight of %s (%x) casting spell %d; the cast goes to the decoy %s (%x)",
+             CastName(pCaster).c_str(), oidCaster, CastName(pFrom).c_str(), oidFrom,
+             (int32_t)pNode->m_pParameter[CAST_PARAM_SPELL], CastName(pDecoy).c_str(), oidDecoy);
+
+    Tasks::QueueOnMainThread([oidCaster]()
+    {
+        if (Utils::GetGameObject(oidCaster))
+            Utils::ExecuteScript("pw_cast_decoy", oidCaster);
+    });
+}
+
+static void RetargetCastsToDecoy(CNWSCreature *pCreature, CNWSCreature *pTarget)
+{
+    auto *pList = pCreature->m_lQueuedActions.m_pcExoLinkedListInternal;
+
+    if (!GetCastLosesSight() || !pList || !pList->pHead)
+        return;
+
+    CNWSCreature *pDecoy = GetCastDecoy(pCreature, pTarget);
+    if (!pDecoy)
+        return;
+
+    for (auto pos = pList->pHead; pos; pos = pos->pNext)
+    {
+        auto *pNode = static_cast<CNWSObjectActionNode*>(pos->pObject);
+
+        if (pNode && pNode->m_nActionId == ACTION_CASTSPELL &&
+            (ObjectID)pNode->m_pParameter[CAST_PARAM_TARGET] == pTarget->m_idSelf && GetCastSpellHostile(pNode))
+        {
+            RetargetCast(pCreature, pNode, pTarget->m_idSelf, pDecoy);
+        }
+    }
+}
+
+// Stops the cast the way AIActionCastSpell's own failures do, and returns
+// what they return (3, failed).
+static uint32_t StopCastLostSight(CNWSCreature *pCaster, CNWSObjectActionNode *pNode, CNWSCreature *pTarget)
+{
+    LOG_INFO("Cast lost sight: %s (%x) lost sight of %s (%x) casting spell %d; the cast stops (%s)",
+             CastName(pCaster).c_str(), pCaster->m_idSelf, CastName(pTarget).c_str(), pTarget->m_idSelf,
+             (int32_t)pNode->m_pParameter[CAST_PARAM_SPELL],
+             pNode->m_bInterruptable ? "in the conjure" : "after the conjure, the slot spent");
+
+    pCaster->SetAnimation(CAST_STOPPED_ANIMATION);
+    pCaster->SetLockOrientationToObject(Constants::OBJECT_INVALID);
+    pCaster->m_bLastSpellUnReadied = false;
+    pCaster->SendFeedbackMessage(FEEDBACK_CAST_LOST_TARGET);
+    pCaster->RemoveSpellActionFromRound();
+    pCaster->ProcessPendingCombatActions();
+
+    return 3;
+}
+
+// Entries whose caster has gone without its cast being cleared, once there
+// are enough of them to matter.
+static void PurgeCastSight()
+{
+    for (auto it = s_CastSight.begin(); it != s_CastSight.end();)
+        it = Utils::GetGameObject(it->first) ? std::next(it) : s_CastSight.erase(it);
+}
+
+static Hooks::Hook s_CastLosesSightHook = Hooks::HookFunction(&CNWSCreature::AIActionCastSpell,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        if (!GetCastLosesSight() || !pNode)
+            return s_CastLosesSightHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        const ObjectID oidCaster = pCreature->m_idSelf;
+        const ObjectID oidTarget = (ObjectID)pNode->m_pParameter[CAST_PARAM_TARGET];
+        auto *pTarget = oidTarget == oidCaster ? nullptr : Utils::AsNWSCreature(Utils::GetGameObject(oidTarget));
+
+        const bool bWatch = pTarget &&
+                            !((uint32_t)pNode->m_pParameter[CAST_PARAM_FLAGS] & CAST_FLAG_INSTANT) &&
+                            pTarget->m_oidArea == pCreature->m_oidArea &&
+                            !(pCreature->m_pStats && pCreature->m_pStats->GetIsDM()) &&
+                            !(pTarget->m_pStats && pTarget->m_pStats->GetIsDM());
+
+        if (!bWatch)
+        {
+            s_CastSight.erase(oidCaster);
+        }
+        else
+        {
+            const bool bSeen = GetCastSeesTarget(pCreature, oidTarget);
+            auto it = s_CastSight.find(oidCaster);
+
+            if (it == s_CastSight.end() || it->second.pNode != pNode || it->second.oidTarget != oidTarget)
+            {
+                if (s_CastSight.size() >= 1024)
+                    PurgeCastSight();
+
+                s_CastSight[oidCaster] = {pNode, oidTarget, bSeen};
+            }
+            else if (bSeen)
+            {
+                it->second.bSeen = true;
+            }
+            else if (it->second.bSeen && !pCreature->m_bLastSpellCast && GetCastTargetHidden(pCreature, pTarget))
+            {
+                CNWSCreature *pDecoy = GetCastSpellHostile(pNode) ? GetCastDecoy(pCreature, pTarget) : nullptr;
+
+                if (!pDecoy)
+                {
+                    s_CastSight.erase(it);
+                    return StopCastLostSight(pCreature, pNode, pTarget);
+                }
+
+                RetargetCast(pCreature, pNode, oidTarget, pDecoy);
+                it->second = {pNode, pDecoy->m_idSelf, GetCastSeesTarget(pCreature, pDecoy->m_idSelf)};
+            }
+        }
+
+        const uint32_t nResult = s_CastLosesSightHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        if (nResult != 1)
+            s_CastSight.erase(oidCaster);
+
+        return nResult;
+    }, Hooks::Order::Early);
+
+static Hooks::Hook s_CastLosesSightClearHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature11ClearActionEP20CNWSObjectActionNodei,
+    (void*)+[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode, BOOL bIsTopmostAction) -> BOOL
+    {
+        const BOOL bCleared = s_CastLosesSightClearHook->CallOriginal<BOOL>(pCreature, pNode, bIsTopmostAction);
+
+        // Only a node the engine agreed to clear. One it refused (a cast whose
+        // conjure has run) carries on, and must keep its watch.
+        if (bCleared && !s_CastSight.empty())
+        {
+            auto it = s_CastSight.find(pCreature->m_idSelf);
+            if (it != s_CastSight.end() && it->second.pNode == pNode)
+                s_CastSight.erase(it);
+        }
+
+        return bCleared;
     }, Hooks::Order::Early);
 
 static Hooks::Hook s_KeepRoundStartHook = Hooks::HookFunction(&CNWSCombatRound::StartCombatRound,

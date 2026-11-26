@@ -18,6 +18,7 @@
 | `NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET` | true/false | A creature whose attack action is cleared mid-round keeps the round's unfired attacks and makes them, on schedule, against whatever it attacks next in that round. See "A change of target keeps the combat round" below. |
 | `NWNX_RISENHOLM_CAST_CUTS_ROUND` | 0/1/2 | A player's spell cast during an attack round starts at once instead of waiting for the round to end. 0 (default) off; 1 the rest of the attack round is forgiven; 2 the rest is added to the spell round. See "A spell cast in an attack round starts at once" below. |
 | `NWNX_RISENHOLM_CAST_CUTS_ROUND_NPCS` | true/false | Gives NPCs the same. Default off. |
+| `NWNX_RISENHOLM_CAST_LOSES_SIGHT` | true/false | Default true. A cast stops when its target hides from the caster at any point before the spell is let go, or goes to the target's `CAST_DECOY`. See "A cast stops when its target hides" below. |
 | `NWNX_RISENHOLM_LOG_EFFECT_LOSS` | true/false | Default true. Logs `EFFECT_LOSS` lines when a player character loses its summon effect, has 12 or more timed or permanent effects removed within 2 s net of those applied (so recasts do not count), or has its summon unsummoned, each with the script that asked (a queued `RemoveEffect` is traced back to its caller) and a native backtrace; and when a queued removal event reads a different effect id than the one the script asked to remove (the effect was freed and its memory reused). At most 60 lines a minute. Hooks `CServerAIMaster::AddEventDeltaTime` and `OnEffectRemoved`, `CNWSCreature::EventHandler` and `UnsummonMyself`. |
 | `NWNX_RISENHOLM_LOG_COMBAT_ROUND` | true/false | Logs every combat round start and end, each attack group as it fires, and each schedule kept and restored, with a millisecond clock (`Combat round [ms] <creature>: ...`). For measuring; every creature in combat logs, so leave it off on a live server. |
 | `NWNX_RISENHOLM_RPC_PORT` | integer | Port for the RPC listener (see below). Unset or 0 (default): no listener. |
@@ -36,6 +37,8 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `DISABLE_COMBAT_SHUFFLE` | int | Creature | 1 = Disable Combat Shuffle |
 | `LOADOUT_DORMANT` | int | Item | 1 = Dormant: none of its properties reach its wearer (see below) |
 | `NO_BUDGE` | int | Creature | No longer read: the budge is off for every creature (see below) |
+| `CAST_DECOY` | object | Creature | A hostile spell at this creature goes to the decoy named when it hides from the caster (see "A cast stops when its target hides") |
+| `CAST_DECOY_FROM`, `CAST_DECOY_TARGET` | object | Creature | Set by the plugin on a caster whose cast went to a decoy, for `pw_cast_decoy`: the old target and the decoy |
 
 ### Dormant equipment
 
@@ -331,6 +334,35 @@ days from September; caught with perf on 2026-11-15). The hook hides each such a
 walk for the call, by its action id, and puts it back afterwards; the cast carries on as it would
 have. Each one is logged as a warning with the creature, its target, and its action queue. On
 unless `NWNX_RISENHOLM_SAFE_CLEAR_HOSTILE=n`.
+
+### A cast stops when its target hides
+
+Not an export: hooks on `CNWSCreature::AIActionCastSpell` and `ClearAction`, and a step at the
+start of the hostile action clearing guard above. The engine drops a cast at a creature that turns
+invisible to its caster, or that the caster fails to spot as it hides in plain sight, but only while
+the conjure runs. From the end of the conjure until the spell is let go, 500 ms later, the cast
+cannot be cleared, and the spell still lands on a target that has vanished. A Shadow Step goes off
+500 ms after it is pressed, so one pressed in answer to a spell's telegraph often fell in that gap.
+
+With this, a cast at another creature stops at any point before the spell is let go if the caster
+saw the target during the cast and now does not, because the target is in stealth mode, is
+invisible to the caster, or the caster is blind. It stops as the engine's own line of sight failure
+stops one, with the same feedback message (21). The slot is kept if the conjure had not run, and
+spent if it had. A target that only walked out of perception range, or behind a wall, is left
+alone, as are casts begun at a creature the caster could not see, instant casts, and item casts.
+
+A hostile spell (spells.2da `HostileSetting`) at a creature whose `CAST_DECOY` local object is a
+living creature in the caster's area goes to that decoy instead of stopping, in the conjure as
+well. The plugin then runs `pw_cast_decoy` on the caster at the top of the next frame, with
+`CAST_DECOY_FROM` and `CAST_DECOY_TARGET` set, so the module can move what it had tied to the old
+target. Each stop and each move to a decoy is logged (`Cast lost sight:`).
+
+Measured on dev (2026-11-26, a cheat Magic Missile with a 1,500 ms conjure at a commoner): made
+invisible or hidden 0.6 s in, the cast was dropped before and after; 1.7 s in, the missiles landed
+before and the cast stops now; 2.3 s in, after the release, they land as before. With a decoy, a
+Magic Missile or a Fireball hidden from at 0.6 s or 1.7 s went to the decoy, and a Cure stopped.
+A target moved 20 m away, out of perception range, was hit as before. On unless
+`NWNX_RISENHOLM_CAST_LOSES_SIGHT=n`.
 
 ### Stuck client guard
 
