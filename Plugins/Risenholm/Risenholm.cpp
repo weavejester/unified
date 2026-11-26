@@ -2812,6 +2812,89 @@ static Hooks::Hook s_AddActionHook = Hooks::HookFunction(&CNWSObject::AddAction,
         }
     }, Hooks::Order::Late);
 
+// ---------------------------------------------------------------------------
+// Factions locked against attacks
+// ---------------------------------------------------------------------------
+//
+// CServerAIMaster::AdjustTargetAndWitnessReputations is everything the engine
+// does to reputation when one creature hurts another. It is called with a row
+// of repadjust.2da: 0 Attack (from ResolveAttack, and from CNWSCreature::
+// EventHandler for a harmful spell cast at), 2 Kill (CNWSEffectListHandler::
+// OnApplyDeath), and 3 Help (a harmless spell, all zeros). Read from the
+// 8193.37 disassembly at 0x5f57a0, 2026-11-26, it does three things, with the
+// stock table's numbers:
+//
+//  - the victim takes a personal dislike to the attacker, PERSONALREP (-100),
+//    for 180 s;
+//  - every creature within the visible distance that sees both, and is of the
+//    victim's faction or likes it (90 and up), does the same, WITFRIB (-100);
+//  - if the victim's faction is global (FactionGlobal, set on every faction in
+//    our repute.fac), the attacker's standing with that whole faction drops by
+//    FACTIONREP, -5, and by WITFRIA as well, -100, if any such witness saw it.
+//    That is CNWSCreature::AdjustReputation on the attacker, which for a player
+//    character is its own array (m_pReputation), kept in the TURD and never
+//    decayed or reset by anything. For an NPC attacker it is CFactionManager::
+//    SetNPCFactionReputation, which the module already vetoes through NWNX
+//    Events (pw_mod_factrep), and that veto is all that ever covered.
+//
+// So a spell that clipped one villager in front of another took a player's
+// Commoner standing from 50 to 0, and every Commoner in the module came after
+// them until a DM reset it.
+//
+// For a victim whose faction is locked here, and who does not already count its
+// attacker an enemy (standing over 10, personal dislike included), the whole
+// function is skipped: no dislike, no witnesses, no change to any faction. An
+// enemy's attack runs it as before, so invaders and monsters are treated as
+// they always were. The scripts that answer an attack (pw_opa_default,
+// pw_osp_default, and pw_odm_default) ask GetFactionReputationLocked and stand
+// down too.
+static std::unordered_set<int32_t> s_ReputationLockedFactions;
+
+static_assert(offsetof(CNWSCreatureStats, m_nFactionId) == 0xc4);
+static Hooks::Hook s_AdjustTargetAndWitnessReputationsHook = Hooks::HookFunction(
+    &CServerAIMaster::AdjustTargetAndWitnessReputations,
+    +[](CServerAIMaster *thisPtr, ObjectID oidTarget, ObjectID oidSource, int32_t nActionType) -> void
+    {
+        if (!s_ReputationLockedFactions.empty())
+        {
+            auto *pServer = Globals::AppManager()->m_pServerExoApp;
+            auto *pTarget = pServer->GetCreatureByGameObjectID(oidTarget);
+            auto *pSource = pServer->GetCreatureByGameObjectID(oidSource);
+
+            // GetCreatureReputation on the SOURCE is how the target sees it:
+            // a player's array holds how each faction sees the player, and a
+            // personal dislike is kept on the one disliked, which is why the
+            // engine adds the victim's to the attacker. An associate is seen
+            // as its master is.
+            if (pTarget && pSource && pTarget->m_pStats &&
+                s_ReputationLockedFactions.count(pTarget->m_pStats->m_nFactionId) &&
+                pSource->GetCreatureReputation(oidTarget, pTarget->m_pStats->m_nFactionId) > 10)
+            {
+                return;
+            }
+        }
+
+        s_AdjustTargetAndWitnessReputationsHook->CallOriginal<void>(thisPtr, oidTarget, oidSource, nActionType);
+    }, Hooks::Order::Early);
+
+NWNX_EXPORT ArgumentStack SetFactionReputationLocked(ArgumentStack&& args)
+{
+    const auto nFactionId = args.extract<int32_t>();
+    const auto bLocked    = args.extract<int32_t>();
+
+    if (bLocked)
+        s_ReputationLockedFactions.insert(nFactionId);
+    else
+        s_ReputationLockedFactions.erase(nFactionId);
+
+    return {};
+}
+
+NWNX_EXPORT ArgumentStack GetFactionReputationLocked(ArgumentStack&& args)
+{
+    return (int32_t)s_ReputationLockedFactions.count(args.extract<int32_t>());
+}
+
 // CNWSCreature::SetPVPPlayerLikesMe only MUTATES an entry it already finds in
 // m_pPVPList -- it never inserts one -- and GetPVPPlayerLikesMe returns TRUE
 // ("likes me") on a miss. The only caller of AddToPVPList in the whole binary is

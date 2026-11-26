@@ -177,6 +177,16 @@ int NWNX_Risenholm_SetPerceptionRange(object oCreature, int nRange);
 /// @brief oCreature's perception range (8-11, 12 for a player character), or -1.
 int NWNX_Risenholm_GetPerceptionRange(object oCreature);
 
+/// @brief Lock nFactionId (an NPC faction, as NWNX_Creature_GetFaction gives it)
+/// against attacks, or unlock it. An attack, harmful spell, or kill aimed at a
+/// member by anyone it does not already count an enemy then changes no
+/// reputation at all: not the member's, not a witness's, and not the attacker's
+/// standing with any faction. Kept until the server stops.
+void NWNX_Risenholm_SetFactionReputationLocked(int nFactionId, int bLocked = TRUE);
+
+/// @brief TRUE if NWNX_Risenholm_SetFactionReputationLocked locked nFactionId.
+int NWNX_Risenholm_GetFactionReputationLocked(int nFactionId);
+
 /// @brief Have oPlayer's client load sNew wherever it would load sOld, for one
 /// resource type (2002 a model; 2001 every texture type, as SetTextureOverride
 /// does), or take the override off with sNew "". Per client, kept until it
@@ -616,6 +626,20 @@ int NWNX_Risenholm_GetPerceptionRange(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "GetPerceptionRange");
+    return NWNXPopInt();
+}
+
+void NWNX_Risenholm_SetFactionReputationLocked(int nFactionId, int bLocked = TRUE)
+{
+    NWNXPushInt(bLocked);
+    NWNXPushInt(nFactionId);
+    NWNXCall(NWNX_Risenholm, "SetFactionReputationLocked");
+}
+
+int NWNX_Risenholm_GetFactionReputationLocked(int nFactionId)
+{
+    NWNXPushInt(nFactionId);
+    NWNXCall(NWNX_Risenholm, "GetFactionReputationLocked");
     return NWNXPopInt();
 }
 

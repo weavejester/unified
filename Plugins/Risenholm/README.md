@@ -274,6 +274,34 @@ Perception is checked within the larger of the two distances, measured eye to ey
 height eats into it. Measured on the dev server 2026-11-18: a medium archer on the City Gates
 wall, 13m up, saw nothing more than 14m out along the ground.
 
+### Factions locked against attacks
+
+`NWNX_Risenholm_SetFactionReputationLocked(nFactionId, bLocked)` locks an NPC faction (the id
+`NWNX_Creature_GetFaction` gives) against attacks, and `GetFactionReputationLocked(nFactionId)`
+reads it back. An attack, a harmful spell, or a kill aimed at a member of a locked faction, by
+anyone the member does not already count an enemy (reputation over 10, personal reputation
+included), then changes no reputation at all. Kept until the server stops.
+
+It is a hook on `CServerAIMaster::AdjustTargetAndWitnessReputations`, which is everything the
+engine does to reputation when one creature hurts another, called with a row of `repadjust.2da`
+(0 Attack from `ResolveAttack` and a harmful spell cast at, 2 Kill from `OnApplyDeath`, 3 Help). Read
+from the 8193.37 disassembly: the victim takes a personal dislike to the attacker for 180 s
+(`PERSONALREP`, -100); so does every creature within the visible distance that sees both and is of
+the victim's faction or likes it at 90 or more (`WITFRIB`, -100); and when the victim's faction is
+global (`FactionGlobal` in `repute.fac`), the attacker's standing with that whole faction drops by
+`FACTIONREP` (-5), and by `WITFRIA` (-100) more if such a witness saw it. For a player character
+that is `CNWSCreature::AdjustReputation` on the player's own array, which nothing decays or resets;
+for an NPC attacker it is `CFactionManager::SetNPCFactionReputation`, which
+`NWNX_ON_SET_NPC_FACTION_REPUTATION_BEFORE` can veto. A locked victim that does not count its
+attacker an enemy skips the function whole. An enemy's attack runs it as stock.
+
+Scripts answering the attack are not covered: the stock `DetermineCombatRound(oAttacker)` fights
+whoever it is handed, and the stock answer to the `NW_ATTACK_MY_TARGET` shout is
+`AdjustReputation(attacker, listener, -100)` from script. Risenholm guards those in
+`pw_inc_factlock.nss`. Seen on the dev server 2026-11-26 with a Merchant attacking a Commoner: locked,
+the victim's and a watching Commoner's reputation of the attacker stayed at 50 and neither moved;
+unlocked, both fell to 0, the victim fled, and the witness attacked.
+
 ### SetObjectUpdateMessageLimit
 
 `NWNX_Risenholm_SetObjectUpdateMessageLimit(nLimit)` sets the most bytes of game object updates the
