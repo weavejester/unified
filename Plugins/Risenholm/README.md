@@ -204,6 +204,24 @@ this for everyone aboard straight after each leg, so every leg leaves at once. I
 update message to each of those players per call, and restarts the player's own update cycle from
 that moment.
 
+### SetUpdateTrace
+
+`NWNX_Risenholm_SetUpdateTrace(oObject, bOn)` logs, at INFO, an `UPDATETRACE` line for every game
+object update the server writes for `oObject`, to any player, until it is turned off or the server
+stops. A debug tool, for anything that looks wrong on screen while the server's state is right. Each
+line gives the time to the microsecond (objects written into one message share it to the
+millisecond), the player and object, the update flags, the bytes the object took and the message's
+size against `m_nGameObjectUpdateMessageLimit`, the walk that player's cache held before the write
+(path number, walk-to point, animation), and the object's animation, waypoint count, client path
+number, and position now. It is a few lines in the `WriteGameObjUpdate_UpdateObject` hook, and
+costs one empty-set test per update while nothing is traced.
+
+It found why a `/ride` rider trailed its carrier on the carrier's screen alone (2026-11-26): both
+walks went out in one message, to every player, at every click, so the carrier's own client was
+walking it ahead of the server. It also showed that a walking creature's update carries only its
+walk-to point, not a path: a client walks the creature there itself, and nothing more is sent until
+the walk changes.
+
 ### GetAnimationReplace
 
 `NWNX_Risenholm_GetAnimationReplace(oObject, sOld)` returns the name `oObject`'s animation `sOld`

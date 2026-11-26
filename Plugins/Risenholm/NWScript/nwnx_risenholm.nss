@@ -61,6 +61,12 @@ void NWNX_Risenholm_ForceAppearanceUpdate(object oCreature, int bFullObjectUpdat
 /// @param oCreature The creature whose body parts should be reloaded.
 void NWNX_Risenholm_RefreshBodyParts(object oCreature);
 
+/// @brief Log every object update written for oObject, to any player, or stop.
+/// @note A debug tool: one UPDATETRACE line in the server log per update per player,
+/// with the time, the bytes the object took against the message limit, and its walk.
+/// Kept until turned off or the server stops.
+void NWNX_Risenholm_SetUpdateTrace(object oObject, int bOn);
+
 /// @brief Send oPlayer's pending game object updates now, instead of on the server's next update cycle.
 /// @note The server sends each player object updates at most every game-obj-update-interval
 /// (200 ms by default), timed from the last send, so a script's change reaches the client a
@@ -662,6 +668,13 @@ void NWNX_Risenholm_RefreshBodyParts(object oCreature)
 {
     NWNXPushObject(oCreature);
     NWNXCall(NWNX_Risenholm, "RefreshBodyParts");
+}
+
+void NWNX_Risenholm_SetUpdateTrace(object oObject, int bOn)
+{
+    NWNXPushInt(bOn);
+    NWNXPushObject(oObject);
+    NWNXCall(NWNX_Risenholm, "SetUpdateTrace");
 }
 
 void NWNX_Risenholm_FlushObjectUpdates(object oPlayer)

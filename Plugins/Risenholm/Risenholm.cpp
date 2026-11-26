@@ -4201,14 +4201,89 @@ static void WriteCloakReattach(CNWSMessage *pMessage, CNWSPlayer *pPlayer, CNWSC
     pMessage->UpdateLastUpdateObjectAppearance(pCreature, pLUO, APPEARANCE_ITEMS);
 }
 
+// Update tracing (SetUpdateTrace): a debug log line for every object update
+// written for a traced object, to any player. Built to find why a /ride rider
+// is drawn trailing its carrier on every client while the server has the two
+// on one spot (2026-11-26). A client walks a moving creature along the
+// waypoints its update carries and ignores the server's position until the
+// walk ends (nwmain's CNWCCreature::WalkUpdateLocation), so a rider whose new
+// path reaches a client a cycle after the carrier's would keep the offset to
+// the end of the walk. Each line gives the time, the player and object, the
+// update flags, the bytes the object took and the message size after it
+// against the message limit, the walk the player's cache held before the
+// write (path number, walk-to point, animation: the caller brings the cache
+// up to date after the write, not the write itself), and the object's own
+// animation and path now (waypoint count and client path number). Lines for
+// objects written into one message share a time to the millisecond.
+static std::unordered_set<ObjectID> s_UpdateTrace;
+
+NWNX_EXPORT ArgumentStack SetUpdateTrace(ArgumentStack&& args)
+{
+    auto oid = args.extract<ObjectID>();
+    auto bOn = args.extract<int32_t>();
+
+    if (bOn) s_UpdateTrace.insert(oid);
+    else     s_UpdateTrace.erase(oid);
+
+    return {};
+}
+
+static void TraceUpdate(CNWSMessage *pMessage, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO,
+    uint32_t nObjectUpdatesRequired, uint32_t nSizeBefore, uint8_t nPathBefore, Vector vWalkToBefore, int32_t nAnimBefore)
+{
+    auto nMicros = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    uint32_t nSizeAfter = pMessage->PeekAtWriteMessageSize();
+    int32_t nLimit = Globals::AppManager()->m_pServerExoApp->m_pcExoAppInternal->m_nGameObjectUpdateMessageLimit;
+
+    int32_t nWayPoints = -1, nClientPath = -1;
+    if (auto *pCreature = Utils::AsNWSCreature(pObject))
+    {
+        if (auto *pPath = pCreature->m_pcPathfindInformation)
+        {
+            nWayPoints = pPath->m_nWayPoints;
+            nClientPath = pPath->m_nClientPathNumber;
+        }
+    }
+
+    LOG_INFO("UPDATETRACE t=%lld.%03lld player=%d obj=%x flags=%08x bytes=%u msg=%u/%d"
+        " cached path=%u walkto=(%.2f,%.2f) anim=%d | now anim=%d waypoints=%d clientpath=%d pos=(%.2f,%.2f)",
+        (long long)(nMicros / 1000), (long long)(nMicros % 1000), pPlayer->m_nPlayerID, pObject->m_idSelf,
+        nObjectUpdatesRequired, nSizeAfter - nSizeBefore, nSizeAfter, nLimit,
+        nPathBefore, vWalkToBefore.x, vWalkToBefore.y, nAnimBefore,
+        pObject->m_nAnimation, nWayPoints, nClientPath,
+        pObject->m_vPosition.x, pObject->m_vPosition.y);
+}
+
 static Hooks::Hook s_WriteGameObjUpdate_UpdateObjectHook = Hooks::HookFunction(&CNWSMessage::WriteGameObjUpdate_UpdateObject,
     +[](CNWSMessage *pThis, CNWSPlayer *pPlayer, CNWSObject *pObject, CLastUpdateObject *pLUO,
         uint32_t nObjectUpdatesRequired, uint32_t nObjectAppearanceUpdatesRequired) -> void
     {
         bool bCloakSwap = IsCloakSwap(Utils::AsNWSCreature(pObject), pLUO, nObjectAppearanceUpdatesRequired);
 
+        // What the player's cache held going in, and the message size, for
+        // the trace.
+        bool bTrace = !s_UpdateTrace.empty() && s_UpdateTrace.count(pObject->m_idSelf);
+        uint32_t nSizeBefore = 0;
+        uint8_t nPathBefore = 0;
+        Vector vWalkToBefore = {0.0f, 0.0f, 0.0f};
+        int32_t nAnimBefore = -1;
+        if (bTrace)
+        {
+            nSizeBefore = pThis->PeekAtWriteMessageSize();
+            if (pLUO)
+            {
+                nPathBefore = pLUO->m_nPlayerPathNumber;
+                vWalkToBefore = pLUO->m_vWalkTo;
+                nAnimBefore = pLUO->m_nAnimation;
+            }
+        }
+
         s_WriteGameObjUpdate_UpdateObjectHook->CallOriginal<void>(pThis, pPlayer, pObject, pLUO,
             nObjectUpdatesRequired, nObjectAppearanceUpdatesRequired);
+
+        if (bTrace)
+            TraceUpdate(pThis, pPlayer, pObject, pLUO, nObjectUpdatesRequired, nSizeBefore, nPathBefore, vWalkToBefore, nAnimBefore);
 
         // Right behind the block carrying the swap (see "Shoulders put back").
         if (bCloakSwap)
