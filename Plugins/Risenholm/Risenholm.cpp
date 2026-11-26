@@ -53,6 +53,7 @@
 #include "API/CLastUpdateObject.hpp"
 #include "API/C2DA.hpp"
 #include "API/CNWLevelStats.hpp"
+#include "API/CWorldTimer.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -4626,7 +4627,8 @@ static void RestoreKeptRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNod
     s_KeptRoundAttacks.erase(it);
 }
 
-// RISENHOLM MODIFICATION: a spell cast in an attack round starts at once.
+// RISENHOLM MODIFICATION: a spell cast or item use in an attack round starts
+// at once.
 //
 // AddCastSpellActions queues an action 16 (WAITFORENDOFROUND) ahead of the
 // CASTSPELL, and AIActionWaitForEndOfRound holds while a round is running
@@ -4666,8 +4668,15 @@ static void RestoreKeptRoundAttacks(CNWSCreature *pCreature, CNWSObjectActionNod
 //      stood before it. Nothing comes sooner than it did except the spell.
 // 0 (default) leaves the engine alone.
 //
-// Spells only: an item's cast (potions, wands) queues the same wait but
-// starts no spell round, and is left to wait as before.
+// Item uses get the same since 2026-11-26. AddItemCastSpellActions queues the
+// same wait ahead of the ITEMCASTSPELL (action 46) for every base item but a
+// potion, and AIActionItemCastSpell starts a spell round of its own when it
+// finds none: StartCombatRoundCast, 6 s, or FAST_SPELLCAST_ROUND for a potion
+// (8193.37 disassembly at 0x49a3f4 and 0x49ab27). So an item use waited out
+// an attack round, and its own round held the next wait, as a spell's does.
+// This comment and the README said until then that an item use "starts no
+// spell round", which was wrong. A potion queues a plain one-second
+// AIActionWait instead (action 30), and is not touched here.
 
 static int GetCastCutsRound()
 {
@@ -4687,6 +4696,7 @@ static int GetCastCutsRound()
 static const bool s_bCastCutsRoundLogged = (GetCastCutsRound(), true);
 
 static constexpr uint32_t ACTION_CASTSPELL = 15;
+static constexpr uint32_t ACTION_ITEMCASTSPELL = 46;
 static constexpr int32_t SCRIPT_SLOT_END_COMBAT_ROUND = 6;
 
 static_assert(offsetof(CNWSCreature, m_sScripts) + SCRIPT_SLOT_END_COMBAT_ROUND * sizeof(CExoString) == 0x398,
@@ -4759,13 +4769,16 @@ static Hooks::Hook s_CastCutsRoundWaitHook = Hooks::HookFunction(&CNWSCreature::
             return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
         }
 
-        // Only a wait that a spell is queued behind. RunActions takes the node
-        // it is running out of the queue for the call (seen in the queue as
-        // logged from here), so the action after it is the queue's head.
+        // Only a wait that a spell or an item use is queued behind. RunActions
+        // takes the node it is running out of the queue for the call (seen in
+        // the queue as logged from here), so the action after it is the
+        // queue's head.
         auto *pNext = pCreature->m_lQueuedActions.GetHead();
 
-        if (!pNext || pNext->m_nActionId != ACTION_CASTSPELL)
+        if (!pNext || (pNext->m_nActionId != ACTION_CASTSPELL && pNext->m_nActionId != ACTION_ITEMCASTSPELL))
             return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        const bool bItemUse = pNext->m_nActionId == ACTION_ITEMCASTSPELL;
 
         // Let a swing already under way finish first: the round is paused by
         // the creature itself for the length of its attack animation.
@@ -4788,39 +4801,193 @@ static Hooks::Hook s_CastCutsRoundWaitHook = Hooks::HookFunction(&CNWSCreature::
             s_CutRoundEnds[pRound] = CombatRoundLogClock() + nLeft;
 
         if (GetLogCombatRound())
-            LOG_INFO("Combat round [%lld] %x: attack round cut for a spell with %d ms left, %s",
-                     (long long)CombatRoundLogClock(), pCreature->m_idSelf, nLeft,
+            LOG_INFO("Combat round [%lld] %x: attack round cut for %s with %d ms left, %s",
+                     (long long)CombatRoundLogClock(), pCreature->m_idSelf,
+                     bItemUse ? "an item use" : "a spell", nLeft,
                      bAttacked ? "attacks made, so the rest is owed" : "no attacks made, nothing owed");
 
         return s_CastCutsRoundWaitHook->CallOriginal<uint32_t>(pCreature, pNode);
     }, Hooks::Order::Early);
 
+// Before a call of a cast action: whether a cut round is owed something by
+// the spell round this call may start.
+static bool GetWatchCutRound(CNWSCombatRound *pRound)
+{
+    return GetCastCutsRound() && pRound && !pRound->m_bRoundStarted &&
+           !s_CutRoundEnds.empty() && s_CutRoundEnds.count(pRound);
+}
+
+// After it: if the call started its spell round, settle what the cut round
+// left owing. pRound is the creature's own and outlives the call.
+static void SettleCutRound(CNWSCreature *pCreature, CNWSCombatRound *pRound, bool bWatch)
+{
+    if (!bWatch || !pRound->m_bRoundStarted || !pRound->m_bSpellCastRound)
+        return;
+
+    const int32_t nLeft = TakeCutRoundRemainder(pRound);
+
+    if (GetCastCutsRound() == 2 && nLeft > 0)
+        pRound->m_nRoundLength += nLeft;
+
+    if (GetLogCombatRound())
+        LOG_INFO("Combat round [%lld] %x: spell round started, %d ms of the cut round %s",
+                 (long long)CombatRoundLogClock(), pCreature->m_idSelf, nLeft,
+                 GetCastCutsRound() == 2 ? "added to it" : "forgiven");
+}
+
 static Hooks::Hook s_CastCutsRoundCastHook = Hooks::HookFunction(&CNWSCreature::AIActionCastSpell,
     +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
     {
         auto *pRound = pCreature->m_pcCombatRound;
-        const bool bWatch = GetCastCutsRound() && pRound && !pRound->m_bRoundStarted &&
-                            !s_CutRoundEnds.empty() && s_CutRoundEnds.count(pRound);
+        const bool bWatch = GetWatchCutRound(pRound);
 
         auto retVal = s_CastCutsRoundCastHook->CallOriginal<uint32_t>(pCreature, pNode);
 
-        // The cast started its spell round in this call: settle what the cut
-        // round left owing. pRound is the creature's own and outlives the call.
-        if (bWatch && pRound->m_bRoundStarted && pRound->m_bSpellCastRound)
-        {
-            const int32_t nLeft = TakeCutRoundRemainder(pRound);
-
-            if (GetCastCutsRound() == 2 && nLeft > 0)
-                pRound->m_nRoundLength += nLeft;
-
-            if (GetLogCombatRound())
-                LOG_INFO("Combat round [%lld] %x: spell round started, %d ms of the cut round %s",
-                         (long long)CombatRoundLogClock(), pCreature->m_idSelf, nLeft,
-                         GetCastCutsRound() == 2 ? "added to it" : "forgiven");
-        }
-
+        SettleCutRound(pCreature, pRound, bWatch);
         return retVal;
     }, Hooks::Order::Early);
+
+// ---------------------------------------------------------------------------
+// Quickened item uses
+// ---------------------------------------------------------------------------
+//
+// RISENHOLM MODIFICATION: an item use the module marks is paced as a
+// Quickened spell is, two to a six-second round. First wanted for scrolls and
+// the Lorekeeper's Scroll of Secrets in the hands of a character with Scribe
+// Scroll (2026-11-26); which uses are marked is the module's business.
+//
+// CNWSCreature::AIActionItemCastSpell (0x499f60, 8193.37) times a use by its
+// item's BASE item alone, read from the disassembly:
+//   potion (49, 104)   cast at 750 ms, action 1500 ms, round FAST_SPELLCAST_ROUND (3 s)
+//   scroll (75, 54)    cast at 2500 ms (a read, animation 0x47, to 1999 ms,
+//                      then the cast gesture), action 2500 + CastTime, round 6 s
+//   anything else      cast at 500 ms, action 500 + CastTime, round 6 s
+// Haste is never read, and items take no Quicken. The round, started when the
+// call finds none (StartCombatRoundCast), is what paces uses: the wait queued
+// ahead of the next one holds through it. The round's length is cut by the
+// action (DecrementRoundLength) and its timer paused for the action
+// (SetPauseTimer), so a round outlasting its action takes exactly its length.
+// A Quickened spell, for comparison: cast at 1000 ms (conjure 500, cast 500),
+// action 1000 + CastTime, round 3 s.
+//
+// A marked use gets the 3 s round, and a scroll gets a 1000 ms read, so that
+// a scroll's action is exactly a Quickened spell's. (A wand's or the Scroll of
+// Secrets' is already shorter.) The read is cut by starting the action's clock
+// QUICK_SCROLL_READ_CUT early: the engine keeps its start time in the node's
+// parameters 7 and 8 (world day and time) and sets them only on a call that
+// finds both 0, and every point in the use (read to gesture, cast, end) is
+// measured from it, so all of them come that much sooner and nothing else in
+// the use changes. The round must then be started on the engine's own numbers,
+// as it cuts and pauses it by the uncut action: it is started at the fast
+// length plus the cut, and the pause shortened by the cut after the call,
+// which leaves both the round and its pause what a Quickened spell's would be.
+// An action longer than its round (a 3 s CastTime) overruns it as a Quickened
+// spell's does, through the engine's own overlap.
+//
+// The mark is the item's local int QUICKENED_USE, set or deleted by the
+// module's NWNX_ON_USE_ITEM_BEFORE handler for every use: the client's,
+// ActionUseItemOnObject's and AtLocation's, and a talent's
+// (AddUseTalentOnObjectActions and AtLocation call CNWSCreature::UseItem too).
+// It is read on the action's first call and left in place: several uses
+// queued at once are all marked as they are queued, before the first starts,
+// and each must find it. Deleting it on reading was tried first, on dev
+// (2026-11-26): four scrolls queued together read the first quickened and the
+// other three at the stock pace. The next use of the item sets or clears it
+// afresh anyway.
+//
+// Only a first call that starts a round changes the round; one that finds a
+// round running (an attack round left uncut, for a creature without
+// NWNX_RISENHOLM_CAST_CUTS_ROUND) runs inside it, as the engine does then.
+
+static CExoString s_sQuickenedUse = "QUICKENED_USE";
+static constexpr int32_t QUICK_SCROLL_READ_CUT = 1500;
+static constexpr uint32_t BASE_ITEM_SCROLL_DELETED = 54;
+static constexpr uint32_t BASE_ITEM_SPELLSCROLL = 75;
+
+static_assert(offsetof(CNWSObjectActionNode, m_pParameter) == 0x38, "CNWSObjectActionNode layout changed");
+static_assert(offsetof(CNWSCombatRound, m_nPauseTimer) == 0x2f24, "CNWSCombatRound layout changed");
+
+// Set for the length of a first call that should start a quickened round, for
+// the StartCombatRoundCast hook below.
+static CNWSCombatRound *s_pQuickItemRound = nullptr;
+static int32_t s_nQuickItemReadCut = 0;
+static bool s_bQuickItemRoundStarted = false;
+
+static int32_t GetFastSpellcastRound()
+{
+    return Globals::Rules()->GetRulesetIntEntry(CRULES_HASHEDSTR("FAST_SPELLCAST_ROUND"), 3000);
+}
+
+static Hooks::Hook s_ItemCastRoundHook = Hooks::HookFunction(&CNWSCreature::AIActionItemCastSpell,
+    +[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode) -> uint32_t
+    {
+        auto *pRound = pCreature->m_pcCombatRound;
+        const bool bWatch = GetWatchCutRound(pRound);
+        bool bQuick = false;
+        int32_t nReadCut = 0;
+
+        if (pRound && !pNode->m_pParameter[7] && !pNode->m_pParameter[8])
+        {
+            auto *pItem = Utils::AsNWSItem(Utils::GetGameObject((ObjectID)(uintptr_t)pNode->m_pParameter[0]));
+
+            if (pItem && pItem->m_ScriptVars.GetInt(s_sQuickenedUse))
+            {
+                bQuick = true;
+
+                if (pItem->m_nBaseItem == BASE_ITEM_SPELLSCROLL || pItem->m_nBaseItem == BASE_ITEM_SCROLL_DELETED)
+                {
+                    // The same timer the engine reads, as it reads it.
+                    auto *pTimer = Globals::AppManager()->m_pServerExoApp->GetActiveTimer(pCreature->m_idSelf);
+                    uint32_t nDay = 0, nTime = 0, nStartDay = 0, nStartTime = 0;
+
+                    if (pTimer)
+                    {
+                        pTimer->GetWorldTime(&nDay, &nTime);
+
+                        // Fails only in the module's first moments, before
+                        // there is that much time to go back.
+                        if (pTimer->SubtractWorldTimes(nDay, nTime, 0, QUICK_SCROLL_READ_CUT, &nStartDay, &nStartTime) == 0 &&
+                            (nStartDay || nStartTime))
+                        {
+                            pNode->m_pParameter[7] = (intptr_t)nStartDay;
+                            pNode->m_pParameter[8] = (intptr_t)nStartTime;
+                            nReadCut = QUICK_SCROLL_READ_CUT;
+                        }
+                    }
+                }
+
+                if (!pRound->m_bRoundStarted)
+                {
+                    s_pQuickItemRound = pRound;
+                    s_nQuickItemReadCut = nReadCut;
+                    s_bQuickItemRoundStarted = false;
+                }
+            }
+        }
+
+        auto retVal = s_ItemCastRoundHook->CallOriginal<uint32_t>(pCreature, pNode);
+
+        if (bQuick)
+        {
+            const bool bStarted = s_pQuickItemRound == pRound && s_bQuickItemRoundStarted;
+            s_pQuickItemRound = nullptr;
+
+            // The engine paused the round for the uncut action; take the cut
+            // off. StartCombatRoundCast zeroed the pause, so this call's
+            // SetPauseTimer is all it holds.
+            if (bStarted && nReadCut > 0 && pRound->m_bRoundPaused && pRound->m_oidRoundPausedBy == pCreature->m_idSelf)
+                pRound->m_nPauseTimer = std::max(0, pRound->m_nPauseTimer - nReadCut);
+
+            if (GetLogCombatRound())
+                LOG_INFO("Combat round [%lld] %x: quickened item use, read cut %d ms, %s (length left %d, paused %d)",
+                         (long long)CombatRoundLogClock(), pCreature->m_idSelf, nReadCut,
+                         bStarted ? "round started" : "no round started",
+                         pRound->m_nRoundLength - pRound->m_nTimer, pRound->m_nPauseTimer);
+        }
+
+        SettleCutRound(pCreature, pRound, bWatch);
+        return retVal;
+    }, Hooks::Order::VeryEarly);
 
 static Hooks::Hook s_KeepRoundClearActionHook = Hooks::HookFunction(Functions::_ZN12CNWSCreature11ClearActionEP20CNWSObjectActionNodei,
     (void*)+[](CNWSCreature *pCreature, CNWSObjectActionNode *pNode, BOOL bIsTopmostAction) -> BOOL
@@ -5316,6 +5483,15 @@ static Hooks::Hook s_KeepRoundStartCastHook = Hooks::HookFunction(&CNWSCombatRou
     +[](CNWSCombatRound *pRound, uint32_t nRoundLength) -> void
     {
         ForgetKeptRoundAttacks(pRound, "cast round started");
+
+        // A quickened item use (above): the fast length, plus the read cut
+        // that its caller takes back off the pause.
+        if (pRound == s_pQuickItemRound && !s_bQuickItemRoundStarted)
+        {
+            s_bQuickItemRoundStarted = true;
+            nRoundLength = std::min<uint32_t>(nRoundLength, GetFastSpellcastRound()) + s_nQuickItemReadCut;
+        }
+
         s_KeepRoundStartCastHook->CallOriginal<void>(pRound, nRoundLength);
 
         if (GetLogCombatRound() && pRound->m_pBaseCreature)

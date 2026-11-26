@@ -16,7 +16,7 @@
 | `NWNX_RISENHOLM_STACK_ITEM_ABILITIES` | true/false | Makes every ability bonus on one item count, and every ability penalty. The engine counts only the largest of an item's effects on each ability, so +5 and +1 Strength on one item gave +5; with this on it gives +6. Spell effects keep the stock rule (only the largest of each spell's counts), and the totals are still capped by `SetAbilityBonusLimit` and `SetAbilityPenaltyLimit`. Replaces the Ability branch of `CNWSCreature::GetTotalEffectBonus`; every other bonus type is untouched. |
 | `NWNX_RISENHOLM_LOG_NUI` | true/false | Logs every NUI window the server sends a client (`NUI create:`) and every group layout it replaces (`NUI layout:`), with the character, account, window id, token, and calling script. A window with malformed JSON fails only on the client, as an error box reading `json.exception.type_error...`, and the server logs nothing, so these lines are the way to tell which window a player hit. Hooks `CNWSMessage::SendServerToPlayerNui_Create` and `_SetLayout` by symbol. |
 | `NWNX_RISENHOLM_KEEP_ROUND_ON_RETARGET` | true/false | A creature whose attack action is cleared mid-round keeps the round's unfired attacks and makes them, on schedule, against whatever it attacks next in that round. See "A change of target keeps the combat round" below. |
-| `NWNX_RISENHOLM_CAST_CUTS_ROUND` | 0/1/2 | A player's spell cast during an attack round starts at once instead of waiting for the round to end. 0 (default) off; 1 the rest of the attack round is forgiven; 2 the rest is added to the spell round. See "A spell cast in an attack round starts at once" below. |
+| `NWNX_RISENHOLM_CAST_CUTS_ROUND` | 0/1/2 | A player's spell cast or item use during an attack round starts at once instead of waiting for the round to end. 0 (default) off; 1 the rest of the attack round is forgiven; 2 the rest is added to the spell round. See "A spell cast or item use in an attack round starts at once" below. |
 | `NWNX_RISENHOLM_CAST_CUTS_ROUND_NPCS` | true/false | Gives NPCs the same. Default off. |
 | `NWNX_RISENHOLM_CAST_LOSES_SIGHT` | true/false | Default true. A cast stops when its target hides from the caster at any point before the spell is let go, or goes to the target's `CAST_DECOY`. See "A cast stops when its target hides" below. |
 | `NWNX_RISENHOLM_LOG_EFFECT_LOSS` | true/false | Default true. Logs `EFFECT_LOSS` lines when a player character loses its summon effect, has 12 or more timed or permanent effects removed within 2 s net of those applied (so recasts do not count), or has its summon unsummoned, each with the script that asked (a queued `RemoveEffect` is traced back to its caller) and a native backtrace; and when a queued removal event reads a different effect id than the one the script asked to remove (the effect was freed and its memory reused). At most 60 lines a minute. Hooks `CServerAIMaster::AddEventDeltaTime` and `OnEffectRemoved`, `CNWSCreature::EventHandler` and `UnsummonMyself`. |
@@ -39,6 +39,7 @@ Each switch is logged at plugin load. Measured together on the dev module (2026-
 | `NO_BUDGE` | int | Creature | No longer read: the budge is off for every creature (see below) |
 | `CAST_DECOY` | object | Creature | A hostile spell at this creature goes to the decoy named when it hides from the caster (see "A cast stops when its target hides") |
 | `CAST_DECOY_FROM`, `CAST_DECOY_TARGET` | object | Creature | Set by the plugin on a caster whose cast went to a decoy, for `pw_cast_decoy`: the old target and the decoy |
+| `QUICKENED_USE` | int | Item | 1 = the item's uses go two to a round, as a Quickened spell (see "Quickened item uses"). Read when each use's action starts; the module sets or clears it for every use |
 
 ### Dormant equipment
 
@@ -106,6 +107,26 @@ item plot for any call that uses a charges-per-use property. Read from the disas
 reproduced on the dev server with an NPC: an instant cast queued in front of a ring use, at a
 target destroyed before it ran, cast the ring twice and destroyed it without the hook, and once,
 ring kept, with it.
+
+### Quickened item uses
+
+An item whose `QUICKENED_USE` local is set when its use starts is used two to a six-second round, as
+a Quickened spell is. The module sets or clears the local for each use from its
+`NWNX_ON_USE_ITEM_BEFORE` handler, which every use goes through (the client's, `ActionUseItem*`,
+and an NPC's talent all call `CNWSCreature::UseItem`). The plugin leaves it in place, since
+several uses queued at once are all marked before the first starts.
+
+`CNWSCreature::AIActionItemCastSpell` times a use by the item's base item alone (8193.37
+disassembly): a potion casts at 0.75 s in a 3 s spell round (`FAST_SPELLCAST_ROUND`); a scroll
+reads until 2.5 s and runs a 6 s round; anything else casts at 0.5 s in a 6 s round. Haste is
+never read. The spell round is what paces uses, since the wait queued before the next use holds
+through it. A marked use gets the 3 s round, and a scroll reads until 1 s instead, so that its
+action is exactly a Quickened spell's (1 s plus the spell's `CastTime`). The read is cut by
+starting the action's clock 1.5 s early, so every step of the use comes that much sooner and
+nothing else in the use changes; the round is started at the fast length plus the cut and its
+pause shortened by the cut, since the engine sizes both from the uncut action. A first call that
+finds a round already running starts none, as the engine does. Hooks
+`CNWSCreature::AIActionItemCastSpell` and `CNWSCombatRound::StartCombatRoundCast`.
 
 ### CreateAfterimage
 
@@ -682,12 +703,15 @@ attack landed at the normal 1.8 s spacing and none were lost. Hooks `CNWSCreatur
 `AIActionAttackObject`, `CNWSCombatRound::StartCombatRound`, `StartCombatRoundCast`,
 `EndCombatRound`, and the round's destructor.
 
-### A spell cast in an attack round starts at once
+### A spell cast or item use in an attack round starts at once
 
 A spell is queued behind a wait that holds while a round is running, so a creature that casts part
 way through an attack round stands still until that round runs out, up to six seconds, before it
 starts. The cast then runs a spell round of its own, 6 seconds, or 3 for a Quickened spell
-(`FAST_SPELLCAST_ROUND`), and the same wait makes the next spell wait for that round to end.
+(`FAST_SPELLCAST_ROUND`), and the same wait makes the next spell wait for that round to end. An
+item use (anything but a potion, which queues a plain one-second wait instead) is queued behind the
+same wait and starts the same kind of round: 6 seconds, or 3 for a quickened use (see "Quickened
+item uses").
 
 With `NWNX_RISENHOLM_CAST_CUTS_ROUND` the wait ends an attack round at once for a player's
 character (and possessed familiar), letting any swing already under way finish first. A spell
@@ -707,8 +731,9 @@ a fresh attack round. What the spell round does with it is the switch's value:
 Measured on dev (2026-10-16, a cast queued 0.3 s into an attack round): stock started the spell
 2.85 s later and attacked again 8.86 s later; mode 2 started it 0.28 s later and attacked again
 8.82 s later; mode 1 started it 0.5 s later (after the swing in progress) and attacked again 6.0 s
-after the spell. Item casts (potions, wands) queue the same wait but start no spell round, and
-are left alone. Hooks `CNWSCreature::AIActionWaitForEndOfRound` and `AIActionCastSpell`.
+after the spell. Item uses have had the same since 2026-11-26; this section said until then that
+they start no spell round, which was wrong. Hooks `CNWSCreature::AIActionWaitForEndOfRound`,
+`AIActionCastSpell`, and `AIActionItemCastSpell`.
 
 ### A split stack keeps its local variables
 
